@@ -25,31 +25,13 @@ func main() {
 	}))
 	defer server.Close()
 
-	target := barrage.Tareget{
+	httpTarget := barrage.HTTPTarget{
 		Method: "POST",
 		URL:    server.URL,
 		Body:   []byte(`{"foo":"bar"}`),
 		Header: http.Header{"Content-Type": []string{"application/json"}},
 	}
-
-	result, err := barrage.FireHTTP(target, 10, 3*time.Second, 1*time.Second)
-	if err != nil {
-		fmt.Println("error:", err)
-		return
-	}
-
-	fmt.Printf("Requests: %d\n", result.Requests)
-	fmt.Printf("Success rate: %.2f%%\n", result.Success*100)
-	fmt.Printf("p50: %s\n", result.P50)
-	fmt.Printf("p99: %s\n", result.P99)
-	fmt.Printf("Buckets: %d\n", len(result.Buckets))
-
-	for _, b := range result.Buckets {
-		fmt.Printf("  [%s] requests=%d p50=%s p99=%s\n",
-			b.Start.Format("15:04:05"), b.Requests, b.P50, b.P99)
-	}
-
-	dbTarget := barrage.Target{
+	dbTarget := barrage.DBTarget{
 		Conn:   "postgres://us:2@localhost:5432/testDB?sslmode=disable",
 		Driver: "postgres",
 		Query: []barrage.QueryWeight{
@@ -59,20 +41,41 @@ func main() {
 		},
 		QueryType: "read",
 	}
+	cfg := barrage.OrchestratorConfig{
+		Duration:    10 * time.Second,
+		BucketWidth: 1 * time.Second,
+		HTTP: barrage.HTTPRunnerConfig{
+			Target: httpTarget,
+			Rate:   10,
+		},
+		DB: barrage.DBRunnerConfig{
+			Target: dbTarget,
+			Rate:   5,
+		},
+	}
 
-	dbResult, err := barrage.FireDB(dbTarget, 10, 3*time.Second, 1*time.Second)
+	result, err := barrage.Orchestrator(cfg)
 	if err != nil {
-		fmt.Println("DB error:", err)
-		return
+		panic(err)
+	}
+	fmt.Println("=== HTTP ===")
+	fmt.Printf("Requests: %d\n", result.HTTPResult.Requests)
+	fmt.Printf("Success rate: %.2f%%\n", result.HTTPResult.Success*100)
+	fmt.Printf("p50: %s\n", result.HTTPResult.P50)
+	fmt.Printf("p99: %s\n", result.HTTPResult.P99)
+	fmt.Printf("Buckets: %d\n", len(result.HTTPResult.Buckets))
+	for _, b := range result.HTTPResult.Buckets {
+		fmt.Printf("  [%s] requests=%d p50=%s p99=%s\n",
+			b.Start.Format("15:04:05"), b.Requests, b.P50, b.P99)
 	}
 
 	fmt.Println("\n=== DB ===")
-	fmt.Printf("Requests: %d\n", dbResult.Requests)
-	fmt.Printf("Success rate: %.2f%%\n", dbResult.Success*100)
-	fmt.Printf("p50: %s\n", dbResult.P50)
-	fmt.Printf("p99: %s\n", dbResult.P99)
-	fmt.Printf("Buckets: %d\n", len(dbResult.Buckets))
-	for _, b := range dbResult.Buckets {
+	fmt.Printf("Requests: %d\n", result.DBResult.Requests)
+	fmt.Printf("Success rate: %.2f%%\n", result.DBResult.Success*100)
+	fmt.Printf("p50: %s\n", result.DBResult.P50)
+	fmt.Printf("p99: %s\n", result.DBResult.P99)
+	fmt.Printf("Buckets: %d\n", len(result.DBResult.Buckets))
+	for _, b := range result.DBResult.Buckets {
 		fmt.Printf("  [%s] requests=%d p50=%s p99=%s\n",
 			time.Unix(b.Start, 0).Format("15:04:05"), b.Requests, b.P50, b.P99)
 	}

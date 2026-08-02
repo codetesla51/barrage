@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// Target represents a database target for load testing.
-type Target struct {
+// DBTarget represents a database target for load testing.
+type DBTarget struct {
 	Conn      string
 	Driver    string
 	Query     []QueryWeight
@@ -22,7 +22,7 @@ type QueryWeight struct {
 }
 
 // Whole Runs Summery of results, aggregated into a single result.
-type Result struct {
+type DBResult struct {
 	Requests   uint64
 	Success    float64
 	Errors     []string
@@ -48,8 +48,8 @@ type Bucket struct {
 	P99      time.Duration
 }
 
-// QueryResult represents the result of a single database query execution.
-type queryResult struct {
+// dbQueryResult represents the result of a single database query execution.
+type dbQueryResult struct {
 	Timestamp time.Time
 	Latency   time.Duration
 	Success   bool
@@ -72,7 +72,7 @@ func OpenConnection(conn string, driver string) (*sql.DB, error) {
 }
 
 // FireDB executes database queries according to the specified target and parameters.
-func FireDB(target Target, rate int, duration time.Duration, bucketWidth time.Duration) (*Result, error) {
+func FireDB(target DBTarget, rate int, duration time.Duration, bucketWidth time.Duration) (*DBResult, error) {
 	db, err := OpenConnection(target.Conn, target.Driver)
 	if err != nil {
 		return nil, err
@@ -86,7 +86,7 @@ func FireDB(target Target, rate int, duration time.Duration, bucketWidth time.Du
 	defer ticker.Stop()
 	timeout := time.After(duration)
 
-	overall := []queryResult{}
+	overall := []dbQueryResult{}
 	runStart := time.Now()
 	// Loop through the ticker and execute queries at the specified rate until the timeout is reached.
 Loop:
@@ -99,9 +99,7 @@ Loop:
 			// for each tick, the index is calculated using the counter modulo the length of the query list
 			// example: if there are 3 queries and the counter is 5, the index will be 2 (5 % 3 = 2)
 
-			pickedQuery := pickQuery(cummulativWeights(target.Query))
-
-			fmt.Printf("Executing query: %s with args: %v\n", pickedQuery, target.Args)
+			pickedQuery := pickQuery(cumulativeWeights(target.Query))
 			if target.QueryType == "read" {
 				var rows *sql.Rows
 				rows, err = db.Query(pickedQuery, target.Args...)
@@ -112,7 +110,7 @@ Loop:
 				_, err = db.Exec(pickedQuery, target.Args...)
 			}
 			elapsed := time.Since(startTime)
-			overall = append(overall, queryResult{
+			overall = append(overall, dbQueryResult{
 				Timestamp: startTime,
 				Latency:   elapsed,
 				Success:   err == nil,
@@ -123,16 +121,16 @@ Loop:
 		}
 	}
 
-	return buildResult(overall, runStart, bucketWidth, duration), nil
+	return buildDBResult(overall, runStart, bucketWidth, duration), nil
 }
 
 // split results into buckets based on the specified bucket width and calculate statistics for each bucket.
-func buildResult(overall []queryResult, runStart time.Time, bucketWidth, duration time.Duration) *Result {
-	res := &Result{
+func buildDBResult(overall []dbQueryResult, runStart time.Time, bucketWidth, duration time.Duration) *DBResult {
+	res := &DBResult{
 		Requests: uint64(len(overall)),
 		Earliest: runStart,
 		Latest:   time.Now(),
-		Buckets:  buildDbBuckets(overall, runStart, bucketWidth),
+		Buckets:  buildDBBuckets(overall, runStart, bucketWidth),
 	}
 	if len(overall) == 0 {
 		return res
@@ -143,14 +141,14 @@ func buildResult(overall []queryResult, runStart time.Time, bucketWidth, duratio
 	var sum time.Duration
 	errSeen := map[string]bool{}
 
-	for _, r := range overall {
-		latencies = append(latencies, r.Latency)
-		sum += r.Latency
-		if r.Success {
+	for _, sample := range overall {
+		latencies = append(latencies, sample.Latency)
+		sum += sample.Latency
+		if sample.Success {
 			successN++
-		} else if r.Err != nil && !errSeen[r.Err.Error()] {
-			errSeen[r.Err.Error()] = true
-			res.Errors = append(res.Errors, r.Err.Error())
+		} else if sample.Err != nil && !errSeen[sample.Err.Error()] {
+			errSeen[sample.Err.Error()] = true
+			res.Errors = append(res.Errors, sample.Err.Error())
 		}
 	}
 
@@ -172,7 +170,7 @@ func buildResult(overall []queryResult, runStart time.Time, bucketWidth, duratio
 	return res
 }
 
-func buildDbBuckets(results []queryResult, runStart time.Time, bucketWidth time.Duration) []Bucket {
+func buildDBBuckets(results []dbQueryResult, runStart time.Time, bucketWidth time.Duration) []Bucket {
 	if len(results) == 0 || bucketWidth <= 0 {
 		return nil
 	}
@@ -185,8 +183,8 @@ func buildDbBuckets(results []queryResult, runStart time.Time, bucketWidth time.
 
 	aggs := make(map[int64]*bucketAgg)
 
-	for _, r := range results {
-		idx := int64(r.Timestamp.Sub(runStart) / bucketWidth)
+	for _, sample := range results {
+		idx := int64(sample.Timestamp.Sub(runStart) / bucketWidth)
 		a, ok := aggs[idx]
 		if !ok {
 			start := runStart.Add(time.Duration(idx) * bucketWidth)
@@ -199,10 +197,10 @@ func buildDbBuckets(results []queryResult, runStart time.Time, bucketWidth time.
 			aggs[idx] = a
 		}
 		a.bucket.Requests++
-		if r.Success {
+		if sample.Success {
 			a.successN++
 		}
-		a.latencies = append(a.latencies, r.Latency)
+		a.latencies = append(a.latencies, sample.Latency)
 	}
 
 	indices := make([]int64, 0, len(aggs))
@@ -236,17 +234,17 @@ func percentile(sorted []time.Duration, p float64) time.Duration {
 	}
 	return sorted[idx]
 }
-func cummulativWeights(queries []QueryWeight) []QueryWeight {
-	currerentWeight := 0
-	qw := []QueryWeight{}
+func cumulativeWeights(queries []QueryWeight) []QueryWeight {
+	currentWeight := 0
+	weighted := []QueryWeight{}
 	for _, q := range queries {
-		currerentWeight += q.Weight
-		qw = append(qw, QueryWeight{
+		currentWeight += q.Weight
+		weighted = append(weighted, QueryWeight{
 			Query:  q.Query,
-			Weight: currerentWeight,
+			Weight: currentWeight,
 		})
 	}
-	return qw
+	return weighted
 
 }
 func pickQuery(queries []QueryWeight) string {
@@ -254,16 +252,16 @@ func pickQuery(queries []QueryWeight) string {
 		return ""
 	}
 	total := queries[len(queries)-1].Weight
-	query := ""
+	picked := ""
 
 	randWeight := randInt(0, total)
 	for _, q := range queries {
 		if randWeight < q.Weight {
-			query = q.Query
+			picked = q.Query
 			break
 		}
 	}
-	return query
+	return picked
 }
 func randInt(min, max int) int {
 	return rand.Intn(max-min) + min

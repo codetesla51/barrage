@@ -8,7 +8,7 @@ import (
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
-type Tareget struct {
+type HTTPTarget struct {
 	Method string
 	URL    string
 	Body   []byte
@@ -47,7 +47,7 @@ type HTTPBucket struct {
 	StatusCodes map[string]int
 }
 
-func FireHTTP(target Tareget, rate int, duration time.Duration, bucketWidth time.Duration) (*HTTPResult, error) {
+func FireHTTP(target HTTPTarget, rate int, duration time.Duration, bucketWidth time.Duration) (*HTTPResult, error) {
 	targeter := vegeta.NewStaticTargeter(vegeta.Target{
 		Method: target.Method,
 		URL:    target.URL,
@@ -55,16 +55,16 @@ func FireHTTP(target Tareget, rate int, duration time.Duration, bucketWidth time
 		Header: target.Header,
 	})
 	attacker := vegeta.NewAttacker()
-	rl := vegeta.Rate{Freq: rate, Per: time.Second}
+	pace := vegeta.Rate{Freq: rate, Per: time.Second}
 
 	var overall vegeta.Metrics
 	bucketed := make(map[int64][]*vegeta.Result) // bucket index -> results
 
-	for res := range attacker.Attack(targeter, rl, duration, "load-test") {
-		overall.Add(res)
+	for sample := range attacker.Attack(targeter, pace, duration, "load-test") {
+		overall.Add(sample)
 
-		idx := res.Timestamp.Unix() / int64(bucketWidth.Seconds())
-		bucketed[idx] = append(bucketed[idx], res)
+		idx := sample.Timestamp.Unix() / int64(bucketWidth.Seconds())
+		bucketed[idx] = append(bucketed[idx], sample)
 	}
 	overall.Close()
 
@@ -84,12 +84,12 @@ func FireHTTP(target Tareget, rate int, duration time.Duration, bucketWidth time
 		Latest:      overall.Latest,
 	}
 
-	result.Buckets = buildBuckets(bucketed, bucketWidth)
+	result.Buckets = buildHTTPBuckets(bucketed, bucketWidth)
 
 	return result, nil
 }
 
-func buildBuckets(bucketed map[int64][]*vegeta.Result, width time.Duration) []HTTPBucket {
+func buildHTTPBuckets(bucketed map[int64][]*vegeta.Result, width time.Duration) []HTTPBucket {
 	indices := make([]int64, 0, len(bucketed))
 	for idx := range bucketed {
 		indices = append(indices, idx)
@@ -101,21 +101,21 @@ func buildBuckets(bucketed map[int64][]*vegeta.Result, width time.Duration) []HT
 	for _, idx := range indices {
 		results := bucketed[idx]
 
-		var m vegeta.Metrics
-		for _, res := range results {
-			m.Add(res)
+		var metrics vegeta.Metrics
+		for _, sample := range results {
+			metrics.Add(sample)
 		}
-		m.Close()
+		metrics.Close()
 
 		start := time.Unix(idx*int64(width.Seconds()), 0)
 		buckets = append(buckets, HTTPBucket{
 			Start:       start,
 			End:         start.Add(width),
-			Requests:    m.Requests,
-			Success:     m.Success,
-			P50:         m.Latencies.P50,
-			P99:         m.Latencies.P99,
-			StatusCodes: m.StatusCodes,
+			Requests:    metrics.Requests,
+			Success:     metrics.Success,
+			P50:         metrics.Latencies.P50,
+			P99:         metrics.Latencies.P99,
+			StatusCodes: metrics.StatusCodes,
 		})
 	}
 

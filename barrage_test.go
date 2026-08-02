@@ -22,7 +22,7 @@ func TestFireHTTP_WithMethodBodyHeaders(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	target := Tareget{
+	target := HTTPTarget{
 		Method: "POST",
 		URL:    ts.URL,
 		Body:   []byte(`{"foo":"bar"}`),
@@ -70,14 +70,14 @@ func TestPercentileEmpty(t *testing.T) {
 }
 func TestBuildDbBuckets(t *testing.T) {
 	runStart := time.Now()
-	results := []queryResult{
+	results := []dbQueryResult{
 		{Timestamp: runStart.Add(300 * time.Millisecond), Success: true, Latency: 5 * time.Millisecond},   // A
 		{Timestamp: runStart.Add(700 * time.Millisecond), Success: true, Latency: 8 * time.Millisecond},   // B
 		{Timestamp: runStart.Add(1200 * time.Millisecond), Success: true, Latency: 3 * time.Millisecond},  // C
 		{Timestamp: runStart.Add(2900 * time.Millisecond), Success: false, Latency: 9 * time.Millisecond}, // D
 	}
 
-	buckets := buildDbBuckets(results, runStart, time.Second)
+	buckets := buildDBBuckets(results, runStart, time.Second)
 
 	if len(buckets) != 3 {
 		t.Fatalf("expected %d buckets, got %d", 4, len(buckets))
@@ -95,7 +95,7 @@ func TestPickQuery_DistributionAndReachability(t *testing.T) {
 		{Query: "SELECT 2", Weight: 20},
 		{Query: "SELECT 3", Weight: 10},
 	}
-	weighted := cummulativWeights(queries)
+	weighted := cumulativeWeights(queries)
 
 	const draws = 10000
 	counts := map[string]int{}
@@ -132,7 +132,7 @@ func TestPickQuery_EmptyInput(t *testing.T) {
 
 func TestPickQuery_BoundaryLastIndex(t *testing.T) {
 
-	weighted := cummulativWeights([]QueryWeight{
+	weighted := cumulativeWeights([]QueryWeight{
 		{Query: "A", Weight: 70},
 		{Query: "B", Weight: 20},
 		{Query: "C", Weight: 10},
