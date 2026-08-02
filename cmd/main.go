@@ -42,13 +42,13 @@ func main() {
 		QueryType: "read",
 	}
 	cfg := barrage.OrchestratorConfig{
-		Duration:    10 * time.Second,
-		BucketWidth: 1 * time.Second,
-		HTTP: barrage.HTTPRunnerConfig{
+		Duration:    barrage.Duration(10 * time.Second),
+		BucketWidth: barrage.Duration(1 * time.Second),
+		HTTP: &barrage.HTTPRunnerConfig{
 			Target: httpTarget,
 			Rate:   10,
 		},
-		DB: barrage.DBRunnerConfig{
+		DB: &barrage.DBRunnerConfig{
 			Target: dbTarget,
 			Rate:   5,
 		},

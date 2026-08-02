@@ -1,0 +1,34 @@
+# Barrage load-test configuration.
+#
+# Both runner sections are optional: omit `http` or `db` to run only the other
+# runner. At least one section must be present. Unknown keys are rejected.
+#
+# Durations use Go's time.ParseDuration format, e.g. 10s, 1m30s, 500ms.
+
+duration: 10s
+bucket_width: 1s
+
+http:
+  rate: 10 # requests per second
+  target:
+    method: POST
+    url: http://localhost:8080/api/orders
+    body: '{"customer": 42}'
+    header:
+      content-type: [application/json]
+      authorization: [Bearer some-token]
+
+db:
+  rate: 5 # queries per second
+  target:
+    driver: postgres
+    conn: postgres://us:2@localhost:5432/testDB?sslmode=disable
+    query_type: read
+    queries:
+      - query: SELECT 1
+        weight: 70
+      - query: SELECT 2
+        weight: 20
+      - query: SELECT 3
+        weight: 10
+    args: []

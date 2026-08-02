@@ -10,15 +10,15 @@ import (
 
 // DBTarget represents a database target for load testing.
 type DBTarget struct {
-	Conn      string
-	Driver    string
-	Query     []QueryWeight
-	Args      []any
-	QueryType string
+	Conn      string        `yaml:"conn"`
+	Driver    string        `yaml:"driver"`
+	Query     []QueryWeight `yaml:"queries"`
+	Args      []any         `yaml:"args"`
+	QueryType string        `yaml:"query_type"`
 }
 type QueryWeight struct {
-	Query  string
-	Weight int
+	Query  string `yaml:"query"`
+	Weight int    `yaml:"weight"`
 }
 
 // Whole Runs Summery of results, aggregated into a single result.

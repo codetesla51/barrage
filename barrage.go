@@ -6,20 +6,20 @@ import (
 )
 
 type OrchestratorConfig struct {
-	Duration    time.Duration
-	BucketWidth time.Duration
-	HTTP        HTTPRunnerConfig
-	DB          DBRunnerConfig
+	Duration    Duration          `yaml:"duration"`
+	BucketWidth Duration          `yaml:"bucket_width"`
+	HTTP        *HTTPRunnerConfig `yaml:"http"`
+	DB          *DBRunnerConfig   `yaml:"db"`
 }
 
 type HTTPRunnerConfig struct {
-	Target HTTPTarget
-	Rate   int
+	Target HTTPTarget `yaml:"target"`
+	Rate   int        `yaml:"rate"`
 }
 
 type DBRunnerConfig struct {
-	Target DBTarget
-	Rate   int
+	Target DBTarget `yaml:"target"`
+	Rate   int      `yaml:"rate"`
 }
 type OrchestratorResult struct {
 	HTTPResult *HTTPResult
@@ -31,21 +31,20 @@ func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 	var httpResult *HTTPResult
 	var dbResult *DBResult
 	var httpErr, dbErr error
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		httpResult, httpErr = FireHTTP(cfg.HTTP.Target, cfg.HTTP.Rate, cfg.Duration, cfg.BucketWidth)
-		if httpErr != nil {
-			return
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		dbResult, dbErr = FireDB(cfg.DB.Target, cfg.DB.Rate, cfg.Duration, cfg.BucketWidth)
-		if dbErr != nil {
-			return
-		}
-	}()
+	if cfg.HTTP != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			httpResult, httpErr = FireHTTP(cfg.HTTP.Target, cfg.HTTP.Rate, time.Duration(cfg.Duration), time.Duration(cfg.BucketWidth))
+		}()
+	}
+	if cfg.DB != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			dbResult, dbErr = FireDB(cfg.DB.Target, cfg.DB.Rate, time.Duration(cfg.Duration), time.Duration(cfg.BucketWidth))
+		}()
+	}
 	wg.Wait()
 	if httpErr != nil {
 		return nil, httpErr

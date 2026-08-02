@@ -9,10 +9,10 @@ import (
 )
 
 type HTTPTarget struct {
-	Method string
-	URL    string
-	Body   []byte
-	Header http.Header
+	Method string      `yaml:"method"`
+	URL    string      `yaml:"url"`
+	Body   []byte      `yaml:"body"`
+	Header http.Header `yaml:"header"`
 }
 
 type HTTPResult struct {

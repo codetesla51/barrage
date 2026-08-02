@@ -5,6 +5,7 @@ go 1.25.6
 require (
 	github.com/lib/pq v1.12.3
 	github.com/tsenart/vegeta/v12 v12.13.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
