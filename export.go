@@ -35,11 +35,15 @@ type JSONRunner struct {
 	StatusCodes map[string]int `json:"status_codes,omitempty"`
 }
 
-// JSONSpike is one correlated HTTP/DB spike in the JSON export.
+// JSONSpike is one storage spike (DB or Redis) in the JSON export. Runner names
+// the storage runner that triggered the spike; Masked marks a bucket where HTTP
+// did not cross its threshold.
 type JSONSpike struct {
-	BucketTime string `json:"bucket_time"`
-	HTTPP99MS  int64  `json:"http_p99_ms"`
-	DBP99MS    int64  `json:"db_p99_ms"`
+	BucketTime   string `json:"bucket_time"`
+	Runner       string `json:"runner"`
+	HTTPP99MS    int64  `json:"http_p99_ms"`
+	StorageP99MS int64  `json:"storage_p99_ms"`
+	Masked       bool   `json:"masked,omitempty"`
 }
 
 // JSONTimeline is one runner's per-bucket P99 latency in the JSON export.
@@ -56,6 +60,20 @@ type JSONTimelineSeries struct {
 
 // ExportJSON writes a machine-readable JSON summary of a run to path.
 func ExportJSON(data ReportData, path string) error {
+	buf, err := BuildJSON(data)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, buf, 0o644); err != nil {
+		return fmt.Errorf("writing JSON report %q: %w", path, err)
+	}
+	return nil
+}
+
+// BuildJSON renders a ReportData as the machine-readable JSON report. It is
+// shared by ExportJSON and the report template's in-page export button so both
+// produce identical output.
+func BuildJSON(data ReportData) ([]byte, error) {
 	report := JSONReport{
 		GeneratedAt: time.Now(),
 		Duration:    data.Duration,
@@ -69,9 +87,11 @@ func ExportJSON(data ReportData, path string) error {
 	}
 	for _, s := range data.Spikes {
 		report.Spikes = append(report.Spikes, JSONSpike{
-			BucketTime: formatBucketTime(s.BucketIndex),
-			HTTPP99MS:  s.HTTPLatency.Milliseconds(),
-			DBP99MS:    s.DBLatency.Milliseconds(),
+			BucketTime:   formatBucketTime(s.BucketIndex),
+			Runner:       s.Runner,
+			HTTPP99MS:    s.HTTPLatency.Milliseconds(),
+			StorageP99MS: s.StorageLatency.Milliseconds(),
+			Masked:       s.Masked,
 		})
 	}
 	for _, s := range data.Timeline.Series {
@@ -95,10 +115,7 @@ func ExportJSON(data ReportData, path string) error {
 
 	buf, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encoding JSON: %w", err)
+		return nil, fmt.Errorf("encoding JSON: %w", err)
 	}
-	if err := os.WriteFile(path, append(buf, '\n'), 0o644); err != nil {
-		return fmt.Errorf("writing JSON report %q: %w", path, err)
-	}
-	return nil
+	return append(buf, '\n'), nil
 }

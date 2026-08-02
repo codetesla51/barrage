@@ -38,9 +38,9 @@ func FireRedis(target RedisTarget, rate, concurrency int, duration, bucketWidth,
 	}
 
 	overall, start := runPaced(rate, concurrency, duration, ramp, func() dbQueryResult {
-		cmd := pickQuery(cumulativeWeights(target.Query))
+		pick := pickQuery(cumulativeWeights(target.Query))
 		queryStart := time.Now()
-		err := client.Do(ctx, splitCommand(cmd)...).Err()
+		err := client.Do(ctx, splitCommand(pick.Query)...).Err()
 		return dbQueryResult{Latency: time.Since(queryStart), Success: err == nil, Err: err}
 	})
 

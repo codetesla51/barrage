@@ -26,18 +26,19 @@ const banner = `     ________  ________  ________  ________  ________  ________ 
         \|_______|\|__|\|__|\|__|\|__|\|__|\|__|\|__|\|__|\|_______|\|_______|`
 
 type runOptions struct {
-	config        string
-	report        string
-	noReport      bool
-	open          bool
-	duration      time.Duration
-	bucketWidth   time.Duration
-	ramp          time.Duration
-	concurrency   int
-	jsonPath      string
-	httpThreshold time.Duration
-	dbThreshold   time.Duration
-	verbose       bool
+	config         string
+	report         string
+	noReport       bool
+	open           bool
+	duration       time.Duration
+	bucketWidth    time.Duration
+	ramp           time.Duration
+	concurrency    int
+	jsonPath       string
+	httpThreshold  time.Duration
+	dbThreshold    time.Duration
+	redisThreshold time.Duration
+	verbose        bool
 }
 
 func main() {
@@ -83,6 +84,7 @@ func newRunCmd() *cobra.Command {
 	f.StringVar(&opts.jsonPath, "json", "", "also write a JSON summary of the run to this path")
 	f.DurationVar(&opts.httpThreshold, "http-threshold", 100*time.Millisecond, "HTTP spike threshold for correlation")
 	f.DurationVar(&opts.dbThreshold, "db-threshold", 100*time.Millisecond, "DB spike threshold for correlation")
+	f.DurationVar(&opts.redisThreshold, "redis-threshold", 100*time.Millisecond, "Redis spike threshold for correlation")
 	f.BoolVarP(&opts.verbose, "verbose", "v", false, "print per-bucket detail")
 	return cmd
 }
@@ -128,6 +130,8 @@ func runLoadTest(opts *runOptions) error {
 	}
 	if cfg.Concurrency > 0 {
 		fmt.Printf("concurrency %d\n", cfg.Concurrency)
+	} else {
+		fmt.Printf("concurrency default %d (db/redis); http auto-scales\n", barrage.DefaultConcurrency)
 	}
 
 	result, err := barrage.Orchestrator(*cfg)
@@ -138,20 +142,25 @@ func runLoadTest(opts *runOptions) error {
 	printResults(result, opts.verbose)
 
 	var spikes barrage.CorrelationResult
-	if result.HTTPResult != nil && result.DBResult != nil {
+	if result.HTTPResult != nil && (result.DBResult != nil || result.RedisResult != nil) {
 		fmt.Println("\n=== Correlated Spikes ===")
-		spikes = barrage.Correlate(result, opts.httpThreshold, opts.dbThreshold)
+		spikes = barrage.Correlate(result, opts.httpThreshold, opts.dbThreshold, opts.redisThreshold)
 		if len(spikes.Spikes) == 0 {
 			fmt.Println("  none")
 		}
 		for _, s := range spikes.Spikes {
-			fmt.Printf("  %s  http_p99=%s  db_p99=%s\n",
-				time.Unix(s.BucketIndex, 0).Format("15:04:05"), s.HTTPLatency, s.DBLatency)
+			if s.Masked {
+				fmt.Printf("  %s  %s_p99=%s  (%s-only: http stayed under %s)\n",
+					time.Unix(s.BucketIndex, 0).Format("15:04:05"), s.Runner, s.StorageLatency, s.Runner, opts.httpThreshold)
+			} else {
+				fmt.Printf("  %s  http_p99=%s  %s_p99=%s\n",
+					time.Unix(s.BucketIndex, 0).Format("15:04:05"), s.HTTPLatency, s.Runner, s.StorageLatency)
+			}
 		}
 	}
 
 	if !opts.noReport {
-		if err := writeReport(result, spikes, opts.report); err != nil {
+		if err := writeReport(result, spikes, opts.report, cfg); err != nil {
 			return err
 		}
 		if opts.open {
@@ -223,13 +232,16 @@ func printResults(result *barrage.OrchestratorResult, verbose bool) {
 	}
 }
 
-func writeReport(result *barrage.OrchestratorResult, spikes barrage.CorrelationResult, path string) error {
+func writeReport(result *barrage.OrchestratorResult, spikes barrage.CorrelationResult, path string, cfg *barrage.OrchestratorConfig) error {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("creating report %q: %w", path, err)
 	}
 	defer file.Close()
 	data := barrage.NewReportData(result, spikes)
+	data.Duration = time.Duration(cfg.Duration).String()
+	data.Ramp = time.Duration(cfg.Ramp).String()
+	data.Concurrency = cfg.Concurrency
 	if err := barrage.RenderHTML(data, "templates/report.html", file); err != nil {
 		return fmt.Errorf("rendering report: %w", err)
 	}

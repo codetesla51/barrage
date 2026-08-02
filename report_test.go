@@ -15,8 +15,8 @@ func testReportData() ReportData {
 	return ReportData{
 		CorrelationResult: CorrelationResult{
 			Spikes: []CorrelatedSpike{
-				{BucketIndex: 1700000000, HTTPLatency: 142 * time.Millisecond, DBLatency: 987 * time.Millisecond},
-				{BucketIndex: 1700000001, HTTPLatency: 250 * time.Millisecond, DBLatency: time.Second},
+				{BucketIndex: 1700000000, Runner: "db", HTTPLatency: 142 * time.Millisecond, StorageLatency: 987 * time.Millisecond},
+				{BucketIndex: 1700000001, Runner: "db", HTTPLatency: 250 * time.Millisecond, StorageLatency: time.Second},
 			},
 		},
 		Runners: []RunnerSummary{
@@ -66,6 +66,45 @@ func TestRenderHTML(t *testing.T) {
 	}
 }
 
+func TestRenderHTMLMaskedChip(t *testing.T) {
+	data := testReportData()
+	data.Spikes = []CorrelatedSpike{
+		{BucketIndex: 1700000000, Runner: "db", HTTPLatency: 5 * time.Millisecond, StorageLatency: 2 * time.Second, Masked: true},
+		{BucketIndex: 1700000001, Runner: "redis", HTTPLatency: 300 * time.Millisecond, StorageLatency: 2 * time.Second},
+	}
+	var buf bytes.Buffer
+	if err := RenderHTML(data, testTemplatePath, &buf); err != nil {
+		t.Fatalf("RenderHTML returned error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "DB (masked)") {
+		t.Error("expected a DB (masked) chip for the masked db spike")
+	}
+	if !strings.Contains(out, ">Redis<") {
+		t.Error("expected a Redis runner cell in the spike table")
+	}
+	if strings.Count(out, "bottleneck-chip") < 2 {
+		t.Error("expected both spikes to render a bottleneck chip")
+	}
+}
+
+func TestRenderHTMLExportsJSON(t *testing.T) {
+	var buf bytes.Buffer
+	if err := RenderHTML(testReportData(), testTemplatePath, &buf); err != nil {
+		t.Fatalf("RenderHTML returned error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "id=\"run-data\" type=\"application/json\"") {
+		t.Error("expected embedded JSON run data for the export button")
+	}
+	if !strings.Contains(out, "exportBtn") {
+		t.Error("expected an export button")
+	}
+	if !strings.Contains(out, `"runner": "db"`) {
+		t.Error("expected embedded JSON to include spike runner data")
+	}
+}
+
 func TestRenderHTMLRunSummary(t *testing.T) {
 	var buf bytes.Buffer
 	if err := RenderHTML(testReportData(), testTemplatePath, &buf); err != nil {
@@ -99,7 +138,7 @@ func TestRenderHTMLNoSpikes(t *testing.T) {
 		t.Fatalf("RenderHTML returned error: %v", err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "No correlated spikes") {
+	if !strings.Contains(out, "No spikes") {
 		t.Errorf("expected empty-state message, got: %s", out)
 	}
 	if strings.Contains(out, "2 flagged") {

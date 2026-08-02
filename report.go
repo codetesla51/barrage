@@ -168,11 +168,25 @@ func RenderHTML(data ReportData, templatePath string, w io.Writer) error {
 		"formatBucketTime":  formatBucketTime,
 		"formatStatusCodes": formatStatusCodes,
 		"timelineColor":     timelineColor,
+		"reportJSON":        reportJSON,
+		"titleName":         titleName,
+		"storageColor":      storageColor,
 	}).Parse(string(tmplData))
 	if err != nil {
 		return fmt.Errorf("parsing template %q: %w", templatePath, err)
 	}
 	return tmpl.Execute(w, data)
+}
+
+// reportJSON renders a ReportData as the same JSON report ExportJSON writes,
+// escaped for safe inlining inside a <script> tag (closing </script> sequences
+// are neutralized).
+func reportJSON(data ReportData) template.JS {
+	buf, err := BuildJSON(data)
+	if err != nil {
+		return template.JS("{}")
+	}
+	return template.JS(strings.ReplaceAll(string(buf), "</", "<\\/"))
 }
 
 // formatDuration renders a time.Duration human-readably, e.g. "142ms".
@@ -213,4 +227,20 @@ func timelineColor(name string) string {
 		return "#e0524d"
 	}
 	return "#767676"
+}
+
+// titleName renders a runner key for display: "db" -> "DB", "redis" -> "Redis".
+func titleName(runner string) string {
+	switch runner {
+	case "db":
+		return "DB"
+	case "redis":
+		return "Redis"
+	}
+	return runner
+}
+
+// storageColor is timelineColor for the spike-table dots, keyed by runner.
+func storageColor(runner string) string {
+	return timelineColor(titleName(runner))
 }

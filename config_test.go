@@ -39,13 +39,14 @@ db:
   target:
     driver: postgres
     conn: postgres://localhost/db
-    query_type: read
     queries:
       - query: SELECT 1
         weight: 70
-      - query: SELECT 2
+        type: read
+      - query: INSERT INTO t (x) VALUES (?) RETURNING id
         weight: 20
-    args: ["a", 1]
+        type: write
+        args: ["a", 1]
 redis:
   rate: 20
   target:
@@ -112,14 +113,15 @@ redis:
 	if dbTarget.Conn != "postgres://localhost/db" {
 		t.Errorf("conn = %q", dbTarget.Conn)
 	}
-	if dbTarget.QueryType != "read" {
-		t.Errorf("query_type = %q", dbTarget.QueryType)
-	}
-	if len(dbTarget.Query) != 2 || dbTarget.Query[0].Query != "SELECT 1" || dbTarget.Query[0].Weight != 70 {
+	if len(dbTarget.Query) != 2 || dbTarget.Query[0].Query != "SELECT 1" || dbTarget.Query[0].Weight != 70 || dbTarget.Query[0].Type != "read" {
 		t.Errorf("queries = %+v", dbTarget.Query)
 	}
-	if len(dbTarget.Args) != 2 || dbTarget.Args[0] != "a" || dbTarget.Args[1] != 1 {
-		t.Errorf("args = %#v", dbTarget.Args)
+	second := dbTarget.Query[1]
+	if second.Type != "write" {
+		t.Errorf("second query type = %q, want write", second.Type)
+	}
+	if len(second.Args) != 2 || second.Args[0] != "a" || second.Args[1] != 1 {
+		t.Errorf("per-query args = %#v, want [a 1]", second.Args)
 	}
 
 	if cfg.Redis == nil {

@@ -16,7 +16,8 @@ func TestExportJSON(t *testing.T) {
 		Concurrency: 20,
 		CorrelationResult: CorrelationResult{
 			Spikes: []CorrelatedSpike{
-				{BucketIndex: 1700000000, HTTPLatency: 250 * time.Millisecond, DBLatency: 120 * time.Millisecond},
+				{BucketIndex: 1700000000, Runner: "db", HTTPLatency: 250 * time.Millisecond, StorageLatency: 120 * time.Millisecond},
+				{BucketIndex: 1700000001, Runner: "redis", HTTPLatency: 5 * time.Millisecond, StorageLatency: 2 * time.Second, Masked: true},
 			},
 		},
 		Runners: []RunnerSummary{
@@ -51,8 +52,11 @@ func TestExportJSON(t *testing.T) {
 	if len(got.Runners) != 1 || got.Runners[0].Name != "HTTP" || got.Runners[0].P99MS != 30 {
 		t.Errorf("runners = %+v", got.Runners)
 	}
-	if len(got.Spikes) != 1 || got.Spikes[0].HTTPP99MS != 250 || got.Spikes[0].DBP99MS != 120 {
+	if len(got.Spikes) != 2 || got.Spikes[0].Runner != "db" || got.Spikes[0].HTTPP99MS != 250 || got.Spikes[0].StorageP99MS != 120 {
 		t.Errorf("spikes = %+v", got.Spikes)
+	}
+	if got.Spikes[1].Runner != "redis" || !got.Spikes[1].Masked || got.Spikes[1].StorageP99MS != 2000 {
+		t.Errorf("redis masked spike = %+v", got.Spikes[1])
 	}
 	if len(got.Timeline.Series) != 1 || got.Timeline.Series[0].P99[0] != 30 {
 		t.Errorf("timeline = %+v", got.Timeline)

@@ -74,6 +74,19 @@
   .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink); }
   .status-dot.idle { background: var(--faint); }
 
+  .export-btn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .export-btn:hover { border-color: var(--ink); }
+
   /* ---- Run summary ---- */
   .run-summary { margin-bottom: 16px; }
 
@@ -286,6 +299,7 @@
 
   .bottleneck-chip.http { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
   .bottleneck-chip.db { background: transparent; color: var(--mute); }
+  .bottleneck-chip.redis { background: transparent; color: #e0524d; border-color: rgba(224,82,77,0.4); }
 
   /* ---- Empty state ---- */
   .empty-panel {
@@ -358,6 +372,7 @@
       {{else}}
         <span class="status-dot idle"></span> clean run
       {{end}}
+      <button type="button" class="export-btn" id="exportBtn" title="Download this run as JSON">Export JSON</button>
     </div>
   </div>
 
@@ -399,8 +414,8 @@
         <div class="value" id="peakHttp">—</div>
       </div>
       <div class="metric-tile">
-        <div class="label">Peak DB P99</div>
-        <div class="value" id="peakDb">—</div>
+        <div class="label">Peak Storage P99</div>
+        <div class="value" id="peakStorage">—</div>
       </div>
       <div class="metric-tile">
         <div class="label">Span</div>
@@ -423,6 +438,7 @@
           <div class="legend">
             <span class="legend-item"><span class="legend-dot" style="background:var(--ink)"></span>HTTP</span>
             <span class="legend-item"><span class="legend-dot" style="background:var(--mute)"></span>DB</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#e0524d"></span>Redis</span>
           </div>
           <div class="chart-container">
             <canvas id="spikeChart"></canvas>
@@ -440,8 +456,9 @@
             <thead>
               <tr>
                 <th>Bucket</th>
+                <th>Runner</th>
                 <th>HTTP</th>
-                <th>DB</th>
+                <th>Storage</th>
                 <th>Bottleneck</th>
               </tr>
             </thead>
@@ -449,6 +466,7 @@
               {{range .Spikes}}
               <tr>
                 <td class="mono">{{formatBucketTime .BucketIndex}}</td>
+                <td class="mono">{{titleName .Runner}}</td>
                 <td class="mono">
                   <span class="lat-cell">
                     <span class="lat-dot" style="background:var(--ink)"></span>
@@ -457,17 +475,19 @@
                 </td>
                 <td class="mono">
                   <span class="lat-cell">
-                    <span class="lat-dot" style="background:var(--mute)"></span>
-                    {{formatDuration .DBLatency}}
+                    <span class="lat-dot" style="background:{{storageColor .Runner}}"></span>
+                    {{formatDuration .StorageLatency}}
                   </span>
                 </td>
                 <td>
-                  {{if gt .HTTPLatency .DBLatency}}
+                  {{if .Masked}}
+                    <span class="bottleneck-chip {{.Runner}}">{{titleName .Runner}} (masked)</span>
+                  {{else if gt .HTTPLatency .StorageLatency}}
                     <span class="bottleneck-chip http">HTTP</span>
-                  {{else if gt .DBLatency .HTTPLatency}}
-                    <span class="bottleneck-chip db">DB</span>
+                  {{else if gt .StorageLatency .HTTPLatency}}
+                    <span class="bottleneck-chip {{.Runner}}">{{titleName .Runner}}</span>
                   {{else}}
-                    <span class="bottleneck-chip db">EVEN</span>
+                    <span class="bottleneck-chip {{.Runner}}">EVEN</span>
                   {{end}}
                 </td>
               </tr>
@@ -481,25 +501,40 @@
     <script>
       const labels = [{{range .Spikes}}"{{formatBucketTime .BucketIndex}}",{{end}}];
       const httpData = [{{range .Spikes}}{{.HTTPLatency.Milliseconds}},{{end}}];
-      const dbData = [{{range .Spikes}}{{.DBLatency.Milliseconds}},{{end}}];
+      const storageData = [{{range .Spikes}}{{.StorageLatency.Milliseconds}},{{end}}];
+      const runner = [{{range .Spikes}}"{{.Runner}}",{{end}}];
+      const masked = [{{range .Spikes}}{{.Masked}},{{end}}];
+
+      const storageColors = {
+        db: '#606060',
+        redis: '#e0524d'
+      };
 
       const peakHttp = Math.max(...httpData);
-      const peakDb = Math.max(...dbData);
+      const peakStorage = Math.max(...storageData);
       document.getElementById('peakHttp').textContent = peakHttp + 'ms';
-      document.getElementById('peakDb').textContent = peakDb + 'ms';
+      document.getElementById('peakStorage').textContent = peakStorage + 'ms';
       document.getElementById('timeSpan').textContent =
         labels.length > 1 ? labels[0] + '–' + labels[labels.length - 1] : labels[0];
 
-      let httpWins = 0, dbWins = 0;
+      let httpWins = 0;
+      const storageWins = { db: 0, redis: 0 };
       let worstIdx = 0, worstScore = -1;
       for (let i = 0; i < labels.length; i++) {
-        if (httpData[i] > dbData[i]) httpWins++;
-        else if (dbData[i] > httpData[i]) dbWins++;
-        const score = Math.max(httpData[i], dbData[i]);
+        if (masked[i]) storageWins[runner[i]]++;
+        else if (httpData[i] > storageData[i]) httpWins++;
+        else if (storageData[i] > httpData[i]) storageWins[runner[i]]++;
+        const score = Math.max(httpData[i], storageData[i]);
         if (score > worstScore) { worstScore = score; worstIdx = i; }
       }
-      document.getElementById('bottleneckLean').textContent =
-        httpWins === dbWins ? 'Even' : (httpWins > dbWins ? 'HTTP' : 'DB');
+      const storageTotal = storageWins.db + storageWins.redis;
+      let lean = 'Even';
+      if (httpWins !== storageTotal) {
+        lean = httpWins > storageTotal
+          ? 'HTTP'
+          : (storageWins.db >= storageWins.redis ? 'DB' : 'Redis');
+      }
+      document.getElementById('bottleneckLean').textContent = lean;
       document.getElementById('worstMoment').textContent =
         'worst: ' + labels[worstIdx];
 
@@ -517,9 +552,9 @@
               categoryPercentage: 0.6
             },
             {
-              label: 'DB P99 (ms)',
-              data: dbData,
-              backgroundColor: '#606060',
+              label: 'Storage P99 (ms)',
+              data: storageData,
+              backgroundColor: storageData.map((_, i) => storageColors[runner[i]] || '#767676'),
               borderRadius: 2,
               barPercentage: 0.6,
               categoryPercentage: 0.6
@@ -553,8 +588,8 @@
 
     <div class="empty-panel">
       <div class="mark">·</div>
-      <h3>No correlated spikes</h3>
-      <p>HTTP and DB latency never crossed threshold in the same bucket during this run.</p>
+      <h3>No spikes</h3>
+      <p>DB and Redis P99 never crossed their thresholds during this run.</p>
     </div>
 
   {{end}}
@@ -638,5 +673,22 @@
   </footer>
 
 </div>
+
+<script id="run-data" type="application/json">{{reportJSON .}}</script>
+<script>
+  document.getElementById('exportBtn').addEventListener('click', function () {
+    const raw = document.getElementById('run-data').textContent;
+    const data = JSON.parse(raw);
+    const stamp = new Date(data.generated_at).toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const blob = new Blob([JSON.stringify(data, null, 2) + '\n'], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'barrage-' + stamp + '.json';
+    document.body.appendChild(a);
+    a.click();
+    URL.revokeObjectURL(a.href);
+    a.remove();
+  });
+</script>
 </body>
 </html>

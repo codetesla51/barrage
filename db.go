@@ -11,15 +11,19 @@ import (
 
 // DBTarget represents a database target for load testing.
 type DBTarget struct {
-	Conn      string        `yaml:"conn"`
-	Driver    string        `yaml:"driver"`
-	Query     []QueryWeight `yaml:"queries"`
-	Args      []any         `yaml:"args"`
-	QueryType string        `yaml:"query_type"`
+	Conn   string        `yaml:"conn"`
+	Driver string        `yaml:"driver"`
+	Query  []QueryWeight `yaml:"queries"`
 }
+
+// QueryWeight is one weighted entry in a runner's query list. Type and Args
+// are authoritative per query: Type routes read vs write, Args are bound to
+// that query only. An empty Type falls back to auto-detection.
 type QueryWeight struct {
 	Query  string `yaml:"query"`
 	Weight int    `yaml:"weight"`
+	Type   string `yaml:"type"`
+	Args   []any  `yaml:"args"`
 }
 
 // Whole Runs Summery of results, aggregated into a single result.
@@ -83,17 +87,17 @@ func FireDB(target DBTarget, rate, concurrency int, duration, bucketWidth, ramp 
 	defer db.Close()
 
 	overall, start := runPaced(rate, concurrency, duration, ramp, func() dbQueryResult {
-		query := pickQuery(cumulativeWeights(target.Query))
+		pick := pickQuery(cumulativeWeights(target.Query))
 		queryStart := time.Now()
 		var err error
-		if isReadQuery(query) {
+		if queryIsRead(pick) {
 			var rows *sql.Rows
-			rows, err = db.Query(query, target.Args...)
+			rows, err = db.Query(pick.Query, pick.Args...)
 			if err == nil {
 				rows.Close()
 			}
 		} else {
-			_, err = db.Exec(query, target.Args...)
+			_, err = db.Exec(pick.Query, pick.Args...)
 		}
 		return dbQueryResult{Latency: time.Since(queryStart), Success: err == nil, Err: err}
 	})
@@ -224,32 +228,47 @@ func cumulativeWeights(queries []QueryWeight) []QueryWeight {
 	return weighted
 
 }
-func pickQuery(queries []QueryWeight) string {
+func pickQuery(queries []QueryWeight) QueryWeight {
 	if len(queries) == 0 {
-		return ""
+		return QueryWeight{}
 	}
 	total := queries[len(queries)-1].Weight
-	picked := ""
-
 	randWeight := randInt(0, total)
 	for _, q := range queries {
 		if randWeight < q.Weight {
-			picked = q.Query
-			break
+			return q
 		}
 	}
-	return picked
+	return queries[len(queries)-1]
 }
 func randInt(min, max int) int {
 	return rand.Intn(max-min) + min
 }
 
-// isReadQuery reports whether a query returns rows rather than modifying data.
-// It is a heuristic so a single config can mix read and write queries:
-// SELECT/SHOW/EXPLAIN run through Query, everything else through Exec.
+// queryIsRead reports whether a picked query should run through Query rather
+// than Exec. The per-query type is authoritative; when it is unset, routing
+// falls back to a heuristic on the SQL text.
+func queryIsRead(q QueryWeight) bool {
+	switch strings.ToLower(strings.TrimSpace(q.Type)) {
+	case "read":
+		return true
+	case "write":
+		return false
+	}
+	return isReadQuery(q.Query)
+}
+
+// isReadQuery is the fallback heuristic for routing when a query has no
+// explicit type: anything that mutates rows (a RETURNING clause) or is not a
+// read statement (SELECT/SHOW/EXPLAIN/WITH) goes through Exec. Prefer setting
+// an explicit type per query; this only guesses.
 func isReadQuery(q string) bool {
-	q = strings.ToUpper(strings.TrimSpace(q))
-	return strings.HasPrefix(q, "SELECT") ||
-		strings.HasPrefix(q, "SHOW") ||
-		strings.HasPrefix(q, "EXPLAIN")
+	u := strings.ToUpper(strings.TrimSpace(q))
+	if strings.Contains(u, "RETURNING") {
+		return false
+	}
+	return strings.HasPrefix(u, "SELECT") ||
+		strings.HasPrefix(u, "SHOW") ||
+		strings.HasPrefix(u, "EXPLAIN") ||
+		strings.HasPrefix(u, "WITH")
 }

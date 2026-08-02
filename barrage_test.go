@@ -124,7 +124,7 @@ func TestPickQuery_DistributionAndReachability(t *testing.T) {
 
 	for i := 0; i < draws; i++ {
 		picked := pickQuery(weighted)
-		counts[picked]++
+		counts[picked.Query]++
 	}
 
 	for _, q := range queries {
@@ -147,8 +147,8 @@ func TestPickQuery_DistributionAndReachability(t *testing.T) {
 func TestPickQuery_EmptyInput(t *testing.T) {
 
 	got := pickQuery([]QueryWeight{})
-	if got != "" {
-		t.Errorf("empty input: got %q, want empty string", got)
+	if got.Query != "" {
+		t.Errorf("empty input: got %+v, want empty QueryWeight", got)
 	}
 }
 
