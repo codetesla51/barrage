@@ -8,6 +8,8 @@
 
 duration: 15s
 bucket_width: 1s
+ramp: 3s # linearly ramp the rate from 0 to full over this long
+concurrency: 10 # worker count for the db/redis pools and http attackers
 
 http:
   rate: 10 # requests per second
@@ -24,12 +26,18 @@ db:
   target:
     driver: postgres
     conn: postgres://us:2@localhost:5432/testDB?sslmode=disable
-    query_type: read
+    query_type: mixed # reads and writes are auto-detected per query
     queries:
-      - query: SELECT pg_sleep(0.2)
-        weight: 40
-      - query: SELECT 1
-        weight: 60
+      - query: SELECT count(*) FROM orders
+        weight: 20
+      - query: SELECT customer, amount FROM orders LIMIT 10
+        weight: 20
+      - query: SELECT amount FROM orders WHERE id = 1
+        weight: 15
+      - query: INSERT INTO orders (customer, amount) VALUES ('load', 1)
+        weight: 25
+      - query: UPDATE orders SET amount = amount + 1 WHERE id = 1
+        weight: 20
     args: []
 
 redis:
@@ -39,6 +47,4 @@ redis:
     db: 0
     queries:
       - query: PING
-        weight: 1
-      - query: GET foo
         weight: 1

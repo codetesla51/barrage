@@ -8,6 +8,8 @@ import (
 type OrchestratorConfig struct {
 	Duration    Duration           `yaml:"duration"`
 	BucketWidth Duration           `yaml:"bucket_width"`
+	Ramp        Duration           `yaml:"ramp"`
+	Concurrency int                `yaml:"concurrency"`
 	HTTP        *HTTPRunnerConfig  `yaml:"http"`
 	DB          *DBRunnerConfig    `yaml:"db"`
 	Redis       *RedisRunnerConfig `yaml:"redis"`
@@ -39,25 +41,29 @@ func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 	var dbResult *DBResult
 	var redisResult *RedisResult
 	var httpErr, dbErr, redisErr error
+	duration := time.Duration(cfg.Duration)
+	bucketWidth := time.Duration(cfg.BucketWidth)
+	ramp := time.Duration(cfg.Ramp)
+	concurrency := cfg.Concurrency
 	if cfg.HTTP != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			httpResult, httpErr = FireHTTP(cfg.HTTP.Target, cfg.HTTP.Rate, time.Duration(cfg.Duration), time.Duration(cfg.BucketWidth))
+			httpResult, httpErr = FireHTTP(cfg.HTTP.Target, cfg.HTTP.Rate, concurrency, duration, bucketWidth, ramp)
 		}()
 	}
 	if cfg.DB != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			dbResult, dbErr = FireDB(cfg.DB.Target, cfg.DB.Rate, time.Duration(cfg.Duration), time.Duration(cfg.BucketWidth))
+			dbResult, dbErr = FireDB(cfg.DB.Target, cfg.DB.Rate, concurrency, duration, bucketWidth, ramp)
 		}()
 	}
 	if cfg.Redis != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			redisResult, redisErr = FireRedis(cfg.Redis.Target, cfg.Redis.Rate, time.Duration(cfg.Duration), time.Duration(cfg.BucketWidth))
+			redisResult, redisErr = FireRedis(cfg.Redis.Target, cfg.Redis.Rate, concurrency, duration, bucketWidth, ramp)
 		}()
 	}
 	wg.Wait()

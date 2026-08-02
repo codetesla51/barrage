@@ -32,6 +32,9 @@ type runOptions struct {
 	open          bool
 	duration      time.Duration
 	bucketWidth   time.Duration
+	ramp          time.Duration
+	concurrency   int
+	jsonPath      string
 	httpThreshold time.Duration
 	dbThreshold   time.Duration
 	verbose       bool
@@ -75,6 +78,9 @@ func newRunCmd() *cobra.Command {
 	f.BoolVarP(&opts.open, "open", "o", false, "open the report in a browser after the run")
 	f.DurationVarP(&opts.duration, "duration", "d", 0, "override the run duration from the config")
 	f.DurationVarP(&opts.bucketWidth, "bucket-width", "b", 0, "override the bucket width from the config")
+	f.DurationVar(&opts.ramp, "ramp", 0, "ramp the rate from 0 up to full over this duration")
+	f.IntVar(&opts.concurrency, "concurrency", 0, "worker count for the db/redis pools and http attackers")
+	f.StringVar(&opts.jsonPath, "json", "", "also write a JSON summary of the run to this path")
 	f.DurationVar(&opts.httpThreshold, "http-threshold", 100*time.Millisecond, "HTTP spike threshold for correlation")
 	f.DurationVar(&opts.dbThreshold, "db-threshold", 100*time.Millisecond, "DB spike threshold for correlation")
 	f.BoolVarP(&opts.verbose, "verbose", "v", false, "print per-bucket detail")
@@ -107,10 +113,22 @@ func runLoadTest(opts *runOptions) error {
 	if opts.bucketWidth > 0 {
 		cfg.BucketWidth = barrage.Duration(opts.bucketWidth)
 	}
+	if opts.ramp > 0 {
+		cfg.Ramp = barrage.Duration(opts.ramp)
+	}
+	if opts.concurrency > 0 {
+		cfg.Concurrency = opts.concurrency
+	}
 
 	fmt.Println(banner)
 	fmt.Println()
 	fmt.Printf("running for %s (bucket width %s)\n", time.Duration(cfg.Duration), time.Duration(cfg.BucketWidth))
+	if cfg.Ramp > 0 {
+		fmt.Printf("ramping rate from 0 to full over %s\n", time.Duration(cfg.Ramp))
+	}
+	if cfg.Concurrency > 0 {
+		fmt.Printf("concurrency %d\n", cfg.Concurrency)
+	}
 
 	result, err := barrage.Orchestrator(*cfg)
 	if err != nil {
@@ -143,6 +161,17 @@ func runLoadTest(opts *runOptions) error {
 		}
 	} else {
 		fmt.Println("Report skipped (--no-report)")
+	}
+
+	if opts.jsonPath != "" {
+		data := barrage.NewReportData(result, spikes)
+		data.Duration = time.Duration(cfg.Duration).String()
+		data.Ramp = time.Duration(cfg.Ramp).String()
+		data.Concurrency = cfg.Concurrency
+		if err := barrage.ExportJSON(data, opts.jsonPath); err != nil {
+			return fmt.Errorf("writing JSON: %w", err)
+		}
+		fmt.Printf("JSON written to %s\n", opts.jsonPath)
 	}
 	return nil
 }

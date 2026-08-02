@@ -42,11 +42,15 @@ type TimelineChart struct {
 
 // ReportData is the full data model for the HTML report: the correlated-spike
 // analysis, one RunnerSummary per runner that ran, and a full-run latency
-// timeline.
+// timeline. Duration, Ramp, and Concurrency describe the run that produced it
+// and are included in the JSON export.
 type ReportData struct {
 	CorrelationResult
-	Runners  []RunnerSummary
-	Timeline TimelineChart
+	Runners     []RunnerSummary
+	Timeline    TimelineChart
+	Duration    string
+	Ramp        string
+	Concurrency int
 }
 
 // NewReportData assembles a ReportData from an OrchestratorResult and the

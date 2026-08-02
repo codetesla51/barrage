@@ -66,6 +66,12 @@ func LoadConfig(path string) (*OrchestratorConfig, error) {
 	if cfg.Redis != nil && cfg.Redis.Rate <= 0 {
 		return nil, errors.New("redis rate must be greater than zero")
 	}
+	if cfg.Ramp < 0 {
+		return nil, errors.New("ramp must not be negative")
+	}
+	if cfg.Concurrency < 0 {
+		return nil, errors.New("concurrency must not be negative")
+	}
 	return cfg, nil
 }
 

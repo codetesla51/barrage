@@ -23,6 +23,8 @@ func TestLoadConfigFull(t *testing.T) {
 	path := writeConfig(t, `
 duration: 10s
 bucket_width: 1s
+ramp: 3s
+concurrency: 20
 http:
   rate: 10
   target:
@@ -66,6 +68,12 @@ redis:
 	}
 	if cfg.BucketWidth != Duration(time.Second) {
 		t.Errorf("bucket_width = %v, want 1s", cfg.BucketWidth)
+	}
+	if cfg.Ramp != Duration(3*time.Second) {
+		t.Errorf("ramp = %v, want 3s", cfg.Ramp)
+	}
+	if cfg.Concurrency != 20 {
+		t.Errorf("concurrency = %d, want 20", cfg.Concurrency)
 	}
 
 	if cfg.HTTP == nil {
@@ -326,8 +334,8 @@ func TestLoadConfigExampleFile(t *testing.T) {
 	if cfg.HTTP == nil || cfg.DB == nil || cfg.Redis == nil {
 		t.Fatalf("example config should configure all runners, got http=%v db=%v redis=%v", cfg.HTTP, cfg.DB, cfg.Redis)
 	}
-	if len(cfg.DB.Target.Query) != 2 {
-		t.Errorf("expected 2 queries in example, got %d", len(cfg.DB.Target.Query))
+	if len(cfg.DB.Target.Query) != 5 {
+		t.Errorf("expected 5 queries in example, got %d", len(cfg.DB.Target.Query))
 	}
 	if !strings.HasPrefix(cfg.HTTP.Target.URL, "http://") {
 		t.Errorf("example http url = %q", cfg.HTTP.Target.URL)

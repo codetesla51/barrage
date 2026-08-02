@@ -21,7 +21,7 @@ func TestFireRedis(t *testing.T) {
 		},
 	}
 
-	result, err := FireRedis(target, 10, time.Second, time.Second)
+	result, err := FireRedis(target, 10, 5, time.Second, time.Second, 0)
 	if err != nil {
 		t.Fatalf("FireRedis returned error: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestFireRedisFailedCommand(t *testing.T) {
 		},
 	}
 
-	result, err := FireRedis(target, 10, time.Second, time.Second)
+	result, err := FireRedis(target, 10, 5, time.Second, time.Second, 0)
 	if err != nil {
 		t.Fatalf("FireRedis returned error: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestFireRedisValue(t *testing.T) {
 		},
 	}
 
-	result, err := FireRedis(target, 10, time.Second, time.Second)
+	result, err := FireRedis(target, 10, 5, time.Second, time.Second, 0)
 	if err != nil {
 		t.Fatalf("FireRedis returned error: %v", err)
 	}

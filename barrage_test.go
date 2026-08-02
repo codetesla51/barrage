@@ -29,7 +29,7 @@ func TestFireHTTP_WithMethodBodyHeaders(t *testing.T) {
 		Header: http.Header{"Content-Type": []string{"application/json"}},
 	}
 
-	result, err := FireHTTP(target, 10, 1*time.Second, 1*time.Second)
+	result, err := FireHTTP(target, 10, 0, 1*time.Second, 1*time.Second, 0)
 	if err != nil {
 		t.Fatalf("FireHTTP returned error: %v", err)
 	}
@@ -50,6 +50,28 @@ func TestFireHTTP_WithMethodBodyHeaders(t *testing.T) {
 		t.Errorf("expected at least one bucket to be populated")
 	}
 }
+func TestFireHTTP_WithRamp(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	target := HTTPTarget{URL: ts.URL}
+	result, err := FireHTTP(target, 50, 4, 2*time.Second, time.Second, time.Second)
+	if err != nil {
+		t.Fatalf("FireHTTP returned error: %v", err)
+	}
+	if result.Requests == 0 {
+		t.Error("expected requests to be fired during a ramped run")
+	}
+	if result.Success != 1.0 {
+		t.Errorf("expected 100%% success, got %.2f", result.Success)
+	}
+	if len(result.Buckets) == 0 {
+		t.Error("expected buckets to be populated")
+	}
+}
+
 func TestPercentile(t *testing.T) {
 	data := []time.Duration{
 		10 * time.Millisecond, 20 * time.Millisecond, 30 * time.Millisecond,

@@ -12,6 +12,7 @@ require (
 )
 
 require (
+	github.com/alitto/pond/v2 v2.7.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/influxdata/tdigest v0.0.1 // indirect

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -71,57 +72,33 @@ func OpenConnection(conn string, driver string) (*sql.DB, error) {
 	return db, nil
 }
 
-// FireDB executes database queries according to the specified target and parameters.
-func FireDB(target DBTarget, rate int, duration time.Duration, bucketWidth time.Duration) (*DBResult, error) {
+// FireDB executes database queries according to the specified target and
+// parameters. Queries are fired at rate per second (ramping up over ramp if
+// set) and run concurrently on a worker pool with up to concurrency workers.
+func FireDB(target DBTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration) (*DBResult, error) {
 	db, err := OpenConnection(target.Conn, target.Driver)
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
-	// calculate the interval between queries based on the specified rate
-	// time.duration (time.Second) is divided by the rate to get the interval between queries
-	// example: if rate is 10 queries per second, interval will be 100ms
-	interval := time.Duration(int(time.Second) / rate)
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	timeout := time.After(duration)
 
-	overall := []dbQueryResult{}
-	runStart := time.Now()
-	// Loop through the ticker and execute queries at the specified rate until the timeout is reached.
-Loop:
-	for {
-		select {
-		case <-ticker.C:
-			startTime := time.Now()
-			var err error
-			// use round-robin selection to pick a query from the target's query list
-			// for each tick, the index is calculated using the counter modulo the length of the query list
-			// example: if there are 3 queries and the counter is 5, the index will be 2 (5 % 3 = 2)
-
-			pickedQuery := pickQuery(cumulativeWeights(target.Query))
-			if target.QueryType == "read" {
-				var rows *sql.Rows
-				rows, err = db.Query(pickedQuery, target.Args...)
-				if err == nil {
-					rows.Close()
-				}
-			} else {
-				_, err = db.Exec(pickedQuery, target.Args...)
+	overall, start := runPaced(rate, concurrency, duration, ramp, func() dbQueryResult {
+		query := pickQuery(cumulativeWeights(target.Query))
+		queryStart := time.Now()
+		var err error
+		if isReadQuery(query) {
+			var rows *sql.Rows
+			rows, err = db.Query(query, target.Args...)
+			if err == nil {
+				rows.Close()
 			}
-			elapsed := time.Since(startTime)
-			overall = append(overall, dbQueryResult{
-				Timestamp: startTime,
-				Latency:   elapsed,
-				Success:   err == nil,
-				Err:       err,
-			})
-		case <-timeout:
-			break Loop
+		} else {
+			_, err = db.Exec(query, target.Args...)
 		}
-	}
+		return dbQueryResult{Latency: time.Since(queryStart), Success: err == nil, Err: err}
+	})
 
-	return buildDBResult(overall, runStart, bucketWidth, duration), nil
+	return buildDBResult(overall, start, bucketWidth, duration), nil
 }
 
 // split results into buckets based on the specified bucket width and calculate statistics for each bucket.
@@ -265,4 +242,14 @@ func pickQuery(queries []QueryWeight) string {
 }
 func randInt(min, max int) int {
 	return rand.Intn(max-min) + min
+}
+
+// isReadQuery reports whether a query returns rows rather than modifying data.
+// It is a heuristic so a single config can mix read and write queries:
+// SELECT/SHOW/EXPLAIN run through Query, everything else through Exec.
+func isReadQuery(q string) bool {
+	q = strings.ToUpper(strings.TrimSpace(q))
+	return strings.HasPrefix(q, "SELECT") ||
+		strings.HasPrefix(q, "SHOW") ||
+		strings.HasPrefix(q, "EXPLAIN")
 }

@@ -22,8 +22,9 @@ type RedisTarget struct {
 type RedisResult = DBResult
 
 // FireRedis executes Redis commands according to the specified target and
-// parameters.
-func FireRedis(target RedisTarget, rate int, duration time.Duration, bucketWidth time.Duration) (*RedisResult, error) {
+// parameters. Commands are fired at rate per second (ramping up over ramp if
+// set) and run concurrently on a worker pool with up to concurrency workers.
+func FireRedis(target RedisTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration) (*RedisResult, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     target.Addr,
 		Password: target.Password,
@@ -36,34 +37,14 @@ func FireRedis(target RedisTarget, rate int, duration time.Duration, bucketWidth
 		return nil, err
 	}
 
-	interval := time.Duration(int(time.Second) / rate)
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	timeout := time.After(duration)
+	overall, start := runPaced(rate, concurrency, duration, ramp, func() dbQueryResult {
+		cmd := pickQuery(cumulativeWeights(target.Query))
+		queryStart := time.Now()
+		err := client.Do(ctx, splitCommand(cmd)...).Err()
+		return dbQueryResult{Latency: time.Since(queryStart), Success: err == nil, Err: err}
+	})
 
-	overall := []dbQueryResult{}
-	runStart := time.Now()
-
-Loop:
-	for {
-		select {
-		case <-ticker.C:
-			startTime := time.Now()
-			cmd := pickQuery(cumulativeWeights(target.Query))
-			err := client.Do(ctx, splitCommand(cmd)...).Err()
-			elapsed := time.Since(startTime)
-			overall = append(overall, dbQueryResult{
-				Timestamp: startTime,
-				Latency:   elapsed,
-				Success:   err == nil,
-				Err:       err,
-			})
-		case <-timeout:
-			break Loop
-		}
-	}
-
-	return buildDBResult(overall, runStart, bucketWidth, duration), nil
+	return buildDBResult(overall, start, bucketWidth, duration), nil
 }
 
 // splitCommand splits a Redis command string into its arguments for client.Do.

@@ -47,22 +47,31 @@ type HTTPBucket struct {
 	StatusCodes map[string]int
 }
 
-func FireHTTP(target HTTPTarget, rate int, duration time.Duration, bucketWidth time.Duration) (*HTTPResult, error) {
+func FireHTTP(target HTTPTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration) (*HTTPResult, error) {
 	targeter := vegeta.NewStaticTargeter(vegeta.Target{
 		Method: target.Method,
 		URL:    target.URL,
 		Body:   target.Body,
 		Header: target.Header,
 	})
-	attacker := vegeta.NewAttacker()
-	pace := vegeta.Rate{Freq: rate, Per: time.Second}
+	var opts []func(*vegeta.Attacker)
+	if concurrency > 0 {
+		opts = append(opts, vegeta.MaxWorkers(uint64(concurrency)))
+	}
+	attacker := vegeta.NewAttacker(opts...)
+
+	var pacer vegeta.Pacer
+	if ramp > 0 {
+		pacer = rampPacer{rate: rate, ramp: ramp}
+	} else {
+		pacer = vegeta.Rate{Freq: rate, Per: time.Second}
+	}
 
 	var overall vegeta.Metrics
 	bucketed := make(map[int64][]*vegeta.Result) // bucket index -> results
 
-	for sample := range attacker.Attack(targeter, pace, duration, "load-test") {
+	for sample := range attacker.Attack(targeter, pacer, duration, "load-test") {
 		overall.Add(sample)
-
 		idx := sample.Timestamp.Unix() / int64(bucketWidth.Seconds())
 		bucketed[idx] = append(bucketed[idx], sample)
 	}
@@ -120,4 +129,27 @@ func buildHTTPBuckets(bucketed map[int64][]*vegeta.Result, width time.Duration) 
 	}
 
 	return buckets
+}
+
+// rampPacer implements vegeta.Pacer, firing requests at a rate that grows
+// linearly from 0 up to the full rate over the ramp period and then holds it.
+type rampPacer struct {
+	rate int
+	ramp time.Duration
+}
+
+// Pace returns the wait before the next hit, scheduled so the hits follow the
+// ramped rate. If the run falls behind the schedule the next hit fires
+// immediately, the same catch-up behaviour as vegeta's constant pacer.
+func (p rampPacer) Pace(elapsed time.Duration, hits uint64) (time.Duration, bool) {
+	wait := nextHitTime(hits+1, p.rate, p.ramp) - elapsed
+	if wait < 0 {
+		return 0, false
+	}
+	return wait, false
+}
+
+// Rate returns the instantaneous rate at elapsed time, for reporting.
+func (p rampPacer) Rate(elapsed time.Duration) float64 {
+	return float64(rateFor(elapsed, p.ramp, p.rate))
 }
