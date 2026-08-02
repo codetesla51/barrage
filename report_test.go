@@ -43,18 +43,23 @@ func TestRenderHTML(t *testing.T) {
 	}
 
 	out := buf.String()
+	first := time.Unix(1700000000, 0).Format("15:04:05")
+	second := time.Unix(1700000001, 0).Format("15:04:05")
 	for _, want := range []string{
 		"2 flagged",
-		"1700000000",
+		first,
 		"142ms",
 		"987ms",
-		"1700000001",
+		second,
 		"250ms",
 		"1s",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q", want)
 		}
+	}
+	if strings.Contains(out, "1700000000") {
+		t.Error("expected bucket labels to be human-readable times, not unix timestamps")
 	}
 	if strings.Contains(out, "No correlated spikes") {
 		t.Error("expected spike table, got empty-state message")
@@ -75,7 +80,7 @@ func TestRenderHTMLRunSummary(t *testing.T) {
 		"0.0%",
 		"3ms",
 		"9ms",
-		"0:100",
+		"0×100",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("run summary missing %q", want)
@@ -105,6 +110,83 @@ func TestRenderHTMLNoSpikes(t *testing.T) {
 	}
 }
 
+func TestRenderHTMLTimeline(t *testing.T) {
+	data := ReportData{
+		Timeline: TimelineChart{
+			Labels: []string{"15:04:05", "15:04:06"},
+			Series: []TimelineSeries{
+				{Name: "HTTP", P99: []int{5, 250}},
+				{Name: "Redis", P99: []int{3, -1}},
+			},
+		},
+	}
+	var buf bytes.Buffer
+	if err := RenderHTML(data, testTemplatePath, &buf); err != nil {
+		t.Fatalf("RenderHTML returned error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"latency timeline",
+		"15:04:05",
+		"15:04:06",
+		"5 , 250",
+		"null,",
+		"Redis",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("timeline missing %q", want)
+		}
+	}
+}
+
+func TestRenderHTMLNoTimeline(t *testing.T) {
+	var buf bytes.Buffer
+	if err := RenderHTML(ReportData{}, testTemplatePath, &buf); err != nil {
+		t.Fatalf("RenderHTML returned error: %v", err)
+	}
+	if strings.Contains(buf.String(), "latency timeline") {
+		t.Error("expected no timeline section when no runner data exists")
+	}
+}
+
+func TestBuildTimeline(t *testing.T) {
+	base := time.Unix(1700000000, 0)
+	result := &OrchestratorResult{
+		HTTPResult: &HTTPResult{Buckets: []HTTPBucket{
+			{Start: base, P99: 5 * time.Millisecond},
+			{Start: base.Add(time.Second), P99: 250 * time.Millisecond},
+		}},
+		DBResult: &DBResult{Buckets: []Bucket{
+			{Start: 1700000000, P99: 4 * time.Millisecond},
+			{Start: 1700000002, P99: 300 * time.Millisecond},
+		}},
+	}
+
+	tl := buildTimeline(result)
+	if len(tl.Labels) != 3 {
+		t.Fatalf("expected 3 timeline labels, got %d: %v", len(tl.Labels), tl.Labels)
+	}
+	wantLabel := func(sec int64) string { return time.Unix(sec, 0).Format("15:04:05") }
+	if tl.Labels[0] != wantLabel(1700000000) || tl.Labels[1] != wantLabel(1700000001) || tl.Labels[2] != wantLabel(1700000002) {
+		t.Errorf("labels = %v", tl.Labels)
+	}
+
+	if len(tl.Series) != 2 {
+		t.Fatalf("expected 2 series, got %d", len(tl.Series))
+	}
+	http := tl.Series[0]
+	if http.Name != "HTTP" || len(http.P99) != 3 {
+		t.Fatalf("http series = %+v", http)
+	}
+	if http.P99[0] != 5 || http.P99[1] != 250 || http.P99[2] != -1 {
+		t.Errorf("http p99 = %v, want [5 250 -1]", http.P99)
+	}
+	db := tl.Series[1]
+	if db.Name != "DB" || db.P99[0] != 4 || db.P99[1] != -1 || db.P99[2] != 300 {
+		t.Errorf("db p99 = %v, want [4 -1 300]", db.P99)
+	}
+}
+
 func TestRenderHTMLMissingTemplate(t *testing.T) {
 	err := RenderHTML(ReportData{}, filepath.Join(t.TempDir(), "missing.html"), &bytes.Buffer{})
 	if err == nil {
@@ -131,8 +213,8 @@ func TestRenderHTMLBadTemplate(t *testing.T) {
 
 func TestFormatStatusCodes(t *testing.T) {
 	got := formatStatusCodes(map[string]int{"200": 150, "0": 100})
-	if got != "0:100, 200:150" {
-		t.Errorf("formatStatusCodes = %q, want %q", got, "0:100, 200:150")
+	if got != "0×100, 200×150" {
+		t.Errorf("formatStatusCodes = %q, want %q", got, "0×100, 200×150")
 	}
 }
 
