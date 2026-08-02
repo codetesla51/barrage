@@ -1,2 +1,26 @@
-report.html
-barrage
+# Build artifacts
+/report.html
+/barrage
+/bin/
+/dist/
+
+# Go test binaries and coverage
+*.test
+*.out
+coverage.*
+
+# Local config overrides (may contain credentials)
+config.local.yaml
+config.local.yml
+*.local.yaml
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
