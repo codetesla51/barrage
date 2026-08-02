@@ -50,9 +50,13 @@ func main() {
 	}
 
 	dbTarget := barrage.Target{
-		Conn:      "postgres://us:2@localhost:5432/testDB?sslmode=disable",
-		Driver:    "postgres",
-		Query:     "SELECT 1",
+		Conn:   "postgres://us:2@localhost:5432/testDB?sslmode=disable",
+		Driver: "postgres",
+		Query: []barrage.QueryWeight{
+			{Query: "SELECT 1", Weight: 70},
+			{Query: "SELECT 2", Weight: 20},
+			{Query: "SELECT 3", Weight: 10},
+		},
 		QueryType: "read",
 	}
 

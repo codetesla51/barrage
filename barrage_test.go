@@ -89,3 +89,66 @@ func TestBuildDbBuckets(t *testing.T) {
 		t.Errorf("bucket 1: expected %d requests, got %d", 0, buckets[1].Requests)
 	}
 }
+func TestPickQuery_DistributionAndReachability(t *testing.T) {
+	queries := []QueryWeight{
+		{Query: "SELECT 1", Weight: 70},
+		{Query: "SELECT 2", Weight: 20},
+		{Query: "SELECT 3", Weight: 10},
+	}
+	weighted := cummulativWeights(queries)
+
+	const draws = 10000
+	counts := map[string]int{}
+
+	for i := 0; i < draws; i++ {
+		picked := pickQuery(weighted)
+		counts[picked]++
+	}
+
+	for _, q := range queries {
+		if counts[q.Query] == 0 {
+			t.Errorf("query %q never picked in %d draws", q.Query, draws)
+		}
+	}
+
+	tolerance := 0.03
+	for _, q := range queries {
+		gotPct := float64(counts[q.Query]) / float64(draws)
+		wantPct := float64(q.Weight) / 100.0
+		if gotPct < wantPct-tolerance || gotPct > wantPct+tolerance {
+			t.Errorf("query %q: got %.2f%%, want ~%.2f%% (tolerance %.2f%%)",
+				q.Query, gotPct*100, wantPct*100, tolerance*100)
+		}
+	}
+}
+
+func TestPickQuery_EmptyInput(t *testing.T) {
+
+	got := pickQuery([]QueryWeight{})
+	if got != "" {
+		t.Errorf("empty input: got %q, want empty string", got)
+	}
+}
+
+func TestPickQuery_BoundaryLastIndex(t *testing.T) {
+
+	weighted := cummulativWeights([]QueryWeight{
+		{Query: "A", Weight: 70},
+		{Query: "B", Weight: 20},
+		{Query: "C", Weight: 10},
+	})
+	total := weighted[len(weighted)-1].Weight // 100
+
+	randWeight := total - 1
+	want := ""
+	for _, w := range weighted {
+		if randWeight < w.Weight {
+			want = w.Query
+			break
+		}
+	}
+	if want != "C" {
+		t.Fatalf("test setup wrong: expected C to own the top boundary, got %q", want)
+	}
+
+}

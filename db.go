@@ -2,6 +2,8 @@ package barrage
 
 import (
 	"database/sql"
+	"fmt"
+	"math/rand"
 	"sort"
 	"time"
 )
@@ -10,9 +12,13 @@ import (
 type Target struct {
 	Conn      string
 	Driver    string
-	Query     string
+	Query     []QueryWeight
 	Args      []any
 	QueryType string
+}
+type QueryWeight struct {
+	Query  string
+	Weight int
 }
 
 // Whole Runs Summery of results, aggregated into a single result.
@@ -51,8 +57,11 @@ type queryResult struct {
 }
 
 // OpenConnection opens a database connection using the provided connection string.
-func OpenConnection(conn string) (*sql.DB, error) {
-	db, err := sql.Open("postgres", conn)
+func OpenConnection(conn string, driver string) (*sql.DB, error) {
+	if driver == "" {
+		return nil, fmt.Errorf("driver is required")
+	}
+	db, err := sql.Open(driver, conn)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +73,7 @@ func OpenConnection(conn string) (*sql.DB, error) {
 
 // FireDB executes database queries according to the specified target and parameters.
 func FireDB(target Target, rate int, duration time.Duration, bucketWidth time.Duration) (*Result, error) {
-	db, err := OpenConnection(target.Conn)
+	db, err := OpenConnection(target.Conn, target.Driver)
 	if err != nil {
 		return nil, err
 	}
@@ -86,14 +95,21 @@ Loop:
 		case <-ticker.C:
 			startTime := time.Now()
 			var err error
+			// use round-robin selection to pick a query from the target's query list
+			// for each tick, the index is calculated using the counter modulo the length of the query list
+			// example: if there are 3 queries and the counter is 5, the index will be 2 (5 % 3 = 2)
+
+			pickedQuery := pickQuery(cummulativWeights(target.Query))
+
+			fmt.Printf("Executing query: %s with args: %v\n", pickedQuery, target.Args)
 			if target.QueryType == "read" {
 				var rows *sql.Rows
-				rows, err = db.Query(target.Query, target.Args...)
+				rows, err = db.Query(pickedQuery, target.Args...)
 				if err == nil {
 					rows.Close()
 				}
 			} else {
-				_, err = db.Exec(target.Query, target.Args...)
+				_, err = db.Exec(pickedQuery, target.Args...)
 			}
 			elapsed := time.Since(startTime)
 			overall = append(overall, queryResult{
@@ -208,6 +224,8 @@ func buildDbBuckets(results []queryResult, runStart time.Time, bucketWidth time.
 }
 
 // percentile calculates the p-th percentile of a sorted slice of time.Duration values.
+// If the slice is empty, it returns 0. The index is calculated as int(p * len(sorted)), and if it exceeds the length of the slice, it is capped to the last index.
+// example: for a sorted slice of 5 elements and p=0.50, the index will be int(0.5*5) = 2, returning the value at index 2.
 func percentile(sorted []time.Duration, p float64) time.Duration {
 	if len(sorted) == 0 {
 		return 0
@@ -217,4 +235,36 @@ func percentile(sorted []time.Duration, p float64) time.Duration {
 		idx = len(sorted) - 1
 	}
 	return sorted[idx]
+}
+func cummulativWeights(queries []QueryWeight) []QueryWeight {
+	currerentWeight := 0
+	qw := []QueryWeight{}
+	for _, q := range queries {
+		currerentWeight += q.Weight
+		qw = append(qw, QueryWeight{
+			Query:  q.Query,
+			Weight: currerentWeight,
+		})
+	}
+	return qw
+
+}
+func pickQuery(queries []QueryWeight) string {
+	if len(queries) == 0 {
+		return ""
+	}
+	total := queries[len(queries)-1].Weight
+	query := ""
+
+	randWeight := randInt(0, total)
+	for _, q := range queries {
+		if randWeight < q.Weight {
+			query = q.Query
+			break
+		}
+	}
+	return query
+}
+func randInt(min, max int) int {
+	return rand.Intn(max-min) + min
 }
