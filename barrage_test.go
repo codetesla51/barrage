@@ -55,7 +55,7 @@ func TestPercentile(t *testing.T) {
 		10 * time.Millisecond, 20 * time.Millisecond, 30 * time.Millisecond,
 		40 * time.Millisecond, 50 * time.Millisecond,
 	}
-	got := percentile(data, 0.95)
+	got := percentile(data, 0.50)
 	// 5 items, p=0.50 → idx = int(0.5*5) = 2 → data[2] = 30ms
 	if got != 30*time.Millisecond {
 		t.Errorf("got %v, want 30ms", got)
