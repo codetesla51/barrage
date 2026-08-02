@@ -36,8 +36,8 @@ func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 
 // LoadConfig reads a YAML file and populates an OrchestratorConfig from it.
 //
-// The http and db sections are optional: a missing section means that runner is
-// skipped, so a file may configure only HTTP, only DB, or both. At least one
+// The http, db, and redis sections are optional: a missing section means that
+// runner is skipped, so a file may configure any subset of them. At least one
 // runner must be present. Unknown YAML keys are rejected so that a misspelled
 // key surfaces as an error instead of being silently ignored.
 func LoadConfig(path string) (*OrchestratorConfig, error) {
@@ -54,14 +54,17 @@ func LoadConfig(path string) (*OrchestratorConfig, error) {
 		}
 		return nil, err
 	}
-	if cfg.HTTP == nil && cfg.DB == nil {
-		return nil, errors.New("config must specify at least one runner: http or db")
+	if cfg.HTTP == nil && cfg.DB == nil && cfg.Redis == nil {
+		return nil, errors.New("config must specify at least one runner: http, db, or redis")
 	}
 	if cfg.HTTP != nil && cfg.HTTP.Rate <= 0 {
 		return nil, errors.New("http rate must be greater than zero")
 	}
 	if cfg.DB != nil && cfg.DB.Rate <= 0 {
 		return nil, errors.New("db rate must be greater than zero")
+	}
+	if cfg.Redis != nil && cfg.Redis.Rate <= 0 {
+		return nil, errors.New("redis rate must be greater than zero")
 	}
 	return cfg, nil
 }

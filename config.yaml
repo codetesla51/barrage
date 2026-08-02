@@ -1,11 +1,12 @@
 # Barrage load-test configuration.
 #
-# Both runner sections are optional: omit `http` or `db` to run only the other
-# runner. At least one section must be present. Unknown keys are rejected.
+# All runner sections are optional: omit any of `http`, `db`, or `redis` to run
+# only the others. At least one section must be present. Unknown keys are
+# rejected.
 #
 # Durations use Go's time.ParseDuration format, e.g. 10s, 1m30s, 500ms.
 
-duration: 10s
+duration: 15s
 bucket_width: 1s
 
 http:
@@ -25,10 +26,19 @@ db:
     conn: postgres://us:2@localhost:5432/testDB?sslmode=disable
     query_type: read
     queries:
+      - query: SELECT pg_sleep(0.2)
+        weight: 40
       - query: SELECT 1
-        weight: 70
-      - query: SELECT 2
-        weight: 20
-      - query: SELECT 3
-        weight: 10
+        weight: 60
     args: []
+
+redis:
+  rate: 20 # commands per second
+  target:
+    addr: localhost:6379
+    db: 0
+    queries:
+      - query: PING
+        weight: 1
+      - query: GET foo
+        weight: 1

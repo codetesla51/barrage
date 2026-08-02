@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Barrage — Correlation Dashboard</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --panel: #111111;
+    --panel-alt: #151515;
+    --ink: #fafafa;
+    --body: #b0b0b0;
+    --mute: #767676;
+    --faint: #4d4d4d;
+    --border: rgba(255,255,255,0.09);
+    --border-strong: rgba(255,255,255,0.16);
+    --on-ink: #0a0a0a;
+
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 0 20px 40px; }
+
+  /* ---- Top strip ---- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 52px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+
+  .topbar .left { display: flex; align-items: center; gap: 10px; }
+
+  .wordmark { font-weight: 600; font-size: 14px; }
+
+  .subtitle {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--mute);
+  }
+
+  .status-dot-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--mute);
+  }
+
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink); }
+  .status-dot.idle { background: var(--faint); }
+
+  /* ---- Run summary ---- */
+  .run-summary { margin-bottom: 16px; }
+
+  .section-title {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--mute);
+    margin: 0 0 8px;
+  }
+
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+  }
+
+  .summary-card { background: var(--panel); padding: 14px 16px; min-width: 0; }
+
+  .summary-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .summary-name { font-weight: 600; font-size: 13px; }
+
+  .summary-status {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 7px;
+    border: 1px solid var(--border-strong);
+    white-space: nowrap;
+  }
+  .summary-status.ok { color: #7dd87d; border-color: rgba(125,216,125,0.35); }
+  .summary-status.warn { color: #e0b46a; border-color: rgba(224,180,106,0.35); }
+  .summary-status.bad { color: #e07a7a; border-color: rgba(224,122,122,0.35); }
+
+  .summary-metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 18px;
+  }
+
+  .sm { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; min-width: 0; }
+
+  .sm-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--mute);
+    white-space: nowrap;
+  }
+
+  .sm-value {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--ink);
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  /* ---- Metric grid ---- */
+  .metric-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+
+  .metric-tile {
+    background: var(--panel);
+    padding: 14px 16px;
+  }
+
+  .metric-tile .label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--mute);
+    margin-bottom: 8px;
+  }
+
+  .metric-tile .value {
+    font-family: var(--font-mono);
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    color: var(--ink);
+    line-height: 1;
+  }
+
+  .metric-tile .value.sub-value {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--body);
+    margin-top: 6px;
+  }
+
+  .metric-tile .unit {
+    font-size: 13px;
+    color: var(--mute);
+    font-weight: 400;
+    margin-left: 2px;
+  }
+
+  /* ---- Panel grid (chart + table) ---- */
+  .panel-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1.4fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+  }
+
+  .panel {
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .panel-header h2 {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0;
+    color: var(--body);
+  }
+
+  .panel-header .meta {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--mute);
+  }
+
+  /* chart panel */
+  .chart-body { padding: 16px; flex: 1; display: flex; flex-direction: column; }
+
+  .legend { display: flex; gap: 16px; margin-bottom: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--body); }
+
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+
+  .legend-dot { width: 7px; height: 7px; border-radius: 2px; }
+
+  .chart-container { position: relative; flex: 1; min-height: 220px; width: 100%; }
+
+  /* table panel */
+  .table-scroll { overflow: auto; max-height: 340px; }
+
+  table { width: 100%; border-collapse: collapse; }
+
+  th {
+    position: sticky;
+    top: 0;
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--mute);
+    font-weight: 400;
+    background: var(--panel-alt);
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  td {
+    padding: 9px 16px;
+    font-size: 12.5px;
+    border-bottom: 1px solid var(--border);
+    color: var(--body);
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--panel-alt); }
+
+  td.mono { font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
+
+  .lat-cell { display: flex; align-items: center; gap: 7px; }
+
+  .lat-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+
+  .bottleneck-chip {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 7px;
+    border: 1px solid var(--border-strong);
+  }
+
+  .bottleneck-chip.http { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+  .bottleneck-chip.db { background: transparent; color: var(--mute); }
+
+  /* ---- Empty state ---- */
+  .empty-panel {
+    padding: 60px 20px;
+    text-align: center;
+    background: var(--panel);
+    border: 1px solid var(--border);
+  }
+
+  .empty-panel .mark {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    color: var(--faint);
+    margin-bottom: 10px;
+  }
+
+  .empty-panel h3 { font-size: 14px; font-weight: 600; margin: 0 0 6px; color: var(--ink); }
+
+  .empty-panel p {
+    color: var(--mute);
+    font-size: 12.5px;
+    max-width: 320px;
+    margin: 0 auto;
+  }
+
+  /* ---- Footer ---- */
+  footer {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--faint);
+  }
+
+  /* ---- Responsive ---- */
+  @media (max-width: 900px) {
+    .metric-grid { grid-template-columns: repeat(3, 1fr); }
+    .panel-grid { grid-template-columns: 1fr; }
+    .summary-grid { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 560px) {
+    .wrap { padding: 0 12px 32px; }
+    .metric-grid { grid-template-columns: repeat(2, 1fr); }
+    .metric-tile .value { font-size: 21px; }
+    th, td { padding: 7px 10px; font-size: 11.5px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="left">
+      <span class="wordmark">Barrage</span>
+      <span class="subtitle">/ correlation</span>
+    </div>
+    <div class="status-dot-row">
+      {{if .Spikes}}
+        <span class="status-dot"></span> {{len .Spikes}} flagged
+      {{else}}
+        <span class="status-dot idle"></span> clean run
+      {{end}}
+    </div>
+  </div>
+
+  <section class="run-summary">
+    <h2 class="section-title">run summary</h2>
+    <div class="summary-grid">
+      {{range .Runners}}
+      <div class="summary-card">
+        <div class="summary-header">
+          <span class="summary-name">{{.Name}}</span>
+          <span class="summary-status {{if ge .Success 90.0}}ok{{else if ge .Success 50.0}}warn{{else}}bad{{end}}">{{printf "%.1f" .Success}}%</span>
+        </div>
+        <div class="summary-metrics">
+          <div class="sm"><span class="sm-label">requests</span><span class="sm-value">{{.Requests}}</span></div>
+          <div class="sm"><span class="sm-label">p50</span><span class="sm-value">{{formatDuration .P50}}</span></div>
+          <div class="sm"><span class="sm-label">p99</span><span class="sm-value">{{formatDuration .P99}}</span></div>
+          <div class="sm"><span class="sm-label">max</span><span class="sm-value">{{formatDuration .Max}}</span></div>
+          <div class="sm"><span class="sm-label">mean</span><span class="sm-value">{{formatDuration .Mean}}</span></div>
+          <div class="sm"><span class="sm-label">rate</span><span class="sm-value">{{printf "%.1f" .Rate}}/s</span></div>
+          <div class="sm"><span class="sm-label">throughput</span><span class="sm-value">{{printf "%.1f" .Throughput}}/s</span></div>
+          {{if .StatusCodes}}
+          <div class="sm"><span class="sm-label">status</span><span class="sm-value">{{formatStatusCodes .StatusCodes}}</span></div>
+          {{end}}
+        </div>
+      </div>
+      {{end}}
+    </div>
+  </section>
+
+  {{if .Spikes}}
+
+    <div class="metric-grid" id="metricGrid">
+      <div class="metric-tile">
+        <div class="label">Correlated Spikes</div>
+        <div class="value">{{len .Spikes}}</div>
+      </div>
+      <div class="metric-tile">
+        <div class="label">Peak HTTP P99</div>
+        <div class="value" id="peakHttp">—</div>
+      </div>
+      <div class="metric-tile">
+        <div class="label">Peak DB P99</div>
+        <div class="value" id="peakDb">—</div>
+      </div>
+      <div class="metric-tile">
+        <div class="label">Span</div>
+        <div class="value" id="timeSpan" style="font-size:16px;">—</div>
+      </div>
+      <div class="metric-tile">
+        <div class="label">Usual Bottleneck</div>
+        <div class="value" id="bottleneckLean">—</div>
+        <div class="value sub-value" id="worstMoment">—</div>
+      </div>
+    </div>
+
+    <div class="panel-grid">
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Latency at correlated buckets</h2>
+          <span class="meta">p99 · ms</span>
+        </div>
+        <div class="chart-body">
+          <div class="legend">
+            <span class="legend-item"><span class="legend-dot" style="background:var(--ink)"></span>HTTP</span>
+            <span class="legend-item"><span class="legend-dot" style="background:var(--mute)"></span>DB</span>
+          </div>
+          <div class="chart-container">
+            <canvas id="spikeChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Spike detail</h2>
+          <span class="meta">same-bucket match</span>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Bucket</th>
+                <th>HTTP</th>
+                <th>DB</th>
+                <th>Bottleneck</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Spikes}}
+              <tr>
+                <td class="mono">{{formatBucketTime .BucketIndex}}</td>
+                <td class="mono">
+                  <span class="lat-cell">
+                    <span class="lat-dot" style="background:var(--ink)"></span>
+                    {{formatDuration .HTTPLatency}}
+                  </span>
+                </td>
+                <td class="mono">
+                  <span class="lat-cell">
+                    <span class="lat-dot" style="background:var(--mute)"></span>
+                    {{formatDuration .DBLatency}}
+                  </span>
+                </td>
+                <td>
+                  {{if gt .HTTPLatency .DBLatency}}
+                    <span class="bottleneck-chip http">HTTP</span>
+                  {{else if gt .DBLatency .HTTPLatency}}
+                    <span class="bottleneck-chip db">DB</span>
+                  {{else}}
+                    <span class="bottleneck-chip db">EVEN</span>
+                  {{end}}
+                </td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const labels = [{{range .Spikes}}"{{formatBucketTime .BucketIndex}}",{{end}}];
+      const httpData = [{{range .Spikes}}{{.HTTPLatency.Milliseconds}},{{end}}];
+      const dbData = [{{range .Spikes}}{{.DBLatency.Milliseconds}},{{end}}];
+
+      const peakHttp = Math.max(...httpData);
+      const peakDb = Math.max(...dbData);
+      document.getElementById('peakHttp').textContent = peakHttp + 'ms';
+      document.getElementById('peakDb').textContent = peakDb + 'ms';
+      document.getElementById('timeSpan').textContent =
+        labels.length > 1 ? labels[0] + '–' + labels[labels.length - 1] : labels[0];
+
+      let httpWins = 0, dbWins = 0;
+      let worstIdx = 0, worstScore = -1;
+      for (let i = 0; i < labels.length; i++) {
+        if (httpData[i] > dbData[i]) httpWins++;
+        else if (dbData[i] > httpData[i]) dbWins++;
+        const score = Math.max(httpData[i], dbData[i]);
+        if (score > worstScore) { worstScore = score; worstIdx = i; }
+      }
+      document.getElementById('bottleneckLean').textContent =
+        httpWins === dbWins ? 'Even' : (httpWins > dbWins ? 'HTTP' : 'DB');
+      document.getElementById('worstMoment').textContent =
+        'worst: ' + labels[worstIdx];
+
+      new Chart(document.getElementById('spikeChart'), {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'HTTP P99 (ms)',
+              data: httpData,
+              backgroundColor: '#fafafa',
+              borderRadius: 2,
+              barPercentage: 0.6,
+              categoryPercentage: 0.6
+            },
+            {
+              label: 'DB P99 (ms)',
+              data: dbData,
+              backgroundColor: '#606060',
+              borderRadius: 2,
+              barPercentage: 0.6,
+              categoryPercentage: 0.6
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { font: { family: 'JetBrains Mono', size: 9 }, color: '#767676' }
+            },
+            y: {
+              beginAtZero: true,
+              grid: { color: 'rgba(255,255,255,0.06)' },
+              ticks: {
+                font: { family: 'JetBrains Mono', size: 9 },
+                color: '#767676',
+                callback: (v) => v + 'ms'
+              }
+            }
+          }
+        }
+      });
+    </script>
+
+  {{else}}
+
+    <div class="empty-panel">
+      <div class="mark">·</div>
+      <h3>No correlated spikes</h3>
+      <p>HTTP and DB latency never crossed threshold in the same bucket during this run.</p>
+    </div>
+
+  {{end}}
+
+  <footer>
+    <span>generated by barrage</span>
+    <span>same-bucket match · absolute threshold</span>
+  </footer>
+
+</div>
+</body>
+</html>

@@ -44,6 +44,17 @@ db:
       - query: SELECT 2
         weight: 20
     args: ["a", 1]
+redis:
+  rate: 20
+  target:
+    addr: localhost:6379
+    password: secret
+    db: 2
+    queries:
+      - query: PING
+        weight: 1
+      - query: GET foo
+        weight: 1
 `)
 	cfg, err := LoadConfig(path)
 	if err != nil {
@@ -102,6 +113,26 @@ db:
 	if len(dbTarget.Args) != 2 || dbTarget.Args[0] != "a" || dbTarget.Args[1] != 1 {
 		t.Errorf("args = %#v", dbTarget.Args)
 	}
+
+	if cfg.Redis == nil {
+		t.Fatal("expected redis section to be present")
+	}
+	if cfg.Redis.Rate != 20 {
+		t.Errorf("redis rate = %d, want 20", cfg.Redis.Rate)
+	}
+	redisTarget := cfg.Redis.Target
+	if redisTarget.Addr != "localhost:6379" {
+		t.Errorf("addr = %q", redisTarget.Addr)
+	}
+	if redisTarget.Password != "secret" {
+		t.Errorf("password = %q", redisTarget.Password)
+	}
+	if redisTarget.DB != 2 {
+		t.Errorf("db = %d, want 2", redisTarget.DB)
+	}
+	if len(redisTarget.Query) != 2 || redisTarget.Query[0].Query != "PING" || redisTarget.Query[0].Weight != 1 {
+		t.Errorf("queries = %+v", redisTarget.Query)
+	}
 }
 
 func TestLoadConfigHTTPOnly(t *testing.T) {
@@ -149,6 +180,29 @@ func TestLoadConfigNoRunners(t *testing.T) {
 	path := writeConfig(t, "duration: 2s\n")
 	if _, err := LoadConfig(path); err == nil {
 		t.Error("expected error when no runner is configured")
+	}
+}
+
+func TestLoadConfigRedisOnly(t *testing.T) {
+	path := writeConfig(t, `
+duration: 2s
+redis:
+  rate: 5
+  target:
+    addr: localhost:6379
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig returned error: %v", err)
+	}
+	if cfg.HTTP != nil {
+		t.Error("expected http section to be absent")
+	}
+	if cfg.DB != nil {
+		t.Error("expected db section to be absent")
+	}
+	if cfg.Redis == nil {
+		t.Error("expected redis section to be present")
 	}
 }
 
@@ -207,6 +261,17 @@ http:
 	if _, err := LoadConfig(path); err == nil {
 		t.Error("expected error for zero http rate")
 	}
+
+	path = writeConfig(t, `
+duration: 2s
+redis:
+  rate: 0
+  target:
+    addr: localhost:6379
+`)
+	if _, err := LoadConfig(path); err == nil {
+		t.Error("expected error for zero redis rate")
+	}
 }
 
 func TestLoadConfigEmptyFile(t *testing.T) {
@@ -248,6 +313,9 @@ func TestOrchestratorHTTPOnly(t *testing.T) {
 	if res.DBResult != nil {
 		t.Error("expected DBResult to be nil when no db section is configured")
 	}
+	if res.RedisResult != nil {
+		t.Error("expected RedisResult to be nil when no redis section is configured")
+	}
 }
 
 func TestLoadConfigExampleFile(t *testing.T) {
@@ -255,11 +323,11 @@ func TestLoadConfigExampleFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("example config failed to load: %v", err)
 	}
-	if cfg.HTTP == nil || cfg.DB == nil {
-		t.Fatalf("example config should configure both runners, got http=%v db=%v", cfg.HTTP, cfg.DB)
+	if cfg.HTTP == nil || cfg.DB == nil || cfg.Redis == nil {
+		t.Fatalf("example config should configure all runners, got http=%v db=%v redis=%v", cfg.HTTP, cfg.DB, cfg.Redis)
 	}
-	if len(cfg.DB.Target.Query) != 3 {
-		t.Errorf("expected 3 queries in example, got %d", len(cfg.DB.Target.Query))
+	if len(cfg.DB.Target.Query) != 2 {
+		t.Errorf("expected 2 queries in example, got %d", len(cfg.DB.Target.Query))
 	}
 	if !strings.HasPrefix(cfg.HTTP.Target.URL, "http://") {
 		t.Errorf("example http url = %q", cfg.HTTP.Target.URL)

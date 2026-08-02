@@ -6,10 +6,11 @@ import (
 )
 
 type OrchestratorConfig struct {
-	Duration    Duration          `yaml:"duration"`
-	BucketWidth Duration          `yaml:"bucket_width"`
-	HTTP        *HTTPRunnerConfig `yaml:"http"`
-	DB          *DBRunnerConfig   `yaml:"db"`
+	Duration    Duration           `yaml:"duration"`
+	BucketWidth Duration           `yaml:"bucket_width"`
+	HTTP        *HTTPRunnerConfig  `yaml:"http"`
+	DB          *DBRunnerConfig    `yaml:"db"`
+	Redis       *RedisRunnerConfig `yaml:"redis"`
 }
 
 type HTTPRunnerConfig struct {
@@ -21,16 +22,23 @@ type DBRunnerConfig struct {
 	Target DBTarget `yaml:"target"`
 	Rate   int      `yaml:"rate"`
 }
+
+type RedisRunnerConfig struct {
+	Target RedisTarget `yaml:"target"`
+	Rate   int         `yaml:"rate"`
+}
 type OrchestratorResult struct {
-	HTTPResult *HTTPResult
-	DBResult   *DBResult
+	HTTPResult  *HTTPResult
+	DBResult    *DBResult
+	RedisResult *RedisResult
 }
 
 func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 	var wg sync.WaitGroup
 	var httpResult *HTTPResult
 	var dbResult *DBResult
-	var httpErr, dbErr error
+	var redisResult *RedisResult
+	var httpErr, dbErr, redisErr error
 	if cfg.HTTP != nil {
 		wg.Add(1)
 		go func() {
@@ -45,6 +53,13 @@ func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 			dbResult, dbErr = FireDB(cfg.DB.Target, cfg.DB.Rate, time.Duration(cfg.Duration), time.Duration(cfg.BucketWidth))
 		}()
 	}
+	if cfg.Redis != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			redisResult, redisErr = FireRedis(cfg.Redis.Target, cfg.Redis.Rate, time.Duration(cfg.Duration), time.Duration(cfg.BucketWidth))
+		}()
+	}
 	wg.Wait()
 	if httpErr != nil {
 		return nil, httpErr
@@ -52,8 +67,12 @@ func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 	if dbErr != nil {
 		return nil, dbErr
 	}
+	if redisErr != nil {
+		return nil, redisErr
+	}
 	return &OrchestratorResult{
-		HTTPResult: httpResult,
-		DBResult:   dbResult,
+		HTTPResult:  httpResult,
+		DBResult:    dbResult,
+		RedisResult: redisResult,
 	}, nil
 }
