@@ -91,24 +91,29 @@ func TestPercentileEmpty(t *testing.T) {
 	}
 }
 func TestBuildDbBuckets(t *testing.T) {
-	runStart := time.Now()
+	base := time.Unix(1700000000, 0)
 	results := []dbQueryResult{
-		{Timestamp: runStart.Add(300 * time.Millisecond), Success: true, Latency: 5 * time.Millisecond},   // A
-		{Timestamp: runStart.Add(700 * time.Millisecond), Success: true, Latency: 8 * time.Millisecond},   // B
-		{Timestamp: runStart.Add(1200 * time.Millisecond), Success: true, Latency: 3 * time.Millisecond},  // C
-		{Timestamp: runStart.Add(2900 * time.Millisecond), Success: false, Latency: 9 * time.Millisecond}, // D
+		{Timestamp: base.Add(300 * time.Millisecond), Success: true, Latency: 5 * time.Millisecond},   // A
+		{Timestamp: base.Add(700 * time.Millisecond), Success: true, Latency: 8 * time.Millisecond},   // B
+		{Timestamp: base.Add(1200 * time.Millisecond), Success: true, Latency: 3 * time.Millisecond},  // C
+		{Timestamp: base.Add(2900 * time.Millisecond), Success: false, Latency: 9 * time.Millisecond}, // D
 	}
 
-	buckets := buildDBBuckets(results, runStart, time.Second)
+	buckets := buildDBBuckets(results, time.Second)
 
 	if len(buckets) != 3 {
-		t.Fatalf("expected %d buckets, got %d", 4, len(buckets))
+		t.Fatalf("expected %d buckets, got %d", 3, len(buckets))
+	}
+	if buckets[0].Start != base.Unix() || buckets[1].Start != base.Add(time.Second).Unix() || buckets[2].Start != base.Add(2*time.Second).Unix() {
+		t.Errorf("bucket starts = %v %v %v, want absolute seconds %v %v %v",
+			buckets[0].Start, buckets[1].Start, buckets[2].Start,
+			base.Unix(), base.Add(time.Second).Unix(), base.Add(2*time.Second).Unix())
 	}
 	if buckets[0].Requests != 2 {
-		t.Errorf("bucket 0: expected %d requests, got %d", 0, buckets[0].Requests)
+		t.Errorf("bucket 0: expected %d requests, got %d", 2, buckets[0].Requests)
 	}
 	if buckets[1].Requests != 1 {
-		t.Errorf("bucket 1: expected %d requests, got %d", 0, buckets[1].Requests)
+		t.Errorf("bucket 1: expected %d requests, got %d", 1, buckets[1].Requests)
 	}
 }
 func TestPickQuery_DistributionAndReachability(t *testing.T) {

@@ -243,7 +243,9 @@ Thresholds default to 100ms each and apply per runner (`--http-threshold`,
 The JSON export mirrors this structure: `generated_at`, `duration`, `ramp`,
 `concurrency`, per-runner metrics (latencies in milliseconds), correlated spikes
 (each with `runner`, `http_p99_ms`, `storage_p99_ms`, and `masked`), and the
-timeline.
+timeline. In the timeline's `p99_ms` series, `-1` marks a bucket where that
+runner had no request (e.g. before the ramp produced its first hit); the report
+chart renders these as gaps, not as a latency of -1ms.
 
 ## Demo stack
 

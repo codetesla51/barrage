@@ -110,8 +110,8 @@ func buildDBResult(overall []dbQueryResult, runStart time.Time, bucketWidth, dur
 	res := &DBResult{
 		Requests: uint64(len(overall)),
 		Earliest: runStart,
-		Latest:   time.Now(),
-		Buckets:  buildDBBuckets(overall, runStart, bucketWidth),
+		Latest:   runStart.Add(duration),
+		Buckets:  buildDBBuckets(overall, bucketWidth),
 	}
 	if len(overall) == 0 {
 		return res
@@ -151,7 +151,10 @@ func buildDBResult(overall []dbQueryResult, runStart time.Time, bucketWidth, dur
 	return res
 }
 
-func buildDBBuckets(results []dbQueryResult, runStart time.Time, bucketWidth time.Duration) []Bucket {
+// buildDBBuckets groups results into buckets aligned to wall-clock seconds
+// (same base as the HTTP runner), so bucket indices match across runners
+// regardless of when each one started. Buckets with no results are omitted.
+func buildDBBuckets(results []dbQueryResult, bucketWidth time.Duration) []Bucket {
 	if len(results) == 0 || bucketWidth <= 0 {
 		return nil
 	}
@@ -165,10 +168,10 @@ func buildDBBuckets(results []dbQueryResult, runStart time.Time, bucketWidth tim
 	aggs := make(map[int64]*bucketAgg)
 
 	for _, sample := range results {
-		idx := int64(sample.Timestamp.Sub(runStart) / bucketWidth)
+		idx := sample.Timestamp.Unix() / int64(bucketWidth.Seconds())
 		a, ok := aggs[idx]
 		if !ok {
-			start := runStart.Add(time.Duration(idx) * bucketWidth)
+			start := time.Unix(idx*int64(bucketWidth.Seconds()), 0)
 			a = &bucketAgg{
 				bucket: Bucket{
 					Start: start.Unix(),
