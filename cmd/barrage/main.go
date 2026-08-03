@@ -19,7 +19,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-var version = "dev"
+var version = "v0.3.0"
 
 const banner = `     ________  ________  ________  ________  ________  ________  _______
     |\   __  \|\   __  \|\   __  \|\   __  \|\   __  \|\   ____\|\  ___ \
