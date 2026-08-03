@@ -285,9 +285,6 @@ The DB and Redis runners pace requests at `rate` per second, submitting each to
 a pool capped at `concurrency` workers. Results carry the submission timestamp,
 so buckets reflect when load was generated, not when responses completed.
 
-<!-- TODO: architecture diagram -->
-![Architecture](./docs/architecture.png)
-
 ### Spike correlation
 
 1. All runners' buckets are aligned by their unix start time
@@ -321,10 +318,10 @@ Thresholds default to 100ms each and apply per runner (`--http-threshold`,
   dashboard or a CI comparison.
 
 <!-- TODO: screenshot of the latency timeline chart -->
-![Latency timeline](./docs/timeline-chart.png)
+![Latency timeline](./docs/todo-api-run-2.png)
 
 <!-- TODO: screenshot of the correlated spikes table -->
-![Correlated spikes table](./docs/spikes-table.png)
+![Correlated spikes table](./docs/todo-api-run-1.png)
 
 The JSON export mirrors this structure: `generated_at`, `duration`, `ramp`,
 `concurrency`, per-runner metrics (latencies in milliseconds), correlated spikes
