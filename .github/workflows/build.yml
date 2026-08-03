@@ -32,9 +32,9 @@ jobs:
           ext=""
           if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
           out="dist/barrage-${{ matrix.goos }}-${{ matrix.goarch }}${ext}"
-          ldflags="-s -w -X github.com/codetesla51/barrage/cmd.main.version=$(git describe --tags --always 2>/dev/null || echo dev)"
+          ldflags="-s -w -X github.com/codetesla51/barrage/cmd/barrage.main.version=$(git describe --tags --always 2>/dev/null || echo dev)"
           GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 \
-            go build -ldflags "$ldflags" -o "$out" ./cmd
+            go build -ldflags "$ldflags" -o "$out" ./cmd/barrage
           echo "binary=$out" >> "$GITHUB_OUTPUT"
         id: build
 
@@ -61,12 +61,12 @@ jobs:
       - name: Build release binaries
         run: |
           mkdir -p dist
-          ldflags="-s -w -X github.com/codetesla51/barrage/cmd.main.version=${GITHUB_REF_NAME}"
-          GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$ldflags" -o dist/barrage-linux-amd64 ./cmd
-          GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$ldflags" -o dist/barrage-linux-arm64 ./cmd
-          GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$ldflags" -o dist/barrage-darwin-amd64 ./cmd
-          GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$ldflags" -o dist/barrage-darwin-arm64 ./cmd
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$ldflags" -o dist/barrage-windows-amd64.exe ./cmd
+          ldflags="-s -w -X github.com/codetesla51/barrage/cmd/barrage.main.version=${GITHUB_REF_NAME}"
+          GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$ldflags" -o dist/barrage-linux-amd64 ./cmd/barrage
+          GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$ldflags" -o dist/barrage-linux-arm64 ./cmd/barrage
+          GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$ldflags" -o dist/barrage-darwin-amd64 ./cmd/barrage
+          GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$ldflags" -o dist/barrage-darwin-arm64 ./cmd/barrage
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$ldflags" -o dist/barrage-windows-amd64.exe ./cmd/barrage
 
       - name: Publish release
         uses: softprops/action-gh-release@v3

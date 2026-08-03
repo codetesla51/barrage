@@ -43,7 +43,7 @@ TIME      RUNNER  HTTP_P99  STORAGE_P99   NOTE
 ## Getting started (30 seconds)
 
 ```sh
-go install github.com/codetesla51/barrage/cmd@latest
+go install github.com/codetesla51/barrage/cmd/barrage@latest
 barrage run                      # runs config.yaml, writes report.html
 barrage run -o                   # ...and opens the report in your browser
 barrage run --no-report --json results.json   # for CI, no browser needed
@@ -140,14 +140,14 @@ which layer spiked.
 ## Install
 
 ```sh
-go install github.com/codetesla51/barrage/cmd@latest
+go install github.com/codetesla51/barrage/cmd/barrage@latest
 ```
 
 Or build from source:
 
 ```sh
 git clone https://github.com/codetesla51/barrage && cd barrage
-go build -o barrage ./cmd
+go build -o barrage ./cmd/barrage
 ```
 
 Requires Go 1.25 or later. The DB runner supports **Postgres**, **MySQL**, and

@@ -62,7 +62,7 @@ type dbQueryResult struct {
 }
 
 // supportedDrivers is the set of database/sql drivers that the binary links
-// in. Keep in sync with the blank imports in cmd/main.go.
+// in. Keep in sync with the blank imports in cmd/barrage/main.go.
 var supportedDrivers = map[string]bool{
 	"postgres": true,
 	"mysql":    true,
