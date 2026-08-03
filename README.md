@@ -34,7 +34,6 @@ TIME      RUNNER  HTTP_P99  STORAGE_P99   NOTE
 20:52:22  db      <100ms    136.2ms       db-only
 ```
 
-<!-- TODO: replace with an actual report screenshot -->
 ![Barrage HTML Report](./docs/todo-api-run-1.png)
 
 ![Barrage HTML Report — latency timeline](./docs/todo-api-run-2.png)
@@ -316,10 +315,8 @@ Thresholds default to 100ms each and apply per runner (`--http-threshold`,
   the `--json` flag writes, so a report opened in a browser can still feed a
   dashboard or a CI comparison.
 
-<!-- TODO: screenshot of the latency timeline chart -->
 ![Latency timeline](./docs/todo-api-run-2.png)
 
-<!-- TODO: screenshot of the correlated spikes table -->
 ![Correlated spikes table](./docs/todo-api-run-1.png)
 
 The JSON export mirrors this structure: `generated_at`, `duration`, `ramp`,
