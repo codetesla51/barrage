@@ -2,7 +2,6 @@
 
 [![Go version](https://img.shields.io/github/go-mod/go-version/codetesla51/barrage)](https://github.com/codetesla51/barrage)
 [![CI](https://github.com/codetesla51/barrage/actions/workflows/build.yml/badge.svg)](https://github.com/codetesla51/barrage/actions/workflows/build.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/codetesla51/barrage)](https://goreportcard.com/report/github.com/codetesla51/barrage)
 [![Release](https://img.shields.io/github/v/release/codetesla51/barrage)](https://github.com/codetesla51/barrage/releases)
 
 Barrage is a load testing tool built to answer one question: **when an
