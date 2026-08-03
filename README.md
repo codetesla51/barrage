@@ -20,7 +20,7 @@ Here is what a run looks like:
 ```
 $ barrage run -c config.yaml
 
-barrage v0.1.0
+barrage v0.3.0
 duration 15s · bucket 1s · concurrency 10 · ramp 3s
 rates    http 10/s · db 5/s · redis 20/s
 
