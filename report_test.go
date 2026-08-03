@@ -226,13 +226,14 @@ func TestBuildTimeline(t *testing.T) {
 	}
 }
 
-func TestRenderHTMLMissingTemplate(t *testing.T) {
-	err := RenderHTML(ReportData{}, filepath.Join(t.TempDir(), "missing.html"), &bytes.Buffer{})
-	if err == nil {
-		t.Fatal("expected error for missing template")
+func TestRenderHTMLEmbeddedTemplate(t *testing.T) {
+	var buf bytes.Buffer
+	if err := RenderHTML(ReportData{}, filepath.Join(t.TempDir(), "missing.html"), &buf); err != nil {
+		t.Fatal("expected embedded template to render when the path is missing")
 	}
-	if !strings.Contains(err.Error(), "reading template") {
-		t.Errorf("expected clear error about reading template, got: %v", err)
+	out := buf.String()
+	if !strings.Contains(out, "run summary") {
+		t.Error("expected embedded template output, got empty render")
 	}
 }
 

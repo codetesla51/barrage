@@ -20,7 +20,7 @@ Here is what a run looks like:
 ```
 $ barrage run -c config.yaml
 
-barrage v0.3.0
+barrage v0.3.1
 duration 15s · bucket 1s · concurrency 10 · ramp 3s
 rates    http 10/s · db 5/s · redis 20/s
 
@@ -349,4 +349,6 @@ go vet ./...
 Tests cover the ramp schedule, pool pacing, read/write detection, config
 parsing (including unknown-key rejection), correlation, report rendering, and
 JSON export. `report.html` is a build artifact and is intentionally not
-committed.
+committed. The report template (`templates/report.html`) is embedded in the
+binary via `go:embed`, so reports render from any working directory; a template
+file at `templates/report.html` alongside the binary overrides the embedded one.

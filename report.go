@@ -1,6 +1,7 @@
 package barrage
 
 import (
+	_ "embed"
 	"fmt"
 	"html/template"
 	"io"
@@ -9,6 +10,9 @@ import (
 	"strings"
 	"time"
 )
+
+//go:embed templates/report.html
+var reportTemplate string
 
 // RunnerSummary holds the aggregate results for a single runner, formatted for
 // the report's run-summary section.
@@ -155,13 +159,14 @@ func buildTimeline(result *OrchestratorResult) TimelineChart {
 	return chart
 }
 
-// RenderHTML renders a report to w using the HTML template at templatePath.
-// It only renders: no correlation, threshold, or output-file logic lives here —
-// the caller decides where the rendered output goes.
+// RenderHTML renders a report to w. The HTML template is embedded in the
+// binary and ships with it, so reports render regardless of the working
+// directory; if a template file exists at templatePath it is used instead,
+// allowing the report to be restyled without rebuilding.
 func RenderHTML(data ReportData, templatePath string, w io.Writer) error {
-	tmplData, err := os.ReadFile(templatePath)
+	tmplSrc, err := os.ReadFile(templatePath)
 	if err != nil {
-		return fmt.Errorf("reading template %q: %w", templatePath, err)
+		tmplSrc = []byte(reportTemplate)
 	}
 	tmpl, err := template.New("report").Funcs(template.FuncMap{
 		"formatDuration":    formatDuration,
@@ -171,9 +176,9 @@ func RenderHTML(data ReportData, templatePath string, w io.Writer) error {
 		"reportJSON":        reportJSON,
 		"titleName":         titleName,
 		"storageColor":      storageColor,
-	}).Parse(string(tmplData))
+	}).Parse(string(tmplSrc))
 	if err != nil {
-		return fmt.Errorf("parsing template %q: %w", templatePath, err)
+		return fmt.Errorf("parsing template: %w", err)
 	}
 	return tmpl.Execute(w, data)
 }
