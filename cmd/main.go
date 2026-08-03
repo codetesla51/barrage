@@ -7,12 +7,16 @@ import (
 	"os/exec"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/codetesla51/barrage"
+	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
+	_ "modernc.org/sqlite"
 )
 
 var version = "dev"
@@ -124,15 +128,13 @@ func runLoadTest(opts *runOptions) error {
 
 	fmt.Println(banner)
 	fmt.Println()
-	fmt.Printf("running for %s (bucket width %s)\n", time.Duration(cfg.Duration), time.Duration(cfg.BucketWidth))
-	if cfg.Ramp > 0 {
-		fmt.Printf("ramping rate from 0 to full over %s\n", time.Duration(cfg.Ramp))
+	fmt.Printf("barrage %s\n", version)
+	fmt.Printf("duration %s · bucket %s · concurrency %d · ramp %s\n",
+		time.Duration(cfg.Duration), time.Duration(cfg.BucketWidth), effectiveConcurrency(cfg), time.Duration(cfg.Ramp))
+	if rates := configuredRates(cfg); len(rates) > 0 {
+		fmt.Printf("rates    %s\n", strings.Join(rates, " · "))
 	}
-	if cfg.Concurrency > 0 {
-		fmt.Printf("concurrency %d\n", cfg.Concurrency)
-	} else {
-		fmt.Printf("concurrency default %d (db/redis); http auto-scales\n", barrage.DefaultConcurrency)
-	}
+	fmt.Println()
 
 	result, err := barrage.Orchestrator(*cfg)
 	if err != nil {
@@ -143,20 +145,8 @@ func runLoadTest(opts *runOptions) error {
 
 	var spikes barrage.CorrelationResult
 	if result.HTTPResult != nil && (result.DBResult != nil || result.RedisResult != nil) {
-		fmt.Println("\n=== Correlated Spikes ===")
 		spikes = barrage.Correlate(result, opts.httpThreshold, opts.dbThreshold, opts.redisThreshold)
-		if len(spikes.Spikes) == 0 {
-			fmt.Println("  none")
-		}
-		for _, s := range spikes.Spikes {
-			if s.Masked {
-				fmt.Printf("  %s  %s_p99=%s  (%s-only: http stayed under %s)\n",
-					time.Unix(s.BucketIndex, 0).Format("15:04:05"), s.Runner, s.StorageLatency, s.Runner, opts.httpThreshold)
-			} else {
-				fmt.Printf("  %s  http_p99=%s  %s_p99=%s\n",
-					time.Unix(s.BucketIndex, 0).Format("15:04:05"), s.HTTPLatency, s.Runner, s.StorageLatency)
-			}
-		}
+		printSpikes(spikes, opts.httpThreshold)
 	}
 
 	if !opts.noReport {
@@ -190,46 +180,102 @@ func printResults(result *barrage.OrchestratorResult, verbose bool) {
 		return
 	}
 	summary := barrage.NewReportData(result, barrage.CorrelationResult{})
+	rows := make([][]string, 0, len(summary.Runners))
 	for _, r := range summary.Runners {
-		fmt.Printf("\n=== %s ===\n", r.Name)
-		fmt.Printf("  requests     %d\n", r.Requests)
-		fmt.Printf("  success      %.1f%%\n", r.Success)
-		fmt.Printf("  p50          %s\n", r.P50)
-		fmt.Printf("  p95          %s\n", r.P95)
-		fmt.Printf("  p99          %s\n", r.P99)
-		fmt.Printf("  max          %s\n", r.Max)
-		fmt.Printf("  mean         %s\n", r.Mean)
-		fmt.Printf("  rate         %.1f/s\n", r.Rate)
-		fmt.Printf("  throughput   %.1f/s\n", r.Throughput)
-		if len(r.StatusCodes) > 0 {
-			fmt.Printf("  status       %s\n", formatStatusCodes(r.StatusCodes))
-		}
+		rows = append(rows, []string{
+			strings.ToLower(r.Name),
+			strconv.Itoa(int(r.Requests)),
+			fmt.Sprintf("%.1f%%", r.Success),
+			fmt.Sprintf("%.1f/s", r.Rate),
+			r.Mean.String(), r.P50.String(), r.P95.String(), r.P99.String(), r.Max.String(),
+			formatStatusCodes(r.StatusCodes),
+		})
 	}
+	writeTable([]string{"RUNNER", "REQUESTS", "SUCCESS", "RATE", "MEAN", "P50", "P95", "P99", "MAX", "STATUS"}, rows)
 
 	if !verbose {
 		return
 	}
 	if result.HTTPResult != nil {
-		fmt.Println("\n=== HTTP buckets ===")
+		rows := make([][]string, 0, len(result.HTTPResult.Buckets))
 		for _, b := range result.HTTPResult.Buckets {
-			fmt.Printf("  [%s] requests=%d p50=%s p99=%s status=%s\n",
-				b.Start.Format("15:04:05"), b.Requests, b.P50, b.P99, formatStatusCodes(b.StatusCodes))
+			rows = append(rows, []string{b.Start.Format("15:04:05"), strconv.Itoa(int(b.Requests)), b.P50.String(), b.P99.String(), formatStatusCodes(b.StatusCodes)})
 		}
+		fmt.Printf("\nhttp buckets\n")
+		writeTable([]string{"TIME", "REQUESTS", "P50", "P99", "STATUS"}, rows)
 	}
 	if result.DBResult != nil {
-		fmt.Println("\n=== DB buckets ===")
-		for _, b := range result.DBResult.Buckets {
-			fmt.Printf("  [%s] requests=%d p50=%s p99=%s\n",
-				time.Unix(b.Start, 0).Format("15:04:05"), b.Requests, b.P50, b.P99)
-		}
+		printBucketTable("db", result.DBResult.Buckets)
 	}
 	if result.RedisResult != nil {
-		fmt.Println("\n=== Redis buckets ===")
-		for _, b := range result.RedisResult.Buckets {
-			fmt.Printf("  [%s] requests=%d p50=%s p99=%s\n",
-				time.Unix(b.Start, 0).Format("15:04:05"), b.Requests, b.P50, b.P99)
-		}
+		printBucketTable("redis", result.RedisResult.Buckets)
 	}
+}
+
+// writeTable prints a header and rows as an aligned column table.
+func writeTable(header []string, rows [][]string) {
+	table := tabwriter.NewWriter(os.Stdout, 2, 0, 2, ' ', 0)
+	fmt.Fprintln(table, strings.Join(header, "\t"))
+	for _, r := range rows {
+		fmt.Fprintln(table, strings.Join(r, "\t"))
+	}
+	table.Flush()
+}
+
+// printBucketTable renders one storage runner's per-bucket stats as a table.
+func printBucketTable(runner string, buckets []barrage.Bucket) {
+	rows := make([][]string, 0, len(buckets))
+	for _, b := range buckets {
+		rows = append(rows, []string{time.Unix(b.Start, 0).Format("15:04:05"), strconv.Itoa(int(b.Requests)), b.P50.String(), b.P99.String(), ""})
+	}
+	fmt.Printf("\n%s buckets\n", runner)
+	writeTable([]string{"TIME", "REQUESTS", "P50", "P99", "STATUS"}, rows)
+}
+
+// printSpikes renders correlated spikes as an aligned table. Masked spikes
+// (storage crossed its threshold while HTTP stayed below the HTTP threshold)
+// are flagged as such.
+func printSpikes(spikes barrage.CorrelationResult, httpThreshold time.Duration) {
+	fmt.Println()
+	if len(spikes.Spikes) == 0 {
+		fmt.Println("correlated spikes: none")
+		return
+	}
+	rows := make([][]string, 0, len(spikes.Spikes))
+	for _, s := range spikes.Spikes {
+		httpP99 := s.HTTPLatency.String()
+		note := ""
+		if s.Masked {
+			httpP99 = fmt.Sprintf("<%s", httpThreshold)
+			note = s.Runner + "-only"
+		}
+		rows = append(rows, []string{
+			time.Unix(s.BucketIndex, 0).Format("15:04:05"), s.Runner, httpP99, s.StorageLatency.String(), note,
+		})
+	}
+	fmt.Println("correlated spikes")
+	writeTable([]string{"TIME", "RUNNER", "HTTP_P99", "STORAGE_P99", "NOTE"}, rows)
+}
+
+func effectiveConcurrency(cfg *barrage.OrchestratorConfig) int {
+	if cfg.Concurrency > 0 {
+		return cfg.Concurrency
+	}
+	return barrage.DefaultConcurrency
+}
+
+func configuredRates(cfg *barrage.OrchestratorConfig) []string {
+	rates := make([]string, 0, 3)
+	if cfg.HTTP != nil {
+		rates = append(rates, fmt.Sprintf("http %d/s", cfg.HTTP.Rate))
+	}
+	if cfg.DB != nil {
+		rates = append(rates, fmt.Sprintf("db %d/s", cfg.DB.Rate))
+	}
+	if cfg.Redis != nil {
+		rates = append(rates, fmt.Sprintf("redis %d/s", cfg.Redis.Rate))
+	}
+	return rates
 }
 
 func writeReport(result *barrage.OrchestratorResult, spikes barrage.CorrelationResult, path string, cfg *barrage.OrchestratorConfig) error {

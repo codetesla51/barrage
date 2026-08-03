@@ -36,9 +36,11 @@ TIME      RUNNER  HTTP_P99  STORAGE_P99   NOTE
 ```
 
 <!-- TODO: replace with an actual report screenshot -->
-![Barrage HTML Report](./docs/report-screenshot.png)
+![Barrage HTML Report](./docs/todo-api-run-1.png)
 
-*load test of an api with production backend patterns - distributed rate limiting, multi-layer caching, high availability.*
+![Barrage HTML Report — latency timeline](./docs/todo-api-run-2.png)
+
+*A 3-minute heavy run against the TodoAPI stack (Gin + Postgres + Redis): `GET /api/todos` over HTTP at 120/s, a weighted read/write query mix against Postgres at 80/s, and Redis commands at 300/s, with a 60s ramp and concurrency 50. With the app's rate limiter left at production settings it absorbed nearly the whole HTTP burst as 429s — the API stayed flat at ~5ms p50 while the real load landed on the data stores. With the limiter boosted, every request reached the backend and latency dropped straight through to the database: Postgres saturates and drags HTTP P99 to multi-second territory, while Redis stays under 100ms P99. One bottleneck, three correlated curves.*
 
 ## Getting started (30 seconds)
 
@@ -114,11 +116,11 @@ which layer spiked.
 
 | Feature | Barrage | Typical Load Tester |
 |---|---|---|
-| HTTP load | ✅ | ✅ |
-| DB load | ✅ | Usually no |
-| Redis load | ✅ | Usually no |
-| Correlate latency | ✅ | ❌ |
-| HTML report | ✅ | Varies |
+| HTTP load | Yes | Yes |
+| DB load | Yes | Usually no |
+| Redis load | Yes | Usually no |
+| Correlate latency | Yes | No |
+| HTML report | Yes | Varies |
 
 ## When to use Barrage
 
