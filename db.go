@@ -61,10 +61,42 @@ type dbQueryResult struct {
 	Err       error
 }
 
-// OpenConnection opens a database connection using the provided connection string.
+// supportedDrivers is the set of database/sql drivers that the binary links
+// in. Keep in sync with the blank imports in cmd/main.go.
+var supportedDrivers = map[string]bool{
+	"postgres": true,
+	"mysql":    true,
+	"sqlite":   true,
+}
+
+// supportedDriverList is a stable display list for error messages.
+var supportedDriverList = []string{"postgres", "mysql", "sqlite"}
+
+// NormalizeDriver maps a user-supplied driver name to the database/sql driver
+// that is actually registered, accepting common aliases. Unknown names pass
+// through so OpenConnection can report them clearly.
+func NormalizeDriver(driver string) string {
+	switch strings.ToLower(strings.TrimSpace(driver)) {
+	case "postgres", "postgresql", "pg":
+		return "postgres"
+	case "mysql":
+		return "mysql"
+	case "sqlite", "sqlite3":
+		return "sqlite"
+	}
+	return strings.ToLower(strings.TrimSpace(driver))
+}
+
+// OpenConnection opens a database connection using the provided connection
+// string. The driver name is normalized (e.g. "postgresql" -> "postgres") and
+// checked against the drivers the binary was built with.
 func OpenConnection(conn string, driver string) (*sql.DB, error) {
+	driver = NormalizeDriver(driver)
 	if driver == "" {
 		return nil, fmt.Errorf("driver is required")
+	}
+	if !supportedDrivers[driver] {
+		return nil, fmt.Errorf("unsupported driver %q (supported: %s)", driver, strings.Join(supportedDriverList, ", "))
 	}
 	db, err := sql.Open(driver, conn)
 	if err != nil {
@@ -223,13 +255,10 @@ func cumulativeWeights(queries []QueryWeight) []QueryWeight {
 	weighted := []QueryWeight{}
 	for _, q := range queries {
 		currentWeight += q.Weight
-		weighted = append(weighted, QueryWeight{
-			Query:  q.Query,
-			Weight: currentWeight,
-		})
+		q.Weight = currentWeight
+		weighted = append(weighted, q)
 	}
 	return weighted
-
 }
 func pickQuery(queries []QueryWeight) QueryWeight {
 	if len(queries) == 0 {
