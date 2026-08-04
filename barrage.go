@@ -65,6 +65,7 @@ func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 			defer wg.Done()
 			redisResult, redisErr = FireRedis(cfg.Redis.Target, cfg.Redis.Rate, concurrency, duration, bucketWidth, ramp)
 		}()
+
 	}
 	wg.Wait()
 	if httpErr != nil {

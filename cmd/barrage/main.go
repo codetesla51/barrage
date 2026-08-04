@@ -134,6 +134,7 @@ func runLoadTest(opts *runOptions) error {
 	if rates := configuredRates(cfg); len(rates) > 0 {
 		fmt.Printf("rates    %s\n", strings.Join(rates, " · "))
 	}
+
 	fmt.Println()
 
 	result, err := barrage.Orchestrator(*cfg)

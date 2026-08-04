@@ -46,7 +46,7 @@ db:
 redis:
   rate: 20 # commands per second
   target:
-    addr: localhost:6379
+    addr: "redis:6379"
     db: 0
     queries:
       - query: PING

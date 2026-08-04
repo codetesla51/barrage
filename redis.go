@@ -31,7 +31,6 @@ func FireRedis(target RedisTarget, rate, concurrency int, duration, bucketWidth,
 		DB:       target.DB,
 	})
 	defer client.Close()
-
 	ctx := context.Background()
 	if err := client.Ping(ctx).Err(); err != nil {
 		return nil, err
