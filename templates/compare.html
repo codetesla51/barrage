@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Barrage — Run Comparison</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --panel: #111111;
+    --panel-alt: #151515;
+    --ink: #fafafa;
+    --body: #b0b0b0;
+    --mute: #767676;
+    --faint: #4d4d4d;
+    --border: rgba(255,255,255,0.09);
+    --border-strong: rgba(255,255,255,0.16);
+    --on-ink: #0a0a0a;
+    --ok: #7dd87d;
+    --warn: #e0b46a;
+    --bad: #e07a7a;
+
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 0 20px 40px; }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 52px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+
+  .topbar .left { display: flex; align-items: center; gap: 10px; }
+
+  .wordmark { font-weight: 600; font-size: 14px; }
+
+  .subtitle {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--mute);
+  }
+
+  .status-dot-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--mute);
+  }
+
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink); }
+  .status-dot.idle { background: var(--faint); }
+
+  .section-title {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--mute);
+    margin: 24px 0 8px;
+  }
+
+  .run-meta {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--body);
+    margin-bottom: 16px;
+  }
+
+  .run-meta .files { display: flex; gap: 18px; }
+  .run-meta b { color: var(--ink); font-weight: 500; }
+
+  .metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+
+  .metric-tile { background: var(--panel); padding: 14px 16px; }
+
+  .metric-tile .label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--mute);
+    margin-bottom: 8px;
+  }
+
+  .metric-tile .value {
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    color: var(--ink);
+    line-height: 1;
+  }
+
+  .metric-tile .value.ok { color: var(--ok); }
+  .metric-tile .value.bad { color: var(--bad); }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .panel-header h2 {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0;
+    color: var(--body);
+  }
+
+  .panel-header .meta {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--mute);
+  }
+
+  .table-scroll { overflow: auto; max-height: 400px; }
+
+  table { width: 100%; border-collapse: collapse; }
+
+  th {
+    position: sticky;
+    top: 0;
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--mute);
+    font-weight: 400;
+    background: var(--panel-alt);
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  td {
+    padding: 9px 16px;
+    font-size: 12.5px;
+    border-bottom: 1px solid var(--border);
+    color: var(--body);
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--panel-alt); }
+
+  td.mono { font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
+
+  .status-chip {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 7px;
+    border: 1px solid var(--border-strong);
+    text-transform: uppercase;
+  }
+  .status-chip.ok { color: var(--ok); border-color: rgba(125,216,125,0.35); }
+  .status-chip.warn { color: var(--warn); border-color: rgba(224,180,106,0.35); }
+  .status-chip.bad { color: var(--bad); border-color: rgba(224,122,122,0.35); }
+  .status-chip.mute { color: var(--mute); }
+
+  .lat-cell { display: flex; align-items: center; gap: 7px; }
+  .lat-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+
+  .chart-body { padding: 16px; }
+
+  .legend { display: flex; gap: 16px; margin-bottom: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--body); flex-wrap: wrap; }
+
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-item .swatch { width: 14px; height: 0; border-top: 2px solid currentColor; display: inline-block; }
+  .legend-item .swatch.dashed { border-top-style: dashed; }
+
+  .chart-container { position: relative; min-height: 300px; width: 100%; }
+
+  footer {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--faint);
+  }
+
+  @media (max-width: 900px) {
+    .metric-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  @media (max-width: 560px) {
+    .wrap { padding: 0 12px 32px; }
+    .metric-grid { grid-template-columns: 1fr; }
+    .run-meta .files { flex-direction: column; gap: 4px; }
+    th, td { padding: 7px 10px; font-size: 11.5px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="left">
+      <span class="wordmark">Barrage</span>
+      <span class="subtitle">/ compare</span>
+    </div>
+    <div class="status-dot-row">
+      <span class="status-dot"></span> baseline vs current
+    </div>
+  </div>
+
+  <div class="run-meta">
+    <div class="files">
+      <span>baseline <b>{{.BaselineName}}</b></span>
+      <span>current <b>{{.CurrentName}}</b></span>
+      <span>fail-on <b>{{.FailOn}}</b></span>
+    </div>
+  </div>
+
+  <div class="metric-grid">
+    <div class="metric-tile">
+      <div class="label">Regressions</div>
+      <div class="value {{if gt (countBad .Runners $.FailOnMS) 0}}bad{{else}}ok{{end}}" id="regCount">{{countBad .Runners $.FailOnMS}}</div>
+    </div>
+    <div class="metric-tile">
+      <div class="label">New spikes</div>
+      <div class="value {{if gt (countStatus .Spikes "new") 0}}bad{{else}}ok{{end}}">{{countStatus .Spikes "new"}}</div>
+    </div>
+    <div class="metric-tile">
+      <div class="label">Worsened spikes</div>
+      <div class="value {{if gt (countStatus .Spikes "worsened") 0}}bad{{else}}ok{{end}}">{{countStatus .Spikes "worsened"}}</div>
+    </div>
+    <div class="metric-tile">
+      <div class="label">Fixed spikes</div>
+      <div class="value ok">{{countStatus .Spikes "fixed"}}</div>
+    </div>
+  </div>
+
+  <h2 class="section-title">per-runner p99</h2>
+  <div class="panel">
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Runner</th>
+            <th>Baseline</th>
+            <th>Current</th>
+            <th>Change</th>
+            <th>Verdict</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Runners}}
+          <tr>
+            <td class="mono">{{.Name}}</td>
+            <td class="mono">{{.BaselineP99}}ms</td>
+            <td class="mono">{{.CurrentP99}}ms</td>
+            <td class="mono">{{if gt .PctChange 0}}+{{end}}{{.PctChange}}%</td>
+            <td>
+              {{if .Regressed $.FailOnMS}}
+                <span class="status-chip bad">regression</span>
+              {{else}}
+                <span class="status-chip ok">ok</span>
+              {{end}}
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h2 class="section-title">correlated spikes</h2>
+  <div class="panel">
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Bucket</th>
+            <th>Runner</th>
+            <th>Base HTTP</th>
+            <th>Base Storage</th>
+            <th>Cur HTTP</th>
+            <th>Cur Storage</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Spikes}}
+          <tr>
+            <td class="mono">{{.BucketTime}}</td>
+            <td class="mono">{{.Runner}}</td>
+            <td class="mono">{{if eq .BaselineStoreMS 0}}—{{else}}{{.BaselineHTTPMS}}ms{{end}}</td>
+            <td class="mono">{{if eq .BaselineStoreMS 0}}—{{else}}{{.BaselineStoreMS}}ms{{end}}</td>
+            <td class="mono">{{if eq .CurrentStoreMS 0}}—{{else}}{{.CurrentHTTPMS}}ms{{end}}</td>
+            <td class="mono">{{if eq .CurrentStoreMS 0}}—{{else}}{{.CurrentStoreMS}}ms{{end}}</td>
+            <td>
+              {{if eq .Status "new"}}<span class="status-chip bad">new</span>{{end}}
+              {{if eq .Status "fixed"}}<span class="status-chip ok">fixed</span>{{end}}
+              {{if eq .Status "worsened"}}<span class="status-chip bad">worsened</span>{{end}}
+              {{if eq .Status "improved"}}<span class="status-chip warn">improved</span>{{end}}
+              {{if eq .Status "unchanged"}}<span class="status-chip mute">unchanged</span>{{end}}
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {{if .Timeline.Series}}
+  <h2 class="section-title">latency timeline</h2>
+  <div class="panel">
+    <div class="panel-header">
+      <h2>p99 by bucket — baseline vs current</h2>
+      <span class="meta">p99 · ms</span>
+    </div>
+    <div class="chart-body">
+      <div class="legend">
+        {{range .Timeline.Series}}
+        <span class="legend-item"><span class="swatch dashed" style="color:{{timelineColor .Name}}"></span>{{.Name}} baseline</span>
+        <span class="legend-item"><span class="swatch" style="color:{{timelineColor .Name}}"></span>{{.Name}} current</span>
+        {{end}}
+      </div>
+      <div class="chart-container">
+        <canvas id="timelineChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const cLabels = [{{range .Timeline.Labels}}"{{.}}",{{end}}];
+    const cDatasets = [];
+    {{range .Timeline.Series}}
+    cDatasets.push({
+      label: "{{.Name}} baseline",
+      data: [{{range .Baseline}}{{if lt . 0}}null,{{else}}{{.}},{{end}}{{end}}],
+      borderColor: "{{timelineColor .Name}}",
+      borderDash: [4, 4],
+      backgroundColor: 'rgba(0,0,0,0)',
+      tension: 0.25,
+      pointRadius: 0,
+      borderWidth: 1.5,
+      spanGaps: false
+    });
+    cDatasets.push({
+      label: "{{.Name}} current",
+      data: [{{range .Current}}{{if lt . 0}}null,{{else}}{{.}},{{end}}{{end}}],
+      borderColor: "{{timelineColor .Name}}",
+      backgroundColor: 'rgba(0,0,0,0)',
+      tension: 0.25,
+      pointRadius: 2,
+      borderWidth: 2,
+      spanGaps: false
+    });
+    {{end}}
+
+    new Chart(document.getElementById('timelineChart'), {
+      type: 'line',
+      data: { labels: cLabels, datasets: cDatasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              font: { family: 'JetBrains Mono', size: 9 },
+              color: '#767676',
+              maxRotation: 45,
+              autoSkip: true,
+              maxTicksLimit: 12
+            }
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: 'rgba(255,255,255,0.06)' },
+            ticks: {
+              font: { family: 'JetBrains Mono', size: 9 },
+              color: '#767676',
+              callback: (v) => v + 'ms'
+            }
+          }
+        }
+      }
+    });
+  </script>
+  {{end}}
+
+  <footer>
+    <span>generated by barrage compare</span>
+    <span>baseline vs current · p99</span>
+  </footer>
+
+</div>
+</body>
+</html>

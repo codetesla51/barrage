@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -45,6 +46,14 @@ type runOptions struct {
 	verbose        bool
 }
 
+type compareOptions struct {
+	baseline string
+	current  string
+	failOn   time.Duration
+	report   string
+	open     bool
+}
+
 func main() {
 	if err := newRootCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -62,7 +71,7 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newRunCmd(), newVersionCmd())
+	root.AddCommand(newRunCmd(), newCompareCmd(), newVersionCmd())
 	return root
 }
 
@@ -90,6 +99,25 @@ func newRunCmd() *cobra.Command {
 	f.DurationVar(&opts.dbThreshold, "db-threshold", 100*time.Millisecond, "DB spike threshold for correlation")
 	f.DurationVar(&opts.redisThreshold, "redis-threshold", 100*time.Millisecond, "Redis spike threshold for correlation")
 	f.BoolVarP(&opts.verbose, "verbose", "v", false, "print per-bucket detail")
+	return cmd
+}
+
+func newCompareCmd() *cobra.Command {
+	opts := &compareOptions{}
+	cmd := &cobra.Command{
+		Use:   "compare",
+		Short: "Compare a baseline run against a current run",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCompare(opts)
+		},
+	}
+	f := cmd.Flags()
+	f.StringVar(&opts.baseline, "baseline", "", "path to the baseline JSON report")
+	f.StringVar(&opts.current, "current", "", "path to the current JSON report")
+	f.DurationVar(&opts.failOn, "fail-on", 100*time.Millisecond, "fail (exit non-zero) if a runner regresses above this latency budget")
+	f.StringVar(&opts.report, "report", "compare.html", "path for the HTML comparison report, or empty to skip it")
+	f.BoolVarP(&opts.open, "open", "o", false, "open the report in a browser after comparing")
 	return cmd
 }
 
@@ -172,6 +200,81 @@ func runLoadTest(opts *runOptions) error {
 			return fmt.Errorf("writing JSON: %w", err)
 		}
 		fmt.Printf("JSON written to %s\n", opts.jsonPath)
+	}
+	return nil
+}
+
+func loadJSONReport(path string) (*barrage.JSONReport, error) {
+	buf, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading report %q: %w", path, err)
+	}
+	var report barrage.JSONReport
+	if err := json.Unmarshal(buf, &report); err != nil {
+		return nil, fmt.Errorf("parsing report %q: %w", path, err)
+	}
+	return &report, nil
+}
+
+func runCompare(opts *compareOptions) error {
+	if opts.baseline == "" || opts.current == "" {
+		return errors.New("both --baseline and --current are required")
+	}
+
+	baseline, err := loadJSONReport(opts.baseline)
+	if err != nil {
+		return err
+	}
+	current, err := loadJSONReport(opts.current)
+	if err != nil {
+		return err
+	}
+
+	rows := barrage.CompareRun(baseline, current)
+	fmt.Println()
+	fmt.Printf("comparing %s -> %s (fail-on %s)\n", opts.baseline, opts.current, opts.failOn)
+
+	table := make([][]string, 0, len(rows))
+	var failed bool
+	for _, r := range rows {
+		verdict := "ok"
+		if r.Regressed(opts.failOn.Milliseconds()) {
+			verdict = "REGRESSION"
+			failed = true
+		}
+		table = append(table, []string{
+			r.Name,
+			fmt.Sprintf("%dms", r.BaselineP99),
+			fmt.Sprintf("%dms", r.CurrentP99),
+			fmt.Sprintf("%+d%%", r.PctChange),
+			verdict,
+		})
+	}
+	writeTable([]string{"RUNNER", "BASELINE_P99", "CURRENT_P99", "CHANGE", "VERDICT"}, table)
+
+	if opts.report != "" {
+		file, err := os.Create(opts.report)
+		if err != nil {
+			return fmt.Errorf("creating report %q: %w", opts.report, err)
+		}
+		data := barrage.NewCompareReportData(baseline, current, opts.failOn.Milliseconds())
+		data.BaselineName = opts.baseline
+		data.CurrentName = opts.current
+		if err := barrage.RenderCompare(data, "templates/compare.html", file); err != nil {
+			file.Close()
+			return fmt.Errorf("rendering compare report: %w", err)
+		}
+		file.Close()
+		fmt.Printf("Comparison report written to %s\n", opts.report)
+		if opts.open {
+			if err := openReport(opts.report); err != nil {
+				return fmt.Errorf("opening report: %w", err)
+			}
+		}
+	}
+
+	if failed {
+		return errors.New("regression detected against --fail-on budget")
 	}
 	return nil
 }
