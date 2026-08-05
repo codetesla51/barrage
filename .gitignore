@@ -1,6 +1,7 @@
 # Build artifacts
 /report.html
 /barrage
+/barrage.exe
 /bin/
 /dist/
 

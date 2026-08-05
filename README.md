@@ -47,6 +47,7 @@ go install github.com/codetesla51/barrage/cmd/barrage@latest
 barrage run                      # runs config.yaml, writes report.html
 barrage run -o                   # ...and opens the report in your browser
 barrage run --no-report --json results.json   # for CI, no browser needed
+barrage compare --baseline base.json --current new.json   # diff two runs
 ```
 
 Point `config.yaml` at your targets first (see [Configuration](#configuration)).
@@ -118,6 +119,7 @@ which layer spiked.
 | DB load | Yes | Usually no |
 | Redis load | Yes | Usually no |
 | Correlate latency | Yes | No |
+| Compare runs / CI gate | Yes | No |
 | HTML report | Yes | Varies |
 
 ## When to use Barrage
@@ -126,7 +128,9 @@ which layer spiked.
 - Testing database bottlenecks: missing indexes, connection-pool limits,
   query plans.
 - Comparing infrastructure changes before/after a migration or tuning pass.
-- Performance regression testing across releases.
+- Performance regression testing across releases: run a baseline, change the
+  code or infra, run again, and `barrage compare` the two JSON exports — with
+  `--fail-on`, a regression fails the pipeline.
 
 ## When Barrage is not the right tool
 
@@ -266,6 +270,50 @@ barrage run --http-threshold 150ms --db-threshold 250ms --redis-threshold 80ms  
 barrage run --no-report --json results.json                 # for CI pipelines
 barrage version                                            # print the version
 ```
+
+### Compare runs
+
+`barrage compare` diffs two runs produced by `barrage run --json`, so an earlier
+baseline can be checked against a later run — the missing piece for CI gating
+and regression checking across releases.
+
+```
+$ barrage compare --baseline base.json --current new.json --fail-on 100ms
+
+comparing base.json -> new.json (fail-on 100ms)
+RUNNER  BASELINE_P99  CURRENT_P99  CHANGE  VERDICT
+DB      80ms          100ms        +25%    ok
+HTTP    30ms          70ms         +133%   REGRESSION
+Redis   20ms          22ms         +10%    ok
+```
+
+Flags:
+
+```
+  -b, --baseline string      path to the baseline JSON report
+  -c, --current string       path to the current JSON report
+      --fail-on duration     fail (exit non-zero) if a runner regresses above this latency budget (default 100ms)
+  -o, --open                 open the report in a browser after comparing
+      --report string        path for the HTML comparison report (default "compare.html")
+```
+
+How it works:
+
+- **Per-runner diff.** Each runner's P99 is compared baseline→current with a
+  percentage change. A runner is flagged **REGRESSION** when its current P99
+  exceeds the `--fail-on` budget while its baseline was at or under it, so a
+  runner that was already slow isn't re-flagged every run. Any regression makes
+  `barrage compare` exit non-zero — the signal CI used to gate a deployment.
+- **Spike diff.** Each correlated spike in both runs is matched by
+  (runner, bucket time) and classified as **new**, **fixed**, **worsened**,
+  **improved**, or **unchanged**, so you can see both newly-introduced storage
+  bottlenecks and ones that were resolved.
+- **Overlaid timeline.** Both runs' per-bucket P99 latencies are aligned onto
+  one label axis in the HTML report (baseline dashed, current solid), so you can
+  see *where* in the run latency drifted.
+- **Exit code as CI gate.** Combined with `barrage run --no-report --json
+  baseline.json` and `--fail-on`, you can make an unstaged regression fail a
+  pipeline before it ships.
 
 Every `--` flag overrides its config counterpart.
 
