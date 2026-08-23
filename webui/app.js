@@ -1307,6 +1307,48 @@ function setMode(mode) {
   document.body.classList.toggle("simple-mode", mode === "simple");
   localStorage.setItem("barrage-mode", mode);
 }
+function initGutter() {
+  const gutter = $("#gutter"), split = $("#main-split");
+  if (!gutter || !split) return;
+  const saved = localStorage.getItem("barrage-split");
+  if (saved) split.style.setProperty("--left", saved);
+  let dragging = false;
+  const onMove = (e) => {
+    if (!dragging) return;
+    const rect = split.getBoundingClientRect();
+    const pct = ((e.clientX - rect.left) / rect.width) * 100;
+    const clamped = Math.min(72, Math.max(28, pct));
+    split.style.setProperty("--left", clamped + "%");
+  };
+  const stop = () => {
+    if (!dragging) return;
+    dragging = false;
+    gutter.classList.remove("dragging");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    localStorage.setItem("barrage-split", split.style.getPropertyValue("--left"));
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", stop);
+  };
+  gutter.addEventListener("mousedown", (e) => {
+    dragging = true;
+    gutter.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", stop);
+    e.preventDefault();
+  });
+  gutter.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const cur = parseFloat(getComputedStyle(split).getPropertyValue("--left")) || 54;
+    const next = e.key === "ArrowLeft" ? cur - 2 : cur + 2;
+    const clamped = Math.min(72, Math.max(28, next));
+    split.style.setProperty("--left", clamped + "%");
+    localStorage.setItem("barrage-split", clamped + "%");
+    e.preventDefault();
+  });
+}
 function init() {
   applyTheme(localStorage.getItem("barrage-theme") || "dark");
   setMode(localStorage.getItem("barrage-mode") || "simple");
@@ -1317,6 +1359,7 @@ function init() {
     $("#compare-view").hidden = false;
     refreshRecentRuns();
   });
+  initGutter();
   bindStaticFields();
 
   $("#btn-theme").addEventListener("click", () =>
