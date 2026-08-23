@@ -83,6 +83,7 @@ func (s *UIServer) ListenAndServe() error {
 	mux.HandleFunc("GET /api/runs/{id}/report", s.handleRunReport)
 	mux.HandleFunc("GET /api/runs/{id}/json", s.handleRunJSON)
 	mux.HandleFunc("POST /api/compare", s.handleCompare)
+	mux.HandleFunc("POST /api/compare-upload", s.handleCompareUpload)
 
 	srv := &http.Server{
 		Addr:              s.addr,
@@ -448,6 +449,60 @@ func (s *UIServer) handleCompare(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	timeline := BuildCompareTimeline(baseline, current)
+	writeJSON(w, map[string]any{
+		"fail_on_ms":  failOn,
+		"regressions": regressions,
+		"rows":        outRows,
+		"spikes":      outSpikes,
+		"timeline":    timeline,
+	})
+}
+
+func (s *UIServer) handleCompareUpload(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Baseline   json.RawMessage `json:"baseline"`
+		Current    json.RawMessage `json:"current"`
+		FailOnMS   int64           `json:"fail_on_ms"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20*5)).Decode(&req); err != nil {
+		s.writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	var baseline, current JSONReport
+	if err := json.Unmarshal(req.Baseline, &baseline); err != nil {
+		s.writeErr(w, http.StatusBadRequest, "baseline: invalid report JSON")
+		return
+	}
+	if err := json.Unmarshal(req.Current, &current); err != nil {
+		s.writeErr(w, http.StatusBadRequest, "current: invalid report JSON")
+		return
+	}
+	failOn := req.FailOnMS
+	if failOn <= 0 {
+		failOn = 100
+	}
+	rows := CompareRun(&baseline, &current)
+	regressions := 0
+	outRows := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		reg := row.Regressed(failOn)
+		if reg {
+			regressions++
+		}
+		outRows = append(outRows, map[string]any{
+			"name": row.Name, "baseline_p99_ms": row.BaselineP99,
+			"current_p99_ms": row.CurrentP99, "pct_change": row.PctChange,
+			"regressed": reg,
+		})
+	}
+	spikes := CompareSpikes(&baseline, &current)
+	outSpikes := make([]map[string]any, 0, len(spikes))
+	for _, sp := range spikes {
+		outSpikes = append(outSpikes, map[string]any{
+			"bucket_time": sp.BucketTime, "runner": sp.Runner, "status": sp.Status,
+		})
+	}
+	timeline := BuildCompareTimeline(&baseline, &current)
 	writeJSON(w, map[string]any{
 		"fail_on_ms":  failOn,
 		"regressions": regressions,

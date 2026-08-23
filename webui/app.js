@@ -203,11 +203,57 @@ function yamlHighlight(code) {
 }
 
 let previewTimer = null;
+let yamlEditMode = false;
+let suppressEditorSync = false;
 function updatePreview() {
+  if (yamlEditMode) return;
   clearTimeout(previewTimer);
   previewTimer = setTimeout(() => {
     $("#yaml-code").innerHTML = yamlHighlight(generateYAML());
+    if (!suppressEditorSync) $("#yaml-editor").value = generateYAML();
   }, 50);
+}
+function setYamlMode(mode) {
+  yamlEditMode = mode === "edit";
+  $("#preview-view").hidden = yamlEditMode;
+  $("#editor-view").hidden = !yamlEditMode;
+  $$(".preview-tabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.ptab === mode));
+  if (yamlEditMode) {
+    suppressEditorSync = true;
+    $("#yaml-editor").value = generateYAML();
+    $("#editor-status").textContent = "editing — form updates live as you type";
+    $("#yaml-editor").focus();
+    setTimeout(() => (suppressEditorSync = false), 100);
+  }
+}
+let yamlEditDebounce = null;
+function onYamlEdited() {
+  clearTimeout(yamlEditDebounce);
+  const raw = $("#yaml-editor").value;
+  yamlEditDebounce = setTimeout(() => {
+    if (raw.trim() === "") { $("#editor-status").textContent = "empty — form unchanged"; return; }
+    const ok = tryApplyYaml(raw, true);
+    $("#editor-status").textContent = ok ? "✓ synced to form" : $("#editor-status").textContent;
+  }, 400);
+}
+function tryApplyYaml(raw, live) {
+  if (typeof jsyaml === "undefined") {
+    $("#editor-status").textContent = "yaml parser not loaded — reload";
+    return false;
+  }
+  let doc;
+  try { doc = jsyaml.load(raw); } catch (e) {
+    $("#editor-status").textContent = "✗ " + e.message.split("\n")[0];
+    return false;
+  }
+  if (typeof doc !== "object" || doc === null) {
+    if (!live) $("#editor-status").textContent = "config is empty";
+    return false;
+  }
+  const prev = JSON.stringify(state);
+  const ok = importIntoState(raw, true);
+  if (ok && JSON.stringify(state) !== prev) $("#editor-status").textContent = "✓ synced to form";
+  return ok;
 }
 
 /* ---------- validation ---------- */
@@ -657,20 +703,23 @@ function hydrateFormFromState() {
 function openModal(id) { document.querySelector(id).showModal(); }
 function closeModal(id) { document.querySelector(id).close(); }
 
-function importIntoState(raw) {
+function importIntoState(raw, silent) {
   let doc;
   if (typeof jsyaml === "undefined") {
-    $("#import-errors").textContent = "yaml parser failed to load from CDN — check your connection and reload";
+    const msg = "yaml parser failed to load from CDN — check your connection and reload";
+    if (silent) $("#editor-status").textContent = msg; else $("#import-errors").textContent = msg;
     return false;
   }
   try {
     doc = jsyaml.load(raw);
   } catch (e) {
-    $("#import-errors").textContent = "yaml parse error: " + e.message;
+    const msg = "yaml parse error: " + e.message;
+    if (silent) $("#editor-status").textContent = "✗ " + e.message.split("\n")[0]; else $("#import-errors").textContent = msg;
     return false;
   }
   if (typeof doc !== "object" || doc === null) {
-    $("#import-errors").textContent = "config is empty";
+    const msg = "config is empty";
+    if (silent) $("#editor-status").textContent = msg; else $("#import-errors").textContent = msg;
     return false;
   }
 
@@ -726,11 +775,17 @@ function importIntoState(raw) {
   }
 
   state = next;
-  $("#import-errors").textContent =
-    unknown.length > 0 ? "ignored unknown keys (rejected server-side too): " + unknown.join(", ") : "";
-  closeModal("#import-modal");
+  if (!silent) {
+    $("#import-errors").textContent =
+      unknown.length > 0 ? "ignored unknown keys (rejected server-side too): " + unknown.join(", ") : "";
+    closeModal("#import-modal");
+  } else if (unknown.length > 0) {
+    $("#editor-status").textContent = "⚠ ignored keys: " + unknown.join(", ");
+  }
+  suppressEditorSync = true;
   hydrateFormFromState();
-  toast("yaml imported — check the highlighted fields", "ok");
+  setTimeout(() => (suppressEditorSync = false), 100);
+  if (!silent) toast("yaml imported — check the highlighted fields", "ok");
   return true;
 }
 
@@ -996,6 +1051,66 @@ function updateCompareButton() {
 
 /* ---------- compare view ---------- */
 
+let compareUploadBaseline = null;
+let compareUploadCurrent = null;
+
+async function runCompareUpload() {
+  if (!compareUploadBaseline || !compareUploadCurrent) return;
+  const failOnMs = Math.round(parseDurSec($("#fail-on").value) * 1000) || 100;
+  let data;
+  try {
+    data = await api("/api/compare-upload", {
+      method: "POST",
+      body: JSON.stringify({ baseline: compareUploadBaseline, current: compareUploadCurrent, fail_on_ms: failOnMs }),
+    });
+  } catch (e) { toast(e.message, "err"); return; }
+  renderCompareResult(data);
+}
+function renderCompareResult(data) {
+  const banner = $("#compare-banner");
+  if (data.regressions === 0) {
+    banner.className = "banner ok";
+    banner.textContent = "No regressions found — this run performed the same or better than baseline.";
+  } else {
+    const names = data.rows.filter((r) => r.regressed).map((r) => r.name).join(", ");
+    banner.className = "banner err";
+    banner.textContent = `${data.regressions} regression${data.regressions > 1 ? "s" : ""} found — ${names} got slower than the budget allows.`;
+  }
+  const tbody = $("#diff-table tbody");
+  tbody.innerHTML = "";
+  for (const r of data.rows) {
+    const verdict = r.regressed
+      ? el("span", { class: "verdict-tag" }, el("span", { class: "badge reg", text: "REGRESSION" }), el("span", { class: "spike-plain", text: "Got slower ⚠" }))
+      : el("span", { class: "verdict-tag" }, el("span", { class: "badge ok", text: "ok" }), el("span", { class: "spike-plain", text: "Within budget" }));
+    tbody.append(el("tr", {},
+      el("td", { text: r.name }),
+      el("td", { class: "mono", text: `${r.baseline_p99_ms}ms` }),
+      el("td", { class: "mono", text: `${r.current_p99_ms}ms` }),
+      el("td", { class: "mono", text: `${r.pct_change >= 0 ? "+" : ""}${r.pct_change}%` }),
+      el("td", {}, verdict)));
+  }
+  const spikeText = {
+    new: "New slow spot appeared in this run.",
+    fixed: "This slow spot is gone compared to last time.",
+    worsened: "This slow spot got worse compared to last time.",
+    improved: "This slow spot got better compared to last time.",
+    unchanged: "Same slow spot as last time.",
+  };
+  const ul = $("#spike-list");
+  ul.innerHTML = "";
+  if (data.spikes.length === 0) ul.append(el("li", { class: "spike-plain", text: "No correlated spikes in either run." }));
+  for (const sp of data.spikes) {
+    ul.append(el("li", { class: "spike-row" },
+      el("span", { class: "mono", text: sp.bucket_time }),
+      el("span", { class: "badge reg", text: sp.runner }),
+      el("span", { class: "badge reg", text: sp.status }),
+      el("span", { class: "spike-plain", text: spikeText[sp.status] || "" })));
+  }
+  $("#main-split").hidden = true;
+  $("#report-view").hidden = true;
+  $("#compare-view").hidden = false;
+}
+
 async function runCompare() {
   const [a, b] = selectedRuns();
   // older id = baseline (ids are millisecond timestamps)
@@ -1014,51 +1129,7 @@ async function runCompare() {
     return;
   }
 
-  const banner = $("#compare-banner");
-  if (data.regressions === 0) {
-    banner.className = "banner ok";
-    banner.textContent = "No regressions found — this run performed the same or better than baseline.";
-  } else {
-    const names = data.rows.filter((r) => r.regressed).map((r) => r.name).join(", ");
-    banner.className = "banner err";
-    banner.textContent = `${data.regressions} regression${data.regressions > 1 ? "s" : ""} found — ${names} got slower than the budget allows.`;
-  }
-
-  const tbody = $("#diff-table tbody");
-  tbody.innerHTML = "";
-  for (const r of data.rows) {
-    const verdict = r.regressed
-      ? el("span", { class: "verdict-tag" }, el("span", { class: "badge reg", text: "REGRESSION" }), el("span", { class: "spike-plain", text: "Got slower ⚠" }))
-      : el("span", { class: "verdict-tag" }, el("span", { class: "badge ok", text: "ok" }), el("span", { class: "spike-plain", text: "Within budget" }));
-    tbody.append(el("tr", {},
-      el("td", { text: r.name }),
-      el("td", { class: "mono", text: `${r.baseline_p99_ms}ms` }),
-      el("td", { class: "mono", text: `${r.current_p99_ms}ms` }),
-      el("td", { class: "mono", text: `${r.pct_change >= 0 ? "+" : ""}${r.pct_change}%` }),
-      el("td", {}, verdict)));
-  }
-
-  const spikeText = {
-    new: "New slow spot appeared in this run.",
-    fixed: "This slow spot is gone compared to last time.",
-    worsened: "This slow spot got worse compared to last time.",
-    improved: "This slow spot got better compared to last time.",
-    unchanged: "Same slow spot as last time.",
-  };
-  const ul = $("#spike-list");
-  ul.innerHTML = "";
-  if (data.spikes.length === 0) ul.append(el("li", { class: "spike-plain", text: "No correlated spikes in either run." }));
-  for (const sp of data.spikes) {
-    ul.append(el("li", { class: "spike-row" },
-      el("span", { class: "mono", text: sp.bucket_time }),
-      el("span", { class: "badge reg", text: sp.runner }),
-      el("span", { class: "badge reg", text: sp.status }),
-      el("span", { class: "spike-plain", text: spikeText[sp.status] || "" })));
-  }
-
-  $("#main-split").hidden = true;
-  $("#report-view").hidden = true;
-  $("#compare-view").hidden = false;
+  renderCompareResult(data);
 }
 
 /* ---------- theme ---------- */
@@ -1130,6 +1201,28 @@ function init() {
     $("#recent-panel").hidden = true;
     runCompare();
   });
+  // compare via uploaded files
+  const baselineFile = $("#compare-baseline-file");
+  const currentFile = $("#compare-current-file");
+  function readReportFile(file) {
+    return new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => { try { res(JSON.parse(r.result)); } catch (e) { rej(e); } };
+      r.onerror = () => rej(new Error("read failed"));
+      r.readAsText(file);
+    });
+  }
+  baselineFile.addEventListener("change", async () => {
+    $("#compare-baseline-name").textContent = baselineFile.files[0]?.name || "";
+    try { compareUploadBaseline = baselineFile.files[0] ? await readReportFile(baselineFile.files[0]) : null; } catch (e) { toast("baseline: invalid JSON", "err"); compareUploadBaseline = null; }
+    $("#btn-compare-upload").disabled = !(compareUploadBaseline && compareUploadCurrent);
+  });
+  currentFile.addEventListener("change", async () => {
+    $("#compare-current-name").textContent = currentFile.files[0]?.name || "";
+    try { compareUploadCurrent = currentFile.files[0] ? await readReportFile(currentFile.files[0]) : null; } catch (e) { toast("current: invalid JSON", "err"); compareUploadCurrent = null; }
+    $("#btn-compare-upload").disabled = !(compareUploadBaseline && compareUploadCurrent);
+  });
+  $("#btn-compare-upload").addEventListener("click", runCompareUpload);
 
   // recent runs dropdown
   const panel = $("#recent-panel");
@@ -1141,6 +1234,9 @@ function init() {
     if (!panel.hidden && !panel.contains(e.target) && !$("#btn-recent").contains(e.target)) panel.hidden = true;
   });
 
+  // yaml live editor
+  $$(".preview-tabs .tab").forEach((t) => t.addEventListener("click", () => setYamlMode(t.dataset.ptab)));
+  $("#yaml-editor").addEventListener("input", onYamlEdited);
   // help
   $("#btn-help").addEventListener("click", () => openModal("#help-modal"));
   $("#btn-help-close").addEventListener("click", () => closeModal("#help-modal"));

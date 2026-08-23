@@ -221,10 +221,18 @@
     <div class="preview-head">
       <span class="filetab"><span class="fdot"></span> config.yaml</span>
       <span class="spacer"></span>
+      <div class="preview-tabs">
+        <button class="tab tiny active" data-ptab="preview" id="ptab-preview">preview</button>
+        <button class="tab tiny" data-ptab="edit" id="ptab-edit">edit</button>
+      </div>
       <button class="btn tiny ghost" id="btn-copy-yaml"><i class="ph ph-copy" aria-hidden="true"></i> copy</button>
       <button class="btn tiny ghost" id="btn-download-yaml"><i class="ph ph-download-simple" aria-hidden="true"></i> download</button>
     </div>
-    <div class="preview-scroll"><pre class="yaml-preview"><code id="yaml-code"></code></pre></div>
+    <div class="preview-scroll" id="preview-view"><pre class="yaml-preview"><code id="yaml-code"></code></pre></div>
+    <div class="editor-wrap" id="editor-view" hidden>
+      <textarea class="yaml-editor mono" id="yaml-editor" spellcheck="false" placeholder="paste or write yaml here — form updates live"></textarea>
+      <div class="editor-status mono dim" id="editor-status"></div>
+    </div>
   </aside>
 </main>
 
@@ -271,6 +279,20 @@
     <label class="failon mono">fail_on <input id="fail-on" value="100ms"></label>
   </div>
   <div class="compare-scroll">
+    <div class="compare-upload">
+      <div class="upload-col">
+        <label class="eyebrow">baseline report <span class="dim">(results.json)</span></label>
+        <input type="file" id="compare-baseline-file" accept=".json">
+        <span class="mono dim" id="compare-baseline-name"></span>
+      </div>
+      <div class="upload-col">
+        <label class="eyebrow">current report <span class="dim">(results.json)</span></label>
+        <input type="file" id="compare-current-file" accept=".json">
+        <span class="mono dim" id="compare-current-name"></span>
+      </div>
+      <button class="btn primary" id="btn-compare-upload" disabled><i class="ph ph-upload-simple" aria-hidden="true"></i> compare files</button>
+    </div>
+    <div class="compare-divider"><span class="dim mono">or pick from recent runs above</span></div>
     <div id="compare-banner" class="banner" role="status"></div>
     <table class="diff-table" id="diff-table">
       <thead><tr><th>RUNNER</th><th>BASELINE_P99</th><th>CURRENT_P99</th><th>CHANGE</th><th>VERDICT</th></tr></thead>
