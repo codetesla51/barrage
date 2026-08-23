@@ -1292,8 +1292,21 @@ function downloadYAML() {
 
 /* ---------- wiring ---------- */
 
+function setMode(mode) {
+  $$(".mode-tab").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+  document.body.classList.toggle("simple-mode", mode === "simple");
+  localStorage.setItem("barrage-mode", mode);
+}
 function init() {
   applyTheme(localStorage.getItem("barrage-theme") || "dark");
+  setMode(localStorage.getItem("barrage-mode") || "simple");
+  $$(".mode-tab").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+  $("#btn-compare-nav").addEventListener("click", () => {
+    $("#main-split").hidden = true;
+    $("#report-view").hidden = true;
+    $("#compare-view").hidden = false;
+    refreshRecentRuns();
+  });
   bindStaticFields();
 
   $("#btn-theme").addEventListener("click", () =>

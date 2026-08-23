@@ -25,6 +25,9 @@
   </div>
 
   <div class="topbar-actions">
+    <button class="btn ghost" id="btn-compare-nav" title="Compare two reports">
+      <i class="ph ph-git-diff" aria-hidden="true"></i><span>compare</span>
+    </button>
     <button class="btn ghost" id="btn-recent" title="Recent runs (Ctrl+K)">
       <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i><span>runs</span>
     </button>
@@ -57,6 +60,14 @@
   <section class="panel form-panel" aria-label="Config form">
     <div class="form-scroll">
 
+      <div class="mode-row">
+        <span class="presets-label">mode:</span>
+        <div class="mode-tabs" role="group" aria-label="Mode">
+          <button class="mode-tab active" data-mode="simple">simple</button>
+          <button class="mode-tab" data-mode="advanced">advanced</button>
+        </div>
+        <span class="dim" style="font-size:11px;margin-left:10px">simple hides the tricky bits</span>
+      </div>
       <div class="presets" role="group" aria-label="Presets">
         <span class="presets-label">start from:</span>
         <button class="preset-card" data-preset="http" type="button"><i class="ph ph-globe" aria-hidden="true"></i>HTTP only</button>
@@ -73,18 +84,19 @@
 
       <!-- run settings -->
       <fieldset class="section" id="sec-global">
+        <div class="simple-hint dim" data-simple-only>Quick start — just pick a preset above and hit Run. Advanced settings are hidden in simple mode.</div>
         <legend class="section-head">
           <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>
           run settings
         </legend>
         <div class="card-body">
           <div class="grid-4">
-            <label>duration<input class="mono" name="duration" value="15s" autocomplete="off"><small class="dim">total run length</small></label>
-            <label>bucket_width<input class="mono" name="bucket_width" value="1s" autocomplete="off"><small class="dim">timeline bucket size</small></label>
-            <label>ramp<input class="mono" name="ramp" value="3s" autocomplete="off"><small class="dim">0 = off</small></label>
-            <label>concurrency<input class="mono" name="concurrency" type="number" min="0" value="10" autocomplete="off"><small class="dim">in-flight per runner</small></label>
+            <label>duration <span class="label-friendly">— how long to test</span><input class="mono" name="duration" value="15s" autocomplete="off"><small class="dim">e.g. 15s, 1m, 30s</small></label>
+            <label class="adv">bucket_width <span class="label-friendly dim">— chart detail</span><input class="mono" name="bucket_width" value="1s" autocomplete="off"><small class="dim">timeline bucket size</small></label>
+            <label class="adv">ramp <span class="label-friendly dim">— warm-up</span><input class="mono" name="ramp" value="3s" autocomplete="off"><small class="dim">0 = off</small></label>
+            <label>concurrency <span class="label-friendly">— parallel users</span><input class="mono" name="concurrency" type="number" min="0" value="10" autocomplete="off"><small class="dim">parallel users</small></label>
           </div>
-          <div class="grid-3 thresholds">
+          <div class="grid-3 thresholds adv">
             <label title="Flag HTTP as a spike if its P99 crosses this value">http_threshold<input class="mono" name="http_threshold" value="100ms"><small class="dim">spike budget</small></label>
             <label title="Flag DB as a spike if its P99 crosses this value">db_threshold<input class="mono" name="db_threshold" value="100ms"><small class="dim">spike budget</small></label>
             <label title="Flag Redis as a spike if its P99 crosses this value">redis_threshold<input class="mono" name="redis_threshold" value="100ms"><small class="dim">spike budget</small></label>
@@ -114,9 +126,9 @@
             </label>
             <label class="grow">url<input class="mono" name="http-url" placeholder="http://localhost:8080/api/orders" autocomplete="off"><small class="dim">required</small></label>
           </div>
-          <label>body<textarea class="mono" name="http-body" rows="2" placeholder='{"customer": 42}' spellcheck="false"></textarea><small class="dim">optional request body</small></label>
-          <div class="repeatable">
-            <span class="eyebrow">headers <span class="dim">(values are lists)</span></span>
+          <label class="adv">body — optional <span class="dim">what to send</span><textarea class="mono" name="http-body" rows="2" placeholder='{"customer": 42}' spellcheck="false"></textarea><small class="dim">JSON or text to send</small></label>
+          <div class="repeatable adv">
+            <span class="eyebrow">headers <span class="dim">— only if your API needs them</span></span>
             <div id="http-headers" class="rows"></div>
             <button class="btn tiny add-row" data-add="http-header" type="button"><i class="ph ph-plus" aria-hidden="true"></i> header</button>
           </div>
@@ -332,8 +344,11 @@
 <!-- import modal -->
 <dialog class="modal" id="import-modal">
   <h2 class="modal-title"><i class="ph ph-upload-simple" aria-hidden="true"></i> import yaml</h2>
-  <input type="file" id="import-file" accept=".yaml,.yml,.txt">
-  <textarea class="mono" id="import-text" rows="12" placeholder="paste a config.yaml here…" spellcheck="false"></textarea>
+  <div class="import-stack">
+    <label class="eyebrow">drop a file <span class="dim">— .yaml, .yml</span><input type="file" id="import-file" accept=".yaml,.yml,.txt"></label>
+    <span class="dim" style="text-align:center;font-size:12px">or paste below</span>
+    <textarea class="mono" id="import-text" rows="12" placeholder="paste a config.yaml here…" spellcheck="false"></textarea>
+  </div>
   <p class="import-errors" id="import-errors" role="alert"></p>
   <div class="modal-actions">
     <span class="spacer"></span>
