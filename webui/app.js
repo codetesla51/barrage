@@ -855,10 +855,13 @@ async function startRun() {
 
 function beginPolling(id, durationS) {
   const clock = $("#run-clock");
-  clock.hidden = false;
-  clock.classList.add("live");
+  clock.hidden = true; // runner log replaces nav clock to avoid duplication
   $("#btn-run").disabled = true;
-  // live overlay
+  // live inline log + overlay bar
+  const rlog = $("#runner-log");
+  rlog.hidden = false;
+  $("#log-body").innerHTML = "";
+  appendLogLine("starting", "warming up runners");
   $("#live-overlay").hidden = false;
   $("#live-runners").textContent = liveRunnersText();
   $("#live-hint").textContent = "firing requests — hang tight";
@@ -873,10 +876,24 @@ function beginPolling(id, durationS) {
       $("#clock-duration").textContent = `of ${Math.round(st.duration_s)}s`;
       const pct = Math.min(100, (st.elapsed_s / Math.max(1, st.duration_s)) * 100);
       $("#progress span").style.width = pct + "%";
-      // live overlay updates
+      // live overlay + runner log updates
       $("#live-elapsed").textContent = `${elapsed}s / ${Math.round(st.duration_s)}s`;
       $("#live-bar-fill").style.width = pct + "%";
       $("#live-title").textContent = st.state === "running" ? `running — ${elapsed}s` : st.state;
+      $("#log-elapsed").textContent = `${elapsed}s`;
+      if (st.state === "running") {
+        const est = liveEstimateLine(elapsed);
+        // replace last estimate line rather than spamming
+        const body = $("#log-body");
+        const last = body.lastElementChild;
+        if (last && last.dataset.est === "1") last.remove();
+        const line = el("div", { class: "log-line" },
+          el("span", { class: "log-time", text: `${elapsed}s` }),
+          el("span", { text: est }));
+        line.dataset.est = "1";
+        body.append(line);
+        body.scrollTop = body.scrollHeight;
+      }
 
       if (st.state !== "running") {
         clearInterval(pollTimer);
@@ -884,6 +901,9 @@ function beginPolling(id, durationS) {
         clock.classList.remove("live");
         $("#progress span").style.width = "0%";
         $("#live-overlay").hidden = true;
+        if (st.state === "done") appendLogLine(`${elapsed}s`, "done — building report");
+        else appendLogLine(`${elapsed}s`, `error: ${st.error || "unknown"}`);
+        setTimeout(() => { $("#runner-log").hidden = true; }, 2500);
         $("#btn-run").disabled = validateState().length > 0;
         refreshRecentRuns();
 
@@ -910,6 +930,81 @@ function liveRunnersText() {
   if (scn.length) parts.push(scn.map((s) => s.name || "scenario").join(" · "));
   return parts.join("  ·  ") || "preparing runners";
 }
+function appendLogLine(time, msg) {
+  const body = $("#log-body");
+  body.append(el("div", { class: "log-line" }, el("span", { class: "log-time", text: time }), el("span", { text: msg })));
+  body.scrollTop = body.scrollHeight;
+}
+function liveEstimateLine(elapsed) {
+  const parts = [];
+  if (state.http.on) parts.push(`http ~${Math.round(state.http.rate * elapsed)} reqs`);
+  if (state.db.on) parts.push(`db ~${Math.round(state.db.rate * elapsed)} q`);
+  if (state.redis.on) parts.push(`redis ~${Math.round(state.redis.rate * elapsed)} cmds`);
+  const scn = state.scenarios.filter((s) => s.on);
+  if (scn.length) parts.push(`${state.concurrency} VUs × ${scn.length} scenario(s)`);
+  return parts.join(" · ") || "running";
+}
+
+let latencyChart = null, throughputChart = null;
+function renderFriendlyCharts(timeline, runners) {
+  const sec = $("#chart-section");
+  if (!timeline || !timeline.labels || timeline.labels.length === 0 || !runners || runners.length === 0) {
+    sec.hidden = true; return;
+  }
+  sec.hidden = false;
+  if (typeof Chart === "undefined") return;
+  const isDark = document.documentElement.dataset.theme === "dark";
+  const gridColor = isDark ? "#262626" : "#e6e6e6";
+  const tickColor = isDark ? "#7a7a7a" : "#6b6b6b";
+
+  // latency chart — p99 per bucket
+  const ctx1 = $("#latency-chart").getContext("2d");
+  if (latencyChart) latencyChart.destroy();
+  const pal = ["#8a8a8a","#4a4a4a","#bdbdbd","#2a2a2a","#6e6e6e","#c8c8c8"];
+  const dashes = [[], [6,4], [2,3], [8,4,2,4]];
+  const ds1 = (timeline.series || []).map((s, i) => ({
+    label: s.name,
+    data: s.p99_ms.map((v) => v === -1 ? null : v),
+    borderColor: pal[i % pal.length],
+    backgroundColor: pal[i % pal.length],
+    borderDash: dashes[i % dashes.length],
+    tension: 0.25, pointRadius: 0, spanGaps: true,
+  }));
+  latencyChart = new Chart(ctx1, {
+    type: "line",
+    data: { labels: timeline.labels, datasets: ds1 },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: tickColor, boxWidth: 14, font: { family: "Geist Mono Variable" } } } },
+      scales: {
+        x: { grid: { color: gridColor }, ticks: { color: tickColor, maxTicksLimit: 8 } },
+        y: { grid: { color: gridColor }, ticks: { color: tickColor }, title: { display: true, text: "p99 (ms)", color: tickColor } },
+      },
+    },
+  });
+
+  // throughput chart — rate vs throughput aggregate
+  const ctx2 = $("#throughput-chart").getContext("2d");
+  if (throughputChart) throughputChart.destroy();
+  throughputChart = new Chart(ctx2, {
+    type: "bar",
+    data: {
+      labels: runners.map((r) => r.name),
+      datasets: [
+        { label: "rate (target)", data: runners.map((r) => r.rate || 0), backgroundColor: isDark ? "#3a3a3a" : "#d9d9d9", borderColor: isDark ? "#5a5a5a" : "#9a9a9a", borderWidth: 1 },
+        { label: "throughput (achieved)", data: runners.map((r) => r.throughput || 0), backgroundColor: isDark ? "#8a8a8a" : "#4a4a4a" },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: tickColor, font: { family: "Geist Mono Variable" } } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: tickColor } },
+        y: { grid: { color: gridColor }, ticks: { color: tickColor }, title: { display: true, text: "req/s", color: tickColor } },
+      },
+    },
+  });
+}
 
 async function buildFriendlyReport(id) {
   const wrap = $("#friendly-report");
@@ -918,20 +1013,57 @@ async function buildFriendlyReport(id) {
     const data = await api(`/api/runs/${id}/json`);
     const runners = data.runners || [];
     const spikes = data.spikes || [];
+    const timeline = data.timeline || { labels: [], series: [] };
     const duration = data.duration || "?";
+    const ramp = data.ramp || "0s";
     const totalReqs = runners.reduce((a, r) => a + (r.requests || 0), 0);
-    const worst = runners.slice().sort((a, b) => b.p99_ms - a.p99_ms)[0];
-    const bottleneck = worst ? worst.name : "none";
-    const broken = runners.filter((r) => r.success_percent < 99).map((r) => r.name);
-    const ok = runners.filter((r) => r.success_percent >= 99).map((r) => r.name);
 
-    const verdict = spikes.length === 0 && broken.length === 0
-      ? { title: "All good — nothing was broken", tone: "ok", detail: `Your test ran clean for ${duration}. Every runner stayed under budget and success stayed high.` }
-      : spikes.length > 0
-        ? { title: `Bottleneck: ${bottleneck} was the slowest`, tone: "err", detail: `${spikes.length} spike(s) crossed budget. ${bottleneck} hit p99 ${worst.p99_ms}ms — that's where time went.` }
-        : { title: `${broken.join(", ")} had errors`, tone: "err", detail: `Success dipped on ${broken.join(", ")} — check status codes and timeouts.` };
-
+    // ---- exhaustive case coverage ----
     wrap.innerHTML = "";
+    if (runners.length === 0) {
+      wrap.append(el("div", { class: "friendly-hero err" },
+        el("h2", { text: "No data — no runners returned results" }),
+        el("p", { text: "The run produced no requests. Check that at least one runner was enabled and targets were reachable." })));
+      renderFriendlyCharts(timeline, runners);
+      return;
+    }
+    if (totalReqs === 0) {
+      wrap.append(el("div", { class: "friendly-hero err" },
+        el("h2", { text: "Zero requests — targets unreachable?" }),
+        el("p", { text: "Runners were configured but sent nothing. Verify urls, db conn strings, and redis addr." })));
+      renderFriendlyCharts(timeline, runners);
+      return;
+    }
+
+    const worst = runners.slice().sort((a, b) => b.p99_ms - a.p99_ms)[0];
+    const best = runners.slice().sort((a, b) => a.p99_ms - b.p99_ms)[0];
+    const bottleneck = worst ? worst.name : "none";
+    const broken = runners.filter((r) => r.success_percent < 99);
+    const severelyBroken = runners.filter((r) => r.success_percent < 90);
+    const ok = runners.filter((r) => r.success_percent >= 99);
+    const maskedSpikes = spikes.filter((s) => s.masked);
+    const correlatedSpikes = spikes.filter((s) => !s.masked);
+    const lowVolume = runners.some((r) => r.requests < 20);
+    const throttled = runners.filter((r) => r.throughput > 0 && r.rate > 0 && r.throughput / r.rate < 0.85);
+
+    // verdict — every combination gets a distinct “case”
+    let verdict;
+    if (spikes.length === 0 && broken.length === 0) {
+      if (worst.p99_ms < 100) verdict = { title: "All good — fast and clean", tone: "ok", detail: `Clean run for ${duration}. Fast (p99 ${worst.p99_ms}ms on ${worst.name}) and 100% success — nothing to fix.` };
+      else if (worst.p99_ms < 300) verdict = { title: "Healthy but a bit warm", tone: "ok", detail: `No spikes or errors, but ${worst.name} averaged p99 ${worst.p99_ms}ms — watch it as load grows.` };
+      else verdict = { title: `Steady but slow — ${bottleneck} is warm`, tone: "ok", detail: `No threshold spikes, yet ${bottleneck} p99 ${worst.p99_ms}ms is heavy. Consider lowering the budget or tuning ${bottleneck}.` };
+    } else if (broken.length > 0 && spikes.length === 0) {
+      if (severelyBroken.length > 0) verdict = { title: `${severelyBroken.map((r) => r.name).join(", ")} is failing`, tone: "err", detail: `Errors without latency spikes — fast failures (timeouts, refused, 4xx/5xx). ${severelyBroken.map((r) => `${r.name}: ${r.success_percent.toFixed(1)}%`).join(", ")} . Check status codes.` };
+      else verdict = { title: `${broken.map((r) => r.name).join(", ")} had a few errors`, tone: "err", detail: `${broken.map((r) => `${r.name} ${r.success_percent.toFixed(1)}%`).join(", ")} — occasional failures under load, no clear latency bottleneck.` };
+    } else if (spikes.length > 0 && broken.length === 0) {
+      if (maskedSpikes.length === spikes.length) verdict = { title: `Storage hiccup — app held`, tone: "ok", detail: `${maskedSpikes.length} masked spike(s): ${maskedSpikes.map((s) => s.runner).join(", ")} spiked but http stayed under budget. App absorbed it — for now.` };
+      else if (correlatedSpikes.length > 0 && maskedSpikes.length > 0) verdict = { title: `Mixed — ${bottleneck} is the bottleneck`, tone: "err", detail: `${correlatedSpikes.length} correlated + ${maskedSpikes.length} masked spike(s). ${bottleneck} p99 ${worst.p99_ms}ms correlated with http — that's the bottleneck; masked ones are next.` };
+      else verdict = { title: `Bottleneck: ${bottleneck} was the slowest`, tone: "err", detail: `${spikes.length} spike(s) crossed budget. ${bottleneck} p99 ${worst.p99_ms}ms — that's where time went. Correlated with http in ${correlatedSpikes.length} bucket(s).` };
+    } else {
+      // both spikes and errors
+      verdict = { title: `Trouble on two fronts — ${bottleneck} slow and ${broken.map((r) => r.name).join(", ")} errored`, tone: "err", detail: `${spikes.length} spike(s) and ${broken.length} runner(s) with errors. Fix the bottleneck (${bottleneck} p99 ${worst.p99_ms}ms) and the failures (${broken.map((r) => `${r.name} ${r.success_percent.toFixed(1)}%`).join(", ")}).` };
+    }
+
     wrap.append(
       el("div", { class: `friendly-hero ${verdict.tone}` },
         el("h2", { text: verdict.title }),
@@ -939,39 +1071,43 @@ async function buildFriendlyReport(id) {
       ),
       el("div", { class: "friendly-grid" },
         el("div", { class: "f-card" }, el("div", { class: "f-k mono dim", text: "duration" }), el("div", { class: "f-v mono", text: duration })),
+        el("div", { class: "f-card" }, el("div", { class: "f-k mono dim", text: "ramp" }), el("div", { class: "f-v mono", text: ramp })),
         el("div", { class: "f-card" }, el("div", { class: "f-k mono dim", text: "total requests" }), el("div", { class: "f-v mono", text: String(totalReqs) })),
-        el("div", { class: "f-card" }, el("div", { class: "f-k mono dim", text: "runners" }), el("div", { class: "f-v mono", text: runners.map((r) => r.name).join(" · ") || "—" })),
         el("div", { class: "f-card" }, el("div", { class: "f-k mono dim", text: "bottleneck" }), el("div", { class: "f-v mono", text: bottleneck || "none" }))
       )
     );
 
-    // per-runner story
+    // per-runner stories with throughput health
     const list = el("div", { class: "friendly-runners" });
     for (const r of runners) {
-      const line = r.success_percent >= 99
-        ? `${r.name} was healthy — p99 ${r.p99_ms}ms, ${r.success_percent.toFixed(1)}% success`
-        : `${r.name} struggled — p99 ${r.p99_ms}ms, only ${r.success_percent.toFixed(1)}% success`;
+      const throttleNote = r.throughput > 0 && r.rate > 0 && r.throughput / r.rate < 0.85 ? ` — throttled (rate ${r.rate}/s, achieved ${r.throughput.toFixed(1)}/s)` : "";
+      const statusNote = r.requests < 10 ? " — very few samples, treat p99 as noisy" : "";
+      const health = r.success_percent >= 99 ? "healthy" : r.success_percent >= 90 ? "degraded" : "failing";
+      const line = `${r.name} — ${health} · p50 ${r.p50_ms}ms · p99 ${r.p99_ms}ms · ${r.success_percent.toFixed(1)}% success · ${r.requests} reqs${throttleNote}${statusNote}`;
       const badge = r.success_percent >= 99 ? "ok" : "bad";
       list.append(el("div", { class: `f-run ${badge}` }, el("span", { text: line })));
     }
     wrap.append(list);
 
+    if (lowVolume) wrap.append(el("p", { class: "dim", text: "Heads up: one or more runners had < 20 requests — percentiles will be noisy. Increase duration or rate for tighter numbers." }));
+    if (throttled.length) wrap.append(el("p", { class: "dim", text: `Throughput lagged target on ${throttled.map((r) => r.name).join(", ")} — concurrency may be too low to keep up, or the target is saturated (intentionally visible).` }));
+
     if (spikes.length) {
       const sList = el("ul", { class: "friendly-spikes" });
-      for (const s of spikes.slice(0, 6)) {
-        sList.append(el("li", { text: `${s.bucket_time} — ${s.runner} spiked (http ${s.http_p99_ms}ms / storage ${s.storage_p99_ms}ms)` }));
+      for (const s of spikes.slice(0, 8)) {
+        const tag = s.masked ? "masked — storage slow, app ok" : "correlated — app slowed too";
+        sList.append(el("li", { text: `${s.bucket_time} — ${s.runner} ${tag} (http ${s.http_p99_ms}ms / storage ${s.storage_p99_ms}ms)` }));
       }
-      if (spikes.length > 6) sList.append(el("li", { class: "dim", text: `+ ${spikes.length - 6} more spikes` }));
+      if (spikes.length > 8) sList.append(el("li", { class: "dim", text: `+ ${spikes.length - 8} more spikes` }));
       wrap.append(el("h3", { class: "eyebrow", text: "where it hurt" }), sList);
     } else {
       wrap.append(el("p", { class: "dim", text: "No budget spikes — everything stayed under your thresholds." }));
     }
 
     if (broken.length) {
-      wrap.append(el("h3", { class: "eyebrow", text: "what was broken" }), el("p", { text: `${broken.join(", ")} returned errors or low success. Check the technical report for status codes.` }));
-    } else if (ok.length) {
-      wrap.append(el("p", { class: "dim", text: `${ok.join(", ")} stayed healthy.` }));
+      wrap.append(el("h3", { class: "eyebrow", text: "what was broken" }), el("p", { text: `${broken.map((r) => `${r.name} (${r.success_percent.toFixed(1)}% success, p99 ${r.p99_ms}ms)`).join(", ")} — check the technical report for status codes.` }));
     }
+    renderFriendlyCharts(timeline, runners);
   } catch (e) {
     wrap.innerHTML = `<p class="dim">could not load friendly report: ${escHtml(e.message)}</p>`;
   }

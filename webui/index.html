@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/regular/style.css">
 <link rel="stylesheet" href="styles.css">
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -62,6 +63,12 @@
         <button class="preset-card" data-preset="http-db" type="button"><i class="ph ph-database" aria-hidden="true"></i>HTTP + DB</button>
         <button class="preset-card" data-preset="full" type="button"><i class="ph ph-stack" aria-hidden="true"></i>Full stack</button>
         <button class="preset-card" data-preset="blank" type="button"><i class="ph ph-file-plus" aria-hidden="true"></i>Blank</button>
+      </div>
+
+      <!-- runner live log (like a terminal) -->
+      <div class="runner-log" id="runner-log" hidden>
+        <div class="log-head mono"><i class="ph ph-terminal" aria-hidden="true"></i> live — <span id="log-elapsed">0s</span></div>
+        <div class="log-body mono" id="log-body"></div>
       </div>
 
       <!-- run settings -->
@@ -265,6 +272,12 @@
   </div>
   <div class="friendly-wrap" id="friendly-wrap">
     <div id="friendly-report"></div>
+    <div class="chart-section" id="chart-section" hidden>
+      <h3 class="eyebrow">latency over time <span class="dim">— p99 per bucket</span></h3>
+      <div class="chart-box"><canvas id="latency-chart"></canvas></div>
+      <h3 class="eyebrow" style="margin-top:16px">requests & success <span class="dim">— throughput vs rate</span></h3>
+      <div class="chart-box"><canvas id="throughput-chart"></canvas></div>
+    </div>
   </div>
   <iframe id="report-frame" title="Run report" hidden></iframe>
 </section>

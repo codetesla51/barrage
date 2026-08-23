@@ -396,6 +396,20 @@ small { font-weight: 400; }
 .shortcut-list li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .shortcut-list li:last-child { border-bottom: none; }
 
+/* ---------- runner live log ---------- */
+.runner-log {
+  background: var(--bg1); border: 1px solid var(--line-strong); border-radius: 10px;
+  overflow: hidden;
+}
+.log-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.log-head i { color: var(--tx-mid); }
+.log-body { padding: 10px 12px; font-size: 12px; line-height: 1.6; max-height: 140px; overflow-y: auto; white-space: pre-wrap; }
+.log-line { display: flex; gap: 8px; }
+.log-time { color: var(--tx-low); min-width: 36px; }
+.chart-section { margin-top: 18px; }
+.chart-box { background: var(--bg1); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 8px; }
+.chart-box canvas { max-height: 240px; }
+
 /* ---------- live overlay ---------- */
 .live-overlay {
   position: fixed; inset: 52px 0 0 0; z-index: 25;
