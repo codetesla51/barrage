@@ -63,15 +63,16 @@ func TestCompareRunMissingRunner(t *testing.T) {
 }
 
 func TestCompareSpikes(t *testing.T) {
+	// matched by ordinal position per runner, not wall-clock time
 	baseline := &JSONReport{Spikes: []JSONSpike{
 		{BucketTime: "12:00:01", Runner: "db", HTTPP99MS: 90, StorageP99MS: 150},   // worsened in current
-		{BucketTime: "12:00:02", Runner: "redis", HTTPP99MS: 5, StorageP99MS: 300}, // fixed in current
 		{BucketTime: "12:00:03", Runner: "db", HTTPP99MS: 200, StorageP99MS: 400},  // improved in current
+		{BucketTime: "12:00:02", Runner: "redis", HTTPP99MS: 5, StorageP99MS: 300}, // only spike — pairs with current's
 	}}
 	current := &JSONReport{Spikes: []JSONSpike{
 		{BucketTime: "12:00:01", Runner: "db", HTTPP99MS: 95, StorageP99MS: 180},    // worsened
 		{BucketTime: "12:00:03", Runner: "db", HTTPP99MS: 150, StorageP99MS: 250},   // improved
-		{BucketTime: "12:00:04", Runner: "redis", HTTPP99MS: 10, StorageP99MS: 500}, // new
+		{BucketTime: "12:00:04", Runner: "redis", HTTPP99MS: 10, StorageP99MS: 500}, // worsened (500 > 300)
 	}}
 
 	rows := CompareSpikes(baseline, current)
@@ -83,17 +84,14 @@ func TestCompareSpikes(t *testing.T) {
 	if got := status["12:00:01/db"]; got != "worsened" {
 		t.Errorf("12:00:01/db = %q, want worsened", got)
 	}
-	if got := status["12:00:02/redis"]; got != "fixed" {
-		t.Errorf("12:00:02/redis = %q, want fixed", got)
+	if got := status["12:00:04/redis"]; got != "worsened" {
+		t.Errorf("12:00:04/redis = %q, want worsened", got)
 	}
 	if got := status["12:00:03/db"]; got != "improved" {
 		t.Errorf("12:00:03/db = %q, want improved", got)
 	}
-	if got := status["12:00:04/redis"]; got != "new" {
-		t.Errorf("12:00:04/redis = %q, want new", got)
-	}
-	if len(rows) != 4 {
-		t.Errorf("expected 4 spike rows, got %d", len(rows))
+	if len(rows) != 3 {
+		t.Errorf("expected 3 spike rows, got %d", len(rows))
 	}
 }
 

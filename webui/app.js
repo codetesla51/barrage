@@ -985,7 +985,7 @@ function runnerMeta(name) {
   return m || { label: String(name || "run"), icon: "ph-pulse", color: "#9a9a9a" };
 }
 
-function renderFriendlyCharts(timeline, runners) {
+function renderFriendlyCharts(timeline, runners, cap) {
   const sec = $("#chart-section");
   if (!timeline || !timeline.labels || timeline.labels.length === 0 || !runners || runners.length === 0) {
     sec.hidden = true; return;
@@ -996,28 +996,93 @@ function renderFriendlyCharts(timeline, runners) {
   const gridColor = isDark ? "#262626" : "#e6e6e6";
   const tickColor = isDark ? "#7a7a7a" : "#6b6b6b";
 
-  // latency chart — p99 per bucket, line color = runner color
+  // inline plugin: shade the ramp window so the load-growth phase is visible
+  const rampBand = {
+    id: "rampBand",
+    beforeDatasetsDraw(chart, args, opts2) {
+      if (!opts2 || !opts2.buckets || !opts2.width) return;
+      const { ctx, chartArea: area, scales } = chart;
+      const x0 = area.left;
+      const x1 = Math.min(area.right, area.left + (opts2.buckets / opts2.total) * (area.right - area.left));
+      ctx.save();
+      ctx.fillStyle = "rgba(232,163,61,.055)";
+      ctx.fillRect(x0, area.top, x1 - x0, area.bottom - area.top);
+      ctx.strokeStyle = "rgba(232,163,61,.35)";
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x1, area.top);
+      ctx.lineTo(x1, area.bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = tickColor;
+      ctx.font = "10px 'Geist Mono Variable'";
+      ctx.textAlign = "left";
+      ctx.fillText("ramp — load growing", x0 + 6, area.top + 12);
+      if (opts2.peakBucket >= 0 && scales.x) {
+        const px = scales.x.getPixelForValue(opts2.peakBucket);
+        if (px > x0 && px < area.right) {
+          ctx.strokeStyle = "rgba(244,112,103,.55)";
+          ctx.beginPath(); ctx.moveTo(px, area.top); ctx.lineTo(px, area.bottom); ctx.stroke();
+          ctx.fillStyle = "#f47067";
+          ctx.textAlign = px > area.right - 90 ? "right" : "left";
+          ctx.fillText("strain starts", px + (px > area.right - 90 ? -6 : 6), area.top + 24);
+        }
+      }
+      ctx.restore();
+    },
+  };
+
+  // estimated concurrent users per bucket (linear during ramp)
+  const usersPerBucket = cap
+    ? Array.from({ length: timeline.labels.length }, (_, i) => cap.usersAt(i))
+    : null;
+
+  // latency chart — p99 per bucket, line color = runner identity.
+  // journeys solid; storage dashed; gray step line on right axis = active users.
   const ctx1 = $("#latency-chart").getContext("2d");
   if (latencyChart) latencyChart.destroy();
-  const ds1 = (timeline.series || []).map((s) => ({
-    label: s.name,
-    data: s.p99_ms.map((v) => v === -1 ? null : v),
-    borderColor: runnerMeta(s.name).color,
-    backgroundColor: runnerMeta(s.name).color,
-    borderWidth: 2,
-    tension: 0.25, pointRadius: 0, spanGaps: true,
-  }));
+  const ds1 = (timeline.series || []).map((s) => {
+    const isStorage = !!RUNNER_META[String(s.name).toLowerCase()];
+    return {
+      label: s.name,
+      data: s.p99_ms.map((v) => v === -1 ? null : v),
+      borderColor: runnerMeta(s.name).color,
+      backgroundColor: runnerMeta(s.name).color,
+      borderWidth: isStorage ? 1.5 : 2,
+      borderDash: isStorage ? [5, 4] : [],
+      tension: 0.25, pointRadius: 0, spanGaps: true,
+    };
+  });
+  if (usersPerBucket) {
+    ds1.push({
+      label: "active users",
+      data: usersPerBucket,
+      borderColor: tickColor,
+      backgroundColor: "transparent",
+      borderWidth: 1.5,
+      borderDash: [2, 3],
+      stepped: true,
+      pointRadius: 0,
+      yAxisID: "y1",
+    });
+  }
   latencyChart = new Chart(ctx1, {
     type: "line",
     data: { labels: timeline.labels, datasets: ds1 },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: tickColor, boxWidth: 14, font: { family: "Geist Mono Variable" } } } },
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { labels: { color: tickColor, boxWidth: 14, font: { family: "Geist Mono Variable" } } },
+        tooltip: { callbacks: usersPerBucket ? { afterBody: (items) => `~${cap.usersAt(items[0].dataIndex)} concurrent users` } : undefined },
+      },
       scales: {
         x: { grid: { color: gridColor }, ticks: { color: tickColor, maxTicksLimit: 8 } },
-        y: { grid: { color: gridColor }, ticks: { color: tickColor }, title: { display: true, text: "p99 (ms)", color: tickColor } },
+        y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: tickColor }, title: { display: true, text: "p99 (ms)", color: tickColor } },
+        ...(usersPerBucket ? { y1: { position: "right", beginAtZero: true, grid: { drawOnChartArea: false }, ticks: { color: tickColor, precision: 0 }, title: { display: true, text: "users", color: tickColor } } } : {}),
       },
     },
+    plugins: [rampBand],
   });
 
   // throughput chart — rate vs throughput aggregate
@@ -1028,7 +1093,7 @@ function renderFriendlyCharts(timeline, runners) {
     data: {
       labels: runners.map((r) => r.name),
       datasets: [
-        { label: "rate (target)", data: runners.map((r) => r.rate || 0), backgroundColor: isDark ? "#3a3a3a" : "#d9d9d9", borderColor: isDark ? "#5a5a5a" : "#9a9a9a", borderWidth: 1 },
+        { label: "rate (target)", data: runners.map((r) => r.rate > 0 ? r.rate : null), backgroundColor: isDark ? "#3a3a3a" : "#d9d9d9", borderColor: isDark ? "#5a5a5a" : "#9a9a9a", borderWidth: 1 },
         { label: "throughput (achieved)", data: runners.map((r) => r.throughput || 0), backgroundColor: runners.map((r) => runnerMeta(r.name).color) },
       ],
     },
@@ -1043,6 +1108,54 @@ function renderFriendlyCharts(timeline, runners) {
   });
 }
 
+// buildCapacity estimates when the app starts straining under the run's load.
+// Model: during ramp, active users grow linearly from 0 to concurrency; after,
+// flat at concurrency. Strain = first bucket where worst journey p99 exceeds
+// 2x its median AND stays elevated for 3+ consecutive buckets.
+function buildCapacity(data, runners, timeline) {
+  const conc = Number(data.concurrency) || 0;
+  const rampSec = parseDurSec(data.ramp || "0s");
+  const labels = timeline.labels || [];
+  const n = labels.length;
+  const base = { usable: false, concurrency: conc || "?", kneeBucket: -1, strainUsers: 0, strainTime: "", strainMS: 0, baselineP99: 0, usersAt: () => 0 };
+  if (!conc || !n || n < 10) return base;
+
+  const usersAt = (i) => {
+    if (rampSec <= 0) return conc;
+    const elapsed = i + 1;
+    return Math.max(1, Math.round(conc * Math.min(1, elapsed / rampSec)));
+  };
+
+  // journey series = user-facing scenarios (not db/redis/http infra)
+  const jSeries = (timeline.series || []).filter((s) => !RUNNER_META[String(s.name).toLowerCase()] && String(s.name).toLowerCase() !== "http");
+  if (!jSeries.length) return { ...base, usable: false, usersAt };
+
+  const perBucket = Array.from({ length: n }, (_, i) => {
+    let worst = -1;
+    for (const s of jSeries) { const v = s.p99_ms[i]; if (v > worst) worst = v; }
+    return worst;
+  });
+  const valid = perBucket.filter((v) => v >= 0).sort((a, b) => a - b);
+  if (valid.length < 5) return { ...base, usersAt };
+  const median = valid[Math.floor(valid.length / 2)];
+  const strainLevel = Math.max(median * 2, median + 50);
+
+  let kneeBucket = -1;
+  for (let i = 0; i + 2 < n; i++) {
+    const w = [perBucket[i], perBucket[i + 1], perBucket[i + 2]];
+    if (w.every((v) => v >= 0 && v >= strainLevel)) { kneeBucket = i; break; }
+  }
+
+  return {
+    usable: true, concurrency: conc, usersAt,
+    kneeBucket,
+    strainUsers: kneeBucket >= 0 ? usersAt(kneeBucket) : conc,
+    strainTime: kneeBucket >= 0 ? timeline.labels[kneeBucket] : "",
+    strainMS: Math.round(strainLevel),
+    baselineP99: Math.round(median),
+  };
+}
+
 async function buildFriendlyReport(id) {
   const wrap = $("#friendly-report");
   wrap.innerHTML = '<p class="dim">loading report…</p>';
@@ -1055,6 +1168,10 @@ async function buildFriendlyReport(id) {
     const ramp = data.ramp || "0s";
     const totalReqs = runners.reduce((a, r) => a + (r.requests || 0), 0);
 
+    // ---- capacity model: map each timeline bucket to an estimated active-user
+    // count, then look for the first sustained latency jump (the knee) ----
+    const cap = buildCapacity(data, runners, timeline);
+
     // ---- fatal run errors get their own story first ----
     wrap.innerHTML = "";
     if (data.error) {
@@ -1062,21 +1179,21 @@ async function buildFriendlyReport(id) {
         el("h2", { text: "Run failed before it could produce results" }),
         el("p", { text: data.error }),
         el("p", { class: "dim", text: "Check the target address / connection string, make sure the service is up, then try again." })));
-      renderFriendlyCharts(timeline, runners);
+      renderFriendlyCharts(timeline, runners, cap);
       return;
     }
     if (runners.length === 0) {
       wrap.append(el("div", { class: "friendly-hero err" },
         el("h2", { text: "No data — no runners returned results" }),
         el("p", { text: "The run produced no requests. Check that at least one runner was enabled and targets were reachable." })));
-      renderFriendlyCharts(timeline, runners);
+      renderFriendlyCharts(timeline, runners, cap);
       return;
     }
     if (totalReqs === 0) {
       wrap.append(el("div", { class: "friendly-hero err" },
         el("h2", { text: "Zero requests — targets unreachable?" }),
         el("p", { text: "Runners were configured but sent nothing. Verify urls, db conn strings, and redis addr." })));
-      renderFriendlyCharts(timeline, runners);
+      renderFriendlyCharts(timeline, runners, cap);
       return;
     }
 
@@ -1205,7 +1322,23 @@ async function buildFriendlyReport(id) {
     }
     wrap.append(el("h3", { class: "eyebrow", text: "what to do next" }), stepsList);
 
-    renderFriendlyCharts(timeline, runners);
+    // ---- capacity verdict: at how many users does it struggle? ----
+    wrap.append(el("h3", { class: "eyebrow", text: "at how many users does it struggle" }));
+    if (!cap.usable) {
+      wrap.append(el("p", { class: "dim", text: "Not enough timeline data to estimate a strain point. Runs of 20s or more give the best read." }));
+    } else if (cap.kneeBucket < 0) {
+      wrap.append(el("div", { class: "capacity-card ok" },
+        el("span", { class: "cap-num mono", text: `no strain up to ~${cap.concurrency}` }),
+        el("span", { class: "cap-unit", text: "concurrent users" }),
+        el("p", { class: "dim", text: `Journey p99 never stayed above ${cap.strainMS}ms (2× its normal ${cap.baselineP99}ms). Your app handled this whole run comfortably — to find the actual ceiling, re-run with about ${Math.max(50, Math.round(cap.concurrency * 1.5))} concurrent users and compare.` })));
+    } else {
+      wrap.append(el("div", { class: "capacity-card warn" },
+        el("span", { class: "cap-num mono", text: `~${cap.strainUsers}` }),
+        el("span", { class: "cap-unit", text: "concurrent users — where it starts straining" }),
+        el("p", { class: "dim", text: `At roughly ${cap.strainUsers} users (${cap.strainTime}), journey p99 jumped past ${cap.strainMS}ms — double its calm level of ${cap.baselineP99}ms — and stayed there. Below that line users feel nothing; above it, tail latency climbs. Re-run with ${Math.round(cap.concurrency * 0.75)}–${Math.round(cap.concurrency * 1.25)} concurrent users to narrow the exact knee.` })));
+    }
+
+    renderFriendlyCharts(timeline, runners, cap);
   } catch (e) {
     wrap.innerHTML = `<p class="dim">could not load friendly report: ${escHtml(e.message)}</p>`;
   }
@@ -1333,9 +1466,14 @@ function renderCompareResult(data) {
   const tbody = $("#diff-table tbody");
   tbody.innerHTML = "";
   for (const r of data.rows) {
-    const verdict = r.regressed
-      ? el("span", { class: "verdict-tag" }, el("span", { class: "badge badge-error badge-outline badge-sm", text: "REGRESSION" }), el("span", { class: "spike-plain", text: "Got slower ⚠" }))
-      : el("span", { class: "verdict-tag" }, el("span", { class: "badge badge-ghost badge-sm", text: "ok" }), el("span", { class: "spike-plain", text: "Within budget" }));
+    let verdict;
+    if (r.new) {
+      verdict = el("span", { class: "verdict-tag" }, el("span", { class: "badge badge-ghost badge-sm", text: "NEW" }), el("span", { class: "spike-plain dim", text: "Not in baseline" }));
+    } else if (r.regressed) {
+      verdict = el("span", { class: "verdict-tag" }, el("span", { class: "badge badge-error badge-outline badge-sm", text: "REGRESSION" }), el("span", { class: "spike-plain", text: "Got slower ⚠" }));
+    } else {
+      verdict = el("span", { class: "verdict-tag" }, el("span", { class: "badge badge-ghost badge-sm", text: "ok" }), el("span", { class: "spike-plain", text: "Within budget" }));
+    }
     tbody.append(el("tr", {},
       el("td", { text: r.name }),
       el("td", { class: "mono", text: `${r.baseline_p99_ms}ms` }),

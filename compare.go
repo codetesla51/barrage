@@ -14,18 +14,24 @@ var compareReportTemplate string
 
 // Comparison is one runner's latency delta between a baseline run and a current
 // run. CurrentP99 is the value being judged; Regressed reports whether it
-// crossed the budget passed to it.
+// crossed the budget passed to it. New marks runners absent from the baseline —
+// they can't regress, they're just new.
 type Comparison struct {
 	Name        string
 	BaselineP99 int64
 	CurrentP99  int64
-	PctChange   int // rounded (current-baseline)/baseline*100; 0 if baseline is 0
+	PctChange   int  // rounded (current-baseline)/baseline*100; 0 if baseline is 0
+	New         bool // runner not present in the baseline run
 }
 
 // Regressed reports whether this runner's current P99 crossed the budget in
 // milliseconds, compared against the baseline: it regresses when current is
-// above the budget AND the baseline was at or under it.
+// above the budget AND the baseline was at or under it. Brand-new runners are
+// never regressions.
 func (c Comparison) Regressed(budgetMS int64) bool {
+	if c.New {
+		return false
+	}
 	return c.CurrentP99 > budgetMS && c.BaselineP99 <= budgetMS
 }
 
@@ -49,8 +55,10 @@ func CompareRun(baseline, current *JSONReport) []Comparison {
 	var rows []Comparison
 	for _, c := range current.Runners {
 		seen[c.Name] = true
-		b, _ := byName[c.Name]
-		rows = append(rows, newComparison(c.Name, b.P99MS, c.P99MS))
+		b, ok := byName[c.Name]
+		row := newComparison(c.Name, b.P99MS, c.P99MS)
+		row.New = !ok
+		rows = append(rows, row)
 	}
 	for _, b := range baseline.Runners {
 		if !seen[b.Name] {
@@ -96,47 +104,62 @@ func CompareSpikes(baseline, current *JSONReport) []SpikeComparison {
 		current = &JSONReport{}
 	}
 
-	base := make(map[string]JSONSpike, len(baseline.Spikes))
-	for _, s := range baseline.Spikes {
-		base[s.Runner+"\x00"+s.BucketTime] = s
+	// match spikes by ordinal position per runner — two runs happen at
+	// different times of day, so absolute wall-clock keys would make every
+	// spike look "new". The 1st db spike of this run compares against the
+	// 1st db spike of the baseline, and so on.
+	byRunner := func(rep *JSONReport) map[string][]JSONSpike {
+		m := make(map[string][]JSONSpike)
+		for _, sp := range rep.Spikes {
+			m[sp.Runner] = append(m[sp.Runner], sp)
+		}
+		return m
 	}
+	baseBy, curBy := byRunner(baseline), byRunner(current)
 
-	seen := make(map[string]bool, len(current.Spikes))
-	var rows []SpikeComparison
-	for _, s := range current.Spikes {
-		key := s.Runner + "\x00" + s.BucketTime
-		seen[key] = true
-		b, ok := base[key]
-		if !ok {
-			rows = append(rows, SpikeComparison{
-				BucketTime: s.BucketTime, Runner: s.Runner,
-				CurrentHTTPMS: s.HTTPP99MS, CurrentStoreMS: s.StorageP99MS,
-				Status: "new",
-			})
-			continue
-		}
-		status := "unchanged"
-		switch {
-		case s.StorageP99MS > b.StorageP99MS:
-			status = "worsened"
-		case s.StorageP99MS < b.StorageP99MS:
-			status = "improved"
-		}
-		rows = append(rows, SpikeComparison{
-			BucketTime: s.BucketTime, Runner: s.Runner,
-			BaselineHTTPMS: b.HTTPP99MS, BaselineStoreMS: b.StorageP99MS,
-			CurrentHTTPMS: s.HTTPP99MS, CurrentStoreMS: s.StorageP99MS,
-			Status: status,
-		})
+	runners := make([]string, 0, len(curBy))
+	for r := range curBy {
+		runners = append(runners, r)
 	}
-	for _, b := range baseline.Spikes {
-		key := b.Runner + "\x00" + b.BucketTime
-		if !seen[key] {
-			rows = append(rows, SpikeComparison{
-				BucketTime: b.BucketTime, Runner: b.Runner,
-				BaselineHTTPMS: b.HTTPP99MS, BaselineStoreMS: b.StorageP99MS,
-				Status: "fixed",
-			})
+	sort.Strings(runners)
+
+	var rows []SpikeComparison
+	for _, runner := range runners {
+		baseList, curList := baseBy[runner], curBy[runner]
+		n := len(baseList)
+		if len(curList) > n {
+			n = len(curList)
+		}
+		for i := 0; i < n; i++ {
+			switch {
+			case i >= len(baseList):
+				rows = append(rows, SpikeComparison{
+					BucketTime: curList[i].BucketTime, Runner: runner,
+					CurrentHTTPMS: curList[i].HTTPP99MS, CurrentStoreMS: curList[i].StorageP99MS,
+					Status: "new",
+				})
+			case i >= len(curList):
+				rows = append(rows, SpikeComparison{
+					BucketTime: baseList[i].BucketTime, Runner: runner,
+					BaselineHTTPMS: baseList[i].HTTPP99MS, BaselineStoreMS: baseList[i].StorageP99MS,
+					Status: "fixed",
+				})
+			default:
+				c, b := curList[i], baseList[i]
+				status := "unchanged"
+				switch {
+				case c.StorageP99MS > b.StorageP99MS:
+					status = "worsened"
+				case c.StorageP99MS < b.StorageP99MS:
+					status = "improved"
+				}
+				rows = append(rows, SpikeComparison{
+					BucketTime: c.BucketTime, Runner: runner,
+					BaselineHTTPMS: b.HTTPP99MS, BaselineStoreMS: b.StorageP99MS,
+					CurrentHTTPMS: c.HTTPP99MS, CurrentStoreMS: c.StorageP99MS,
+					Status: status,
+				})
+			}
 		}
 	}
 

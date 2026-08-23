@@ -46,6 +46,10 @@ func FireRedis(target RedisTarget, rate, concurrency int, duration, bucketWidth,
 		opCtx, opCancel := context.WithTimeout(opCtx, 10*time.Second)
 		defer opCancel()
 		err := client.Do(opCtx, splitCommand(pick.Query)...).Err()
+		if err != nil && opCtx.Err() != nil && ctx.Err() != nil {
+			// canceled by run shutdown, not a target failure
+			return dbQueryResult{Latency: time.Since(queryStart), Success: true}
+		}
 		if stats != nil {
 			stats.RedisFired.Add(1)
 			if err != nil {

@@ -21,7 +21,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-var version = "v0.3.8"
+var version = "v0.3.9"
 
 const banner = `     ________  ________  ________  ________  ________  ________  _______
     |\   __  \|\   __  \|\   __  \|\   __  \|\   __  \|\   ____\|\  ___ \
@@ -256,7 +256,9 @@ func runCompare(opts *compareOptions) error {
 	var failed bool
 	for _, r := range rows {
 		verdict := cliui.VerdictColorize("ok")
-		if r.Regressed(opts.failOn.Milliseconds()) {
+		if r.New {
+			verdict = cliui.Dim("NEW")
+		} else if r.Regressed(opts.failOn.Milliseconds()) {
 			verdict = cliui.VerdictColorize("REGRESSION")
 			failed = true
 		}

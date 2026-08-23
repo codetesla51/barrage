@@ -438,7 +438,7 @@ func (s *UIServer) handleCompare(w http.ResponseWriter, r *http.Request) {
 		outRows = append(outRows, map[string]any{
 			"name": row.Name, "baseline_p99_ms": row.BaselineP99,
 			"current_p99_ms": row.CurrentP99, "pct_change": row.PctChange,
-			"regressed": reg,
+			"regressed": reg, "new": row.New,
 		})
 	}
 	spikes := CompareSpikes(baseline, current)
@@ -492,7 +492,7 @@ func (s *UIServer) handleCompareUpload(w http.ResponseWriter, r *http.Request) {
 		outRows = append(outRows, map[string]any{
 			"name": row.Name, "baseline_p99_ms": row.BaselineP99,
 			"current_p99_ms": row.CurrentP99, "pct_change": row.PctChange,
-			"regressed": reg,
+			"regressed": reg, "new": row.New,
 		})
 	}
 	spikes := CompareSpikes(&baseline, &current)

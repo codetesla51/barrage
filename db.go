@@ -135,6 +135,10 @@ func FireDB(target DBTarget, rate, concurrency int, duration, bucketWidth, ramp 
 		} else {
 			_, err = db.ExecContext(opCtx, pick.Query, pick.Args...)
 		}
+		if err != nil && ctx.Err() != nil {
+			// canceled by run shutdown, not a target failure
+			return dbQueryResult{Latency: time.Since(queryStart), Success: true}
+		}
 		if stats != nil {
 			stats.DBFired.Add(1)
 			if err != nil {
