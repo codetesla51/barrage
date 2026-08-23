@@ -63,7 +63,9 @@ DB, and Redis run concurrently and record their latencies into the same time
 buckets, so results are directly comparable — that is the core of the tool.
 
 **Spike correlation.** Every bucket where a storage runner's (DB or Redis) P99
-crossed its threshold is flagged. Two outcomes:
+crossed its threshold is flagged — including in **scenarios mode**, where the
+app-side reference is synthesized from the worst per-bucket journey latency.
+Two outcomes:
 
 - **correlated** — HTTP and the storage runner both crossed their thresholds,
   so the latency jumped together. A verdict names the bottleneck (`HTTP`, `DB`,
@@ -73,6 +75,27 @@ crossed its threshold is flagged. Two outcomes:
 
 HTTP-only buckets are deliberately not flagged: a slow endpoint that leaves the
 data stores idle is an application problem, not a storage problem.
+
+### Capacity finder
+
+The story-style report answers "at how many users does my app struggle?" It
+maps each time bucket to an estimated active-user count (growing linearly
+during ramp, flat after), then scans for the first **sustained** jump — worst
+journey P99 exceeding 2× its median for 3+ consecutive buckets. You get either
+a strain point (`~N users — where it starts straining`) or a clean `no strain
+up to ~N users`, plus the concurrency to re-test at next. The latency chart
+plots active users on a second axis with the ramp window shaded.
+
+### Live run progress
+
+Runs are no longer silent. Barrage prints one structured status line every 5s:
+
+```
+  00:45/03:00 │ http 3,900 · 0 err │ db 900 · 0 err │ redis 1,350 · 0 err
+```
+
+with thousands separators, an mm:ss clock, and semantic colors (amber counts,
+red error counts). A totals line lands when the run completes.
 
 ### Generate realistic load
 
@@ -306,6 +329,12 @@ barrage version                                            # print the version
 `barrage compare` diffs two runs produced by `barrage run --json`, so an earlier
 baseline can be checked against a later run — the missing piece for CI gating
 and regression checking across releases.
+
+Runners present only in one side are labeled **NEW** (or counted as fixed) —
+they never show as regressions just because the baseline didn't have them, so
+renaming or adding scenarios mid-project doesn't produce false alarms. Spike
+diffs match by ordinal position per runner rather than wall-clock timestamps,
+since two runs never share a clock.
 
 ```
 $ barrage compare --baseline base.json --current new.json --fail-on 100ms
