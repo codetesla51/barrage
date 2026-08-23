@@ -42,17 +42,6 @@ type OrchestratorResult struct {
 }
 
 func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
-	return orchestrate(cfg, nil)
-}
-
-// OrchestratorWithProgress runs the same load test as Orchestrator but records
-// each completed hit into prog so the CLI can render live progress. The
-// returned metrics are identical to Orchestrator's.
-func OrchestratorWithProgress(cfg OrchestratorConfig, prog *RunProgress) (*OrchestratorResult, error) {
-	return orchestrate(cfg, prog)
-}
-
-func orchestrate(cfg OrchestratorConfig, prog *RunProgress) (*OrchestratorResult, error) {
 	var wg sync.WaitGroup
 	var httpResult *HTTPResult
 	var dbResult *DBResult
@@ -72,7 +61,7 @@ func orchestrate(cfg OrchestratorConfig, prog *RunProgress) (*OrchestratorResult
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			httpResult, httpErr = FireHTTP(cfg.HTTP.Target, cfg.HTTP.Rate, concurrency, duration, bucketWidth, ramp, prog)
+			httpResult, httpErr = FireHTTP(cfg.HTTP.Target, cfg.HTTP.Rate, concurrency, duration, bucketWidth, ramp)
 		}()
 	}
 	if cfg.DB != nil {
@@ -86,7 +75,7 @@ func orchestrate(cfg OrchestratorConfig, prog *RunProgress) (*OrchestratorResult
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			redisResult, redisErr = FireRedis(cfg.Redis.Target, cfg.Redis.Rate, concurrency, duration, bucketWidth, ramp, prog)
+			redisResult, redisErr = FireRedis(cfg.Redis.Target, cfg.Redis.Rate, concurrency, duration, bucketWidth, ramp)
 		}()
 	}
 	scenarios := effectiveScenarios(cfg)
@@ -95,7 +84,7 @@ func orchestrate(cfg OrchestratorConfig, prog *RunProgress) (*OrchestratorResult
 		go func() {
 			defer wg.Done()
 			if len(scenarios) == 1 {
-				stats, err := FireScenario(scenarios[0], concurrency, duration, bucketWidth, prog)
+				stats, err := FireScenario(scenarios[0], concurrency, duration, bucketWidth)
 				scenarioStats = stats
 				scenarioErr = err
 				name := scenarios[0].Name
@@ -107,7 +96,7 @@ func orchestrate(cfg OrchestratorConfig, prog *RunProgress) (*OrchestratorResult
 					scenarioAggregates = []NamedScenarioStats{{Name: name, Stats: stats}}
 				}
 			} else {
-				aggs, err := FireScenarios(scenarios, concurrency, duration, bucketWidth, prog)
+				aggs, err := FireScenarios(scenarios, concurrency, duration, bucketWidth)
 				scenarioErr = err
 				if err == nil {
 					scenarioAggregates = aggs

@@ -111,14 +111,13 @@ func OpenConnection(conn string, driver string) (*sql.DB, error) {
 // FireDB executes database queries according to the specified target and
 // parameters. Queries are fired at rate per second (ramping up over ramp if
 // set) and run concurrently on a worker pool with up to concurrency workers.
-func FireDB(target DBTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration, prog ...*RunProgress) (*DBResult, error) {
+func FireDB(target DBTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration) (*DBResult, error) {
 	db, err := OpenConnection(target.Conn, target.Driver)
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
 
-	live := liveProg(prog)
 	overall, start := runPaced(rate, concurrency, duration, ramp, func() dbQueryResult {
 		pick := pickQuery(cumulativeWeights(target.Query))
 		queryStart := time.Now()
@@ -132,11 +131,7 @@ func FireDB(target DBTarget, rate, concurrency int, duration, bucketWidth, ramp 
 		} else {
 			_, err = db.Exec(pick.Query, pick.Args...)
 		}
-		res := dbQueryResult{Latency: time.Since(queryStart), Success: err == nil, Err: err}
-		if live != nil {
-			live.Record("db", res.Success, res.Latency)
-		}
-		return res
+		return dbQueryResult{Latency: time.Since(queryStart), Success: err == nil, Err: err}
 	})
 
 	return buildDBResult(overall, start, bucketWidth, duration), nil

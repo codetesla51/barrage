@@ -45,7 +45,6 @@ type runOptions struct {
 	dbThreshold    time.Duration
 	redisThreshold time.Duration
 	verbose        bool
-	interactive    bool
 }
 
 type compareOptions struct {
@@ -118,7 +117,6 @@ func newRunCmd() *cobra.Command {
 	f.DurationVar(&opts.dbThreshold, "db-threshold", 100*time.Millisecond, "DB spike threshold for correlation")
 	f.DurationVar(&opts.redisThreshold, "redis-threshold", 100*time.Millisecond, "Redis spike threshold for correlation")
 	f.BoolVarP(&opts.verbose, "verbose", "v", false, "print per-bucket detail")
-	f.BoolVar(&opts.interactive, "interactive", false, "render live progress while the run executes (auto-disabled in CI, pipes, and with --json)")
 	return cmd
 }
 
@@ -185,7 +183,7 @@ func runLoadTest(opts *runOptions) error {
 
 	fmt.Println()
 
-	result, err := executeWithProgress(opts, cfg)
+	result, err := barrage.Orchestrator(*cfg)
 	if err != nil {
 		return fmt.Errorf("load test failed: %w", err)
 	}
@@ -224,40 +222,6 @@ func runLoadTest(opts *runOptions) error {
 	return nil
 }
 
-// executeWithProgress runs the load test, optionally rendering the inline
-// live view. Interactive mode is only used when explicitly requested and the
-// environment supports it; everything else gets the classic silent run.
-func executeWithProgress(opts *runOptions, cfg *barrage.OrchestratorConfig) (*barrage.OrchestratorResult, error) {
-	interactive := cliui.Interactive(opts.interactive, opts.jsonPath != "", cliui.IsTTY(os.Stdout.Fd()), envMap())
-	if !interactive {
-		return barrage.Orchestrator(*cfg)
-	}
-
-	prog := barrage.NewRunProgress(time.Duration(cfg.Duration), time.Duration(cfg.Ramp), effectiveConcurrency(cfg))
-	done := make(chan error, 1)
-	var result *barrage.OrchestratorResult
-	go func() {
-		var err error
-		result, err = barrage.OrchestratorWithProgress(*cfg, prog)
-		done <- err
-	}()
-	if err := cliui.RunProgressUI(prog, done, 60); err != nil {
-		// renderer could not start; the run is already going so a silent
-		// restart is impossible — tell the user how to get output.
-		return nil, fmt.Errorf("live progress failed (%v); re-run without --interactive", err)
-	}
-	return result, nil
-}
-
-func envMap() map[string]string {
-	return map[string]string{
-		"CI":             os.Getenv("CI"),
-		"TF_BUILD":       os.Getenv("TF_BUILD"),
-		"GITHUB_ACTIONS": os.Getenv("GITHUB_ACTIONS"),
-		"TERM":           os.Getenv("TERM"),
-	}
-}
-
 func loadJSONReport(path string) (*barrage.JSONReport, error) {
 	buf, err := os.ReadFile(path)
 	if err != nil {
@@ -291,13 +255,10 @@ func runCompare(opts *compareOptions) error {
 	table := make([][]string, 0, len(rows))
 	var failed bool
 	for _, r := range rows {
-		verdict := "ok"
+		verdict := cliui.VerdictColorize("ok")
 		if r.Regressed(opts.failOn.Milliseconds()) {
-			verdict = "REGRESSION"
+			verdict = cliui.VerdictColorize("REGRESSION")
 			failed = true
-			if cliui.IsTTY(os.Stdout.Fd()) {
-				verdict = cliui.Err(verdict)
-			}
 		}
 		table = append(table, []string{
 			r.Name,
