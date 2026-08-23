@@ -55,6 +55,9 @@ type ReportData struct {
 	Duration    string
 	Ramp        string
 	Concurrency int
+	// Error carries a fatal run error (e.g. a runner could not start or dial
+	// its target). When set the run produced no usable metrics.
+	Error string
 }
 
 // NewReportData assembles a ReportData from an OrchestratorResult and the

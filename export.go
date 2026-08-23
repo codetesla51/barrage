@@ -15,6 +15,7 @@ type JSONReport struct {
 	Duration    string       `json:"duration"`
 	Ramp        string       `json:"ramp"`
 	Concurrency int          `json:"concurrency"`
+	Error       string       `json:"error,omitempty"`
 	Runners     []JSONRunner `json:"runners"`
 	Spikes      []JSONSpike  `json:"spikes"`
 	Timeline    JSONTimeline `json:"timeline"`
@@ -79,6 +80,7 @@ func BuildJSON(data ReportData) ([]byte, error) {
 		Duration:    data.Duration,
 		Ramp:        data.Ramp,
 		Concurrency: data.Concurrency,
+		Error:       data.Error,
 		Spikes:      make([]JSONSpike, 0, len(data.Spikes)),
 		Timeline: JSONTimeline{
 			Labels: data.Timeline.Labels,

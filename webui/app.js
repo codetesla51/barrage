@@ -375,11 +375,13 @@ function delButton(rowEl, onRemove) {
 // one key -> value input pair; onRemove must splice the pair out of state
 function kvRow(pair, placeholderK, placeholderV, onRemove) {
   const row = el("div", { class: "row" });
-  const k = el("input", { class: "input input-sm mono grow", placeholder: placeholderK, value: pair.k, autocomplete: "off" });
-  const v = el("input", { class: "input input-sm mono grow", placeholder: placeholderV, value: pair.v, autocomplete: "off" });
+  const pairJoin = el("div", { class: "join grow min-w-0" });
+  const k = el("input", { class: "input input-sm mono join-item flex-1 min-w-0", placeholder: placeholderK, value: pair.k, autocomplete: "off" });
+  const v = el("input", { class: "input input-sm mono join-item flex-1 min-w-0", placeholder: placeholderV, value: pair.v, autocomplete: "off" });
   k.addEventListener("input", () => { pair.k = k.value; changed(); });
   v.addEventListener("input", () => { pair.v = v.value; changed(); });
-  row.append(k, v, delButton(row, onRemove));
+  pairJoin.append(k, v);
+  row.append(pairJoin, delButton(row, onRemove));
   return row;
 }
 
@@ -448,16 +450,30 @@ function addScenario() {
 
 function appendScenarioBox(container, scenario) {
   const box = el("fieldset", { class: "scenario-box" });
-  const headRow = el("div", { class: "row" });
-  const nameInp = el("input", { class: "input input-sm grow", placeholder: "name — e.g. login-flow", value: scenario.name, autocomplete: "off" });
+
+  // header: name · weight · remove
+  const headRow = el("div", { class: "scen-head" });
+  const headLabel = el("span", { class: "eyebrow", text: "scenario" });
+  const nameInp = el("input", { class: "input input-sm grow min-w-0", placeholder: "name — e.g. login-flow", value: scenario.name, autocomplete: "off" });
   nameInp.addEventListener("input", () => { scenario.name = nameInp.value; changed(); });
-  const wInp = el("input", { class: "input input-sm mono w-small", type: "number", min: "0", value: scenario.weight, title: "pick weight" });
+  const wInp = el("input", { class: "input input-sm mono w-weight", type: "number", min: "0", value: scenario.weight, title: "weight — how often this scenario is picked" });
   wInp.setAttribute("aria-label", "scenario weight");
   wInp.addEventListener("input", () => { scenario.weight = wInp.value; changed(); });
-  headRow.append(nameInp, wInp);
+  const removeScenario = el("button", { class: "btn btn-ghost btn-square btn-sm shrink-0 text-error", type: "button", title: "remove scenario", "aria-label": "remove scenario", onclick: () => {
+    const i = state.scenarios.indexOf(scenario); if (i >= 0) state.scenarios.splice(i, 1);
+    box.remove(); changed();
+  }}, el("i", { class: "ph ph-trash", "aria-hidden": "true" }));
+  headRow.append(headLabel, nameInp, wInp, removeScenario);
 
   const stepsWrap = el("div", { class: "rows" });
-  box.append(headRow, stepsWrap);
+
+  const addStep = el("button", { class: "btn btn-dash btn-sm w-full", type: "button", onclick: () => {
+    scenario.steps.push({ method: "GET", url: "", body: "", headers: [], extract: [] });
+    renderSteps(); changed();
+  }}, el("i", { class: "ph ph-plus", "aria-hidden": "true" }), " add step");
+
+  box.append(headRow, stepsWrap, addStep);
+  container.append(box);
 
   function renderSteps() {
     stepsWrap.innerHTML = "";
@@ -471,9 +487,11 @@ function appendScenarioBox(container, scenario) {
     st.headers = st.headers || [];
     st.extract = st.extract || [];
     const rowBox = el("div", { class: "step-box" });
-    const line1 = el("div", { class: "row" });
 
-    // move up/down instead of drag — simple and keyboard accessible
+    // step header: number · move up/down · method+url (joined) · remove
+    const line1 = el("div", { class: "step-line" });
+    const num = el("span", { class: "step-num mono", text: String(idx + 1), title: `step ${idx + 1} of ${scenario.steps.length}` });
+
     const order = el("span", { class: "step-order" });
     const up = el("button", { type: "button", title: "move step up", onclick: () => {
       if (idx === 0) return;
@@ -491,8 +509,10 @@ function appendScenarioBox(container, scenario) {
 
     const validMethods = ["GET", "POST", "PUT", "PATCH", "DELETE"];
     if (!validMethods.includes(st.method)) st.method = "GET";
+    const targetJoin = el("div", { class: "join grow min-w-0" });
     const methodSel = document.createElement("select");
-    methodSel.className = "select select-sm w-med";
+    methodSel.className = "select select-sm join-item w-method";
+    methodSel.setAttribute("aria-label", `step ${idx + 1} method`);
     validMethods.forEach((m) => {
       const o = document.createElement("option");
       o.value = m;
@@ -503,53 +523,52 @@ function appendScenarioBox(container, scenario) {
     methodSel.value = st.method;
     if (!methodSel.value) methodSel.selectedIndex = 0;
     methodSel.addEventListener("change", () => { st.method = methodSel.value; changed(); });
-    const urlInp = el("input", { class: "input input-sm mono grow", placeholder: "https://host/path or {{var}} allowed", value: st.url, autocomplete: "off" });
+    const urlInp = el("input", { class: "input input-sm mono join-item flex-1 min-w-0", placeholder: "https://host/path or {{var}} allowed", value: st.url, autocomplete: "off" });
+    urlInp.setAttribute("aria-label", `step ${idx + 1} url`);
     urlInp.addEventListener("input", () => { st.url = urlInp.value; changed(); });
-    const delStep = delButton(rowBox, () => {
+    targetJoin.append(methodSel, urlInp);
+    const delStep = el("button", { class: "btn btn-ghost btn-square btn-sm shrink-0", type: "button", title: "remove step", "aria-label": `remove step ${idx + 1}`, onclick: () => {
       const i = scenario.steps.indexOf(st); if (i >= 0) scenario.steps.splice(i, 1);
-    });
-    line1.append(order, methodSel, urlInp, delStep);
+      rowBox.remove(); renumber(); changed();
+    }}, el("i", { class: "ph ph-x", "aria-hidden": "true" }));
+    line1.append(num, order, targetJoin, delStep);
 
-    const bodyInp = el("textarea", { class: "textarea textarea-sm mono", rows: "2", placeholder: "body — optional, {{var}} allowed", spellcheck: "false" });
+    const bodyInp = el("textarea", { class: "textarea textarea-sm mono w-full", rows: "2", placeholder: "body — optional, {{var}} allowed", spellcheck: "false", "aria-label": `step ${idx + 1} body` });
     bodyInp.value = st.body || "";
     bodyInp.addEventListener("input", () => { st.body = bodyInp.value; changed(); });
-
-    const extractWrap = el("div", { class: "rows" });
-    for (const pair of st.extract)
-      extractWrap.append(kvRow(pair, "token", "$.token", () => { st.extract.splice(st.extract.indexOf(pair), 1); }));
-    const addExtract = el("button", { class: "btn tiny ghost", type: "button", onclick: () => {
-      const pair = { k: "", v: "" };
-      st.extract.push(pair);
-      extractWrap.append(kvRow(pair, "token", "$.token", () => { st.extract.splice(st.extract.indexOf(pair), 1); }));
-      changed();
-    }}, el("i", { class: "ph ph-plus", "aria-hidden": "true" }), "extract var");
 
     const headerWrap = el("div", { class: "rows" });
     for (const pair of st.headers)
       headerWrap.append(kvRow(pair, "Authorization", "Bearer {{token}}", () => { st.headers.splice(st.headers.indexOf(pair), 1); }));
-    const addHeader = el("button", { class: "btn tiny ghost", type: "button", onclick: () => {
+    const addHeader = el("button", { class: "btn btn-ghost btn-xs", type: "button", onclick: () => {
       const pair = { k: "", v: "" };
       st.headers.push(pair);
       headerWrap.append(kvRow(pair, "Authorization", "Bearer {{token}}", () => { st.headers.splice(st.headers.indexOf(pair), 1); }));
       changed();
     }}, el("i", { class: "ph ph-plus", "aria-hidden": "true" }), "header");
 
-    rowBox.append(line1, bodyInp, headerWrap, addHeader, extractWrap, addExtract);
+    const extractWrap = el("div", { class: "rows" });
+    for (const pair of st.extract)
+      extractWrap.append(kvRow(pair, "token", "$.token", () => { st.extract.splice(st.extract.indexOf(pair), 1); }));
+    const addExtract = el("button", { class: "btn btn-ghost btn-xs", type: "button", onclick: () => {
+      const pair = { k: "", v: "" };
+      st.extract.push(pair);
+      extractWrap.append(kvRow(pair, "token", "$.token", () => { st.extract.splice(st.extract.indexOf(pair), 1); }));
+      changed();
+    }}, el("i", { class: "ph ph-plus", "aria-hidden": "true" }), "extract var");
+
+    const extras = el("div", { class: "step-extras" },
+      el("div", { class: "step-extra-col" }, headerWrap, addHeader),
+      el("div", { class: "step-extra-col" }, extractWrap, addExtract));
+
+    rowBox.append(line1, bodyInp, extras);
     return rowBox;
   }
 
-  const addStep = el("button", { class: "btn tiny", type: "button", onclick: () => {
-    scenario.steps.push({ method: "GET", url: "", body: "", headers: [], extract: [] });
-    renderSteps(); changed();
-  }}, el("i", { class: "ph ph-plus", "aria-hidden": "true" }), " step");
+  function renumber() {
+    stepsWrap.querySelectorAll(".step-num").forEach((n, i) => { n.textContent = String(i + 1); });
+  }
 
-  const removeScenario = el("button", { class: "btn tiny ghost", type: "button", onclick: () => {
-    const i = state.scenarios.indexOf(scenario); if (i >= 0) state.scenarios.splice(i, 1);
-    box.remove(); changed();
-  }}, el("i", { class: "ph ph-x", "aria-hidden": "true" }), " remove scenario");
-
-  box.append(addStep, removeScenario);
-  container.append(box);
   renderSteps();
 }
 
@@ -917,11 +936,12 @@ function beginPolling(id, durationS) {
         $("#btn-run").disabled = validateState().length > 0;
         refreshRecentRuns();
 
-        if (st.state === "done") {
-          toast("Run complete — view report", "ok");
+        if (st.state === "done" || st.state === "error") {
+          // failed runs still produce a report — it carries the error story
           showReport(id, `run ${id}`);
+          toast(st.state === "done" ? "Run complete — view report" : `run failed — see report: ${st.error || "unknown error"}`, st.state === "done" ? "ok" : "err");
         } else {
-          toast(`run failed: ${st.error || "unknown error"}`, "err");
+          toast(`run aborted: ${st.error || "unknown error"}`, "err");
         }
         currentRunId = null;
       }
@@ -1028,8 +1048,16 @@ async function buildFriendlyReport(id) {
     const ramp = data.ramp || "0s";
     const totalReqs = runners.reduce((a, r) => a + (r.requests || 0), 0);
 
-    // ---- exhaustive case coverage ----
+    // ---- fatal run errors get their own story first ----
     wrap.innerHTML = "";
+    if (data.error) {
+      wrap.append(el("div", { class: "friendly-hero err" },
+        el("h2", { text: "Run failed before it could produce results" }),
+        el("p", { text: data.error }),
+        el("p", { class: "dim", text: "Check the target address / connection string, make sure the service is up, then try again." })));
+      renderFriendlyCharts(timeline, runners);
+      return;
+    }
     if (runners.length === 0) {
       wrap.append(el("div", { class: "friendly-hero err" },
         el("h2", { text: "No data — no runners returned results" }),
@@ -1179,7 +1207,7 @@ function renderRecentList() {
       el("span", { class: "recent-stats mono", text: stats || run.state }));
     if (run.state !== "done") li.append(el("span", { class: `state-badge ${run.state}`, text: run.state }));
     else {
-      const open = el("button", { class: "btn tiny ghost", type: "button", onclick: () => showReport(run.id, `run ${run.id}`) },
+      const open = el("button", { class: "btn btn-ghost btn-xs", type: "button", onclick: () => showReport(run.id, `run ${run.id}`) },
         el("i", { class: "ph ph-file-text", "aria-hidden": "true" }), " report");
       li.append(open);
     }

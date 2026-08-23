@@ -183,14 +183,19 @@ func (s *UIServer) handleStartRun(w http.ResponseWriter, r *http.Request) {
 }
 
 // executeRun runs the orchestrator synchronously, then persists the JSON
-// export and HTML report under the runs directory.
+// export and HTML report under the runs directory. Fatal run errors (e.g. a
+// runner could not dial its target) still produce a report — with the error
+// recorded in it — so the UI can always show what happened.
 func (s *UIServer) executeRun(run *uiRun, req startRunRequest) {
-	result, err := Orchestrator(*run.config)
-	if err != nil {
+	fail := func(err error) {
 		run.mu.Lock()
 		run.state, run.errMsg, run.finished = "error", err.Error(), time.Now()
 		run.mu.Unlock()
-		return
+	}
+
+	result, err := Orchestrator(*run.config)
+	if err != nil {
+		result = &OrchestratorResult{}
 	}
 
 	spikes := Correlate(result,
@@ -201,9 +206,7 @@ func (s *UIServer) executeRun(run *uiRun, req startRunRequest) {
 
 	dir := filepath.Join(s.runsDir, run.ID)
 	if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
-		run.mu.Lock()
-		run.state, run.errMsg, run.finished = "error", mkErr.Error(), time.Now()
-		run.mu.Unlock()
+		fail(mkErr)
 		return
 	}
 
@@ -211,28 +214,25 @@ func (s *UIServer) executeRun(run *uiRun, req startRunRequest) {
 	data.Duration = time.Duration(run.config.Duration).String()
 	data.Ramp = time.Duration(run.config.Ramp).String()
 	data.Concurrency = run.config.Concurrency
+	if err != nil {
+		data.Error = err.Error()
+	}
 
 	jsonPath := filepath.Join(dir, "results.json")
 	if jErr := ExportJSON(data, jsonPath); jErr != nil {
-		run.mu.Lock()
-		run.state, run.errMsg, run.finished = "error", jErr.Error(), time.Now()
-		run.mu.Unlock()
+		fail(jErr)
 		return
 	}
 
 	reportPath := filepath.Join(dir, "report.html")
 	f, fErr := os.Create(reportPath)
 	if fErr != nil {
-		run.mu.Lock()
-		run.state, run.errMsg, run.finished = "error", fErr.Error(), time.Now()
-		run.mu.Unlock()
+		fail(fErr)
 		return
 	}
 	defer f.Close()
 	if rErr := RenderHTML(data, "templates/report.html", f); rErr != nil {
-		run.mu.Lock()
-		run.state, run.errMsg, run.finished = "error", rErr.Error(), time.Now()
-		run.mu.Unlock()
+		fail(rErr)
 		return
 	}
 

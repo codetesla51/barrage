@@ -54,7 +54,7 @@
     </button>
   </div>
   <div class="text-xs opacity-60 pb-2">tick two runs to compare them</div>
-  <ul id="recent-list" class="list p-0 m-0"></ul>
+  <ul id="recent-list" class="recent-list"></ul>
 </div>
 
 <main class="split" id="main-split" style="--left: 54%">
@@ -232,7 +232,7 @@
     <div class="preview-head">
       <span class="filetab"><span class="fdot"></span> config.yaml</span>
       <span class="spacer"></span>
-      <div class="tabs tabs-box tabs-xs" role="tablist" aria-label="Preview mode">
+      <div class="tabs tabs-box tabs-xs preview-tabs" role="tablist" aria-label="Preview mode">
         <button role="tab" class="tab tab-active" data-ptab="preview" id="ptab-preview">preview</button>
         <button role="tab" class="tab" data-ptab="edit" id="ptab-edit">edit</button>
       </div>
@@ -268,7 +268,7 @@
     <span class="opacity-40">/</span>
     <span class="eyebrow" id="report-title">report</span>
     <span class="spacer"></span>
-    <div class="tabs tabs-box tabs-sm" role="tablist" aria-label="Report view">
+    <div class="tabs tabs-box tabs-sm report-tabs" role="tablist" aria-label="Report view">
       <button role="tab" class="tab tab-active" data-tab="friendly" id="tab-friendly">story</button>
       <button role="tab" class="tab" data-tab="technical" id="tab-technical">technical</button>
     </div>
@@ -296,18 +296,20 @@
     <label class="flex flex-row items-center gap-2 text-xs opacity-80 mono">fail_on <input class="input input-sm mono w-24" id="fail-on" value="100ms"></label>
   </div>
   <div class="compare-scroll">
-    <div class="card card-border bg-base-100 p-4 mb-4 flex flex-wrap items-end gap-4">
-      <div class="upload-col">
-        <span class="eyebrow">baseline report <span class="opacity-60">(results.json)</span></span>
-        <input type="file" id="compare-baseline-file" accept=".json,application/json" class="file-input file-input-sm w-full">
-        <span class="mono text-xs opacity-60" id="compare-baseline-name"></span>
+    <div class="card card-border bg-base-100 p-4 mb-4 grid gap-3">
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div class="upload-col">
+          <span class="eyebrow">baseline report <span class="opacity-60">(results.json)</span></span>
+          <input type="file" id="compare-baseline-file" accept=".json,application/json" class="file-input file-input-sm w-full">
+          <span class="mono text-xs opacity-60 break-all" id="compare-baseline-name"></span>
+        </div>
+        <div class="upload-col">
+          <span class="eyebrow">current report <span class="opacity-60">(results.json)</span></span>
+          <input type="file" id="compare-current-file" accept=".json,application/json" class="file-input file-input-sm w-full">
+          <span class="mono text-xs opacity-60 break-all" id="compare-current-name"></span>
+        </div>
       </div>
-      <div class="upload-col">
-        <span class="eyebrow">current report <span class="opacity-60">(results.json)</span></span>
-        <input type="file" id="compare-current-file" accept=".json,application/json" class="file-input file-input-sm w-full">
-        <span class="mono text-xs opacity-60" id="compare-current-name"></span>
-      </div>
-      <button class="btn btn-primary" id="btn-compare-upload" disabled><i class="ph ph-upload-simple" aria-hidden="true"></i> compare files</button>
+      <button class="btn btn-primary w-full" id="btn-compare-upload" disabled><i class="ph ph-upload-simple" aria-hidden="true"></i> compare files</button>
     </div>
     <div class="divider text-xs opacity-60 mono my-2">or pick from recent runs above</div>
     <div id="compare-banner" class="banner" role="status"></div>
