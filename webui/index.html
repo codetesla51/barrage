@@ -17,8 +17,11 @@
 <body>
 
 <header class="navbar min-h-0 h-[52px] px-4 gap-3 border-b border-base-300 bg-base-200 relative shrink-0">
-  <div class="navbar-start w-auto px-0 gap-2">
-    <span class="font-bold tracking-tight text-[15px]">barrage</span>
+  <div class="navbar-start w-auto px-0">
+    <button class="brand flex items-center gap-2.5 cursor-pointer bg-transparent border-none p-0" id="btn-home" title="back to config">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">BARRAGE</span>
+    </button>
   </div>
 
   <div class="run-clock" id="run-clock" hidden>
@@ -27,19 +30,22 @@
     <span class="mono dim" id="clock-duration"></span>
   </div>
 
-  <div class="navbar-end w-auto px-0 ml-auto gap-1">
-    <button class="btn btn-ghost btn-sm" id="btn-compare-nav" title="Compare two reports">
-      <i class="ph ph-git-diff" aria-hidden="true"></i><span>compare</span>
-    </button>
-    <button class="btn btn-ghost btn-sm" id="btn-recent" title="Recent runs (Ctrl+K)">
-      <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i><span>runs</span>
-    </button>
-    <button class="btn btn-ghost btn-square btn-sm" id="btn-help" title="Shortcuts (?)" aria-label="Keyboard shortcuts">
-      <i class="ph ph-question" aria-hidden="true"></i>
-    </button>
-    <button class="btn btn-ghost btn-square btn-sm" id="btn-theme" title="Toggle theme" aria-label="Toggle theme">
-      <i class="ph ph-moon" aria-hidden="true" id="theme-icon"></i>
-    </button>
+  <div class="navbar-end w-auto px-0 ml-auto">
+    <div class="nav-pill flex items-center gap-1 rounded-full p-1">
+      <button class="btn btn-ghost btn-sm rounded-full" id="btn-compare-nav" title="Compare two reports">
+        <i class="ph ph-git-diff" aria-hidden="true"></i><span>compare</span>
+      </button>
+      <button class="btn btn-ghost btn-sm rounded-full" id="btn-recent" title="Recent runs (Ctrl+K)">
+        <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i><span>runs</span>
+      </button>
+      <span class="nav-sep" aria-hidden="true"></span>
+      <button class="btn btn-ghost btn-square btn-sm rounded-full" id="btn-help" title="Shortcuts (?)" aria-label="Keyboard shortcuts">
+        <i class="ph ph-question" aria-hidden="true"></i>
+      </button>
+      <button class="btn btn-ghost btn-square btn-sm rounded-full" id="btn-theme" title="Toggle theme" aria-label="Toggle theme">
+        <i class="ph ph-moon" aria-hidden="true" id="theme-icon"></i>
+      </button>
+    </div>
   </div>
   <div class="hairline-progress" id="progress" aria-hidden="true"><span></span></div>
 </header>
@@ -51,6 +57,9 @@
     <span class="spacer"></span>
     <button class="btn btn-primary btn-xs" id="btn-compare-selected" disabled>
       <i class="ph ph-git-diff" aria-hidden="true"></i><span>compare selected</span>
+    </button>
+    <button class="btn btn-ghost btn-square btn-xs" id="btn-recent-close" title="Close (Esc)" aria-label="Close recent runs">
+      <i class="ph ph-x" aria-hidden="true"></i>
     </button>
   </div>
   <div class="text-xs opacity-60 pb-2">tick two runs to compare them</div>

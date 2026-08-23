@@ -1400,6 +1400,7 @@ function init() {
   $("#btn-compare-picked").addEventListener("click", runCompare);
   initGutter();
   bindStaticFields();
+  $("#btn-home").addEventListener("click", showForm);
 
   $("#btn-theme").addEventListener("click", () =>
     applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
@@ -1442,6 +1443,7 @@ function init() {
     $("#recent-panel").hidden = true;
     runCompare();
   });
+  $("#btn-recent-close").addEventListener("click", () => { panel.hidden = true; });
   // compare via uploaded files
   const baselineFile = $("#compare-baseline-file");
   const currentFile = $("#compare-current-file");
@@ -1488,6 +1490,7 @@ function init() {
     if (mod && e.key === "Enter") { e.preventDefault(); if (!$("#btn-run").disabled) $("#btn-run").click(); }
     else if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); $("#btn-recent").click(); }
     else if (mod && e.key.toLowerCase() === "i") { e.preventDefault(); $("#btn-import").click(); }
+    else if (e.key === "Escape" && !panel.hidden) { panel.hidden = true; }
     else if (e.key === "?" && !e.target.matches("input,textarea,select")) { e.preventDefault(); openModal("#help-modal"); }
   });
 
