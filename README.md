@@ -411,13 +411,32 @@ Helpers for exercising a local reference backend:
 - `cmd/demoserver` — HTTP app on `:8080` with routes for scenarios:
   `POST /api/login` → `{"token":"tok-123"}`, `GET /api/me` (checks
   `Authorization: Bearer {{token}}`), `GET /api/products`, `POST /api/orders`,
-  `GET /api/checkout?token={{token}}`. See `config.scenario.yaml` (single flow)
-  and `config.scenarios.yaml` (weighted browse vs checkout) for examples.
+  `GET /api/checkout?token={{token}}`. See `examples/scenario-login.yaml`
+  (single flow) and `examples/scenarios-weighted.yaml` (weighted browse vs
+  checkout) for examples.
 - `cmd/seeddb` — bulk-seeds an `orders` table (COPY, 100k-row chunks) so DB
   queries have real work to do:
 
 ```sh
 go run ./cmd/seeddb -conn "postgres://user:pass@localhost:5432/mydb?sslmode=disable" -n 1000000
+```
+
+## Example configs
+
+Ready-to-run profiles live in [`examples/`](examples/), all targeting the demo
+server on `:8080`:
+
+| File | What it shows |
+|---|---|
+| `light.yaml` | gentle baseline: HTTP + Redis at ~15 req/s |
+| `heavy.yaml` | stress profile: HTTP + SQLite + Redis at ~4x light, higher concurrency |
+| `scenario-login.yaml` | single journey: login, extract token, interpolate into later steps |
+| `scenarios-weighted.yaml` | multiple journeys with weights (browse vs checkout traffic mix) |
+
+Run any of them against the demo stack:
+
+```sh
+barrage run -c examples/scenarios-weighted.yaml
 ```
 
 ## Development
