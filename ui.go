@@ -81,6 +81,7 @@ func (s *UIServer) ListenAndServe() error {
 	mux.HandleFunc("GET /api/runs", s.handleListRuns)
 	mux.HandleFunc("GET /api/runs/{id}/status", s.handleRunStatus)
 	mux.HandleFunc("GET /api/runs/{id}/report", s.handleRunReport)
+	mux.HandleFunc("GET /api/runs/{id}/json", s.handleRunJSON)
 	mux.HandleFunc("POST /api/compare", s.handleCompare)
 
 	srv := &http.Server{
@@ -379,6 +380,10 @@ func (s *UIServer) serveRunFile(w http.ResponseWriter, r *http.Request, name, ct
 
 func (s *UIServer) handleRunReport(w http.ResponseWriter, r *http.Request) {
 	s.serveRunFile(w, r, "report.html", "text/html; charset=utf-8")
+}
+
+func (s *UIServer) handleRunJSON(w http.ResponseWriter, r *http.Request) {
+	s.serveRunFile(w, r, "results.json", "application/json")
 }
 
 type compareRequest struct {

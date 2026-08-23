@@ -394,7 +394,7 @@ function appendRedisQueryRow(container, q) {
 }
 
 function addScenario() {
-  const scenario = { on: true, name: "", weight: 1, steps: [] };
+  const scenario = { on: true, name: "", weight: 1, steps: [{ method: "GET", url: "", body: "", headers: [], extract: [] }] };
   state.scenarios.push(scenario);
   appendScenarioBox($("#scenario-list"), scenario);
   changed();
@@ -419,6 +419,11 @@ function appendScenarioBox(container, scenario) {
   }
 
   function stepRow(st, idx) {
+    st.method = st.method || "GET";
+    st.url = st.url || "";
+    st.body = st.body || "";
+    st.headers = st.headers || [];
+    st.extract = st.extract || [];
     const rowBox = el("div", { class: "step-box" });
     const line1 = el("div", { class: "row" });
 
@@ -798,6 +803,10 @@ function beginPolling(id, durationS) {
   clock.hidden = false;
   clock.classList.add("live");
   $("#btn-run").disabled = true;
+  // live overlay
+  $("#live-overlay").hidden = false;
+  $("#live-runners").textContent = liveRunnersText();
+  $("#live-hint").textContent = "firing requests — hang tight";
 
   clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
@@ -809,12 +818,17 @@ function beginPolling(id, durationS) {
       $("#clock-duration").textContent = `of ${Math.round(st.duration_s)}s`;
       const pct = Math.min(100, (st.elapsed_s / Math.max(1, st.duration_s)) * 100);
       $("#progress span").style.width = pct + "%";
+      // live overlay updates
+      $("#live-elapsed").textContent = `${elapsed}s / ${Math.round(st.duration_s)}s`;
+      $("#live-bar-fill").style.width = pct + "%";
+      $("#live-title").textContent = st.state === "running" ? `running — ${elapsed}s` : st.state;
 
       if (st.state !== "running") {
         clearInterval(pollTimer);
         pollTimer = null;
         clock.classList.remove("live");
         $("#progress span").style.width = "0%";
+        $("#live-overlay").hidden = true;
         $("#btn-run").disabled = validateState().length > 0;
         refreshRecentRuns();
 
@@ -832,10 +846,91 @@ function beginPolling(id, durationS) {
   }, 500);
 }
 
+function liveRunnersText() {
+  const parts = [];
+  if (state.http.on) parts.push(`http · ${state.http.rate}/s`);
+  if (state.db.on) parts.push(`db · ${state.db.rate}/s`);
+  if (state.redis.on) parts.push(`redis · ${state.redis.rate}/s`);
+  const scn = state.scenarios.filter((s) => s.on);
+  if (scn.length) parts.push(scn.map((s) => s.name || "scenario").join(" · "));
+  return parts.join("  ·  ") || "preparing runners";
+}
+
+async function buildFriendlyReport(id) {
+  const wrap = $("#friendly-report");
+  wrap.innerHTML = '<p class="dim">loading report…</p>';
+  try {
+    const data = await api(`/api/runs/${id}/json`);
+    const runners = data.runners || [];
+    const spikes = data.spikes || [];
+    const duration = data.duration || "?";
+    const totalReqs = runners.reduce((a, r) => a + (r.requests || 0), 0);
+    const worst = runners.slice().sort((a, b) => b.p99_ms - a.p99_ms)[0];
+    const bottleneck = worst ? worst.name : "none";
+    const broken = runners.filter((r) => r.success_percent < 99).map((r) => r.name);
+    const ok = runners.filter((r) => r.success_percent >= 99).map((r) => r.name);
+
+    const verdict = spikes.length === 0 && broken.length === 0
+      ? { title: "All good — nothing was broken", tone: "ok", detail: `Your test ran clean for ${duration}. Every runner stayed under budget and success stayed high.` }
+      : spikes.length > 0
+        ? { title: `Bottleneck: ${bottleneck} was the slowest`, tone: "err", detail: `${spikes.length} spike(s) crossed budget. ${bottleneck} hit p99 ${worst.p99_ms}ms — that's where time went.` }
+        : { title: `${broken.join(", ")} had errors`, tone: "err", detail: `Success dipped on ${broken.join(", ")} — check status codes and timeouts.` };
+
+    wrap.innerHTML = "";
+    wrap.append(
+      el("div", { class: `friendly-hero ${verdict.tone}` },
+        el("h2", { text: verdict.title }),
+        el("p", { text: verdict.detail })
+      ),
+      el("div", { class: "friendly-grid" },
+        el("div", { class: "f-card" }, el("div", { class: "f-k mono dim", text: "duration" }), el("div", { class: "f-v mono", text: duration })),
+        el("div", { class: "f-card" }, el("div", { class: "f-k mono dim", text: "total requests" }), el("div", { class: "f-v mono", text: String(totalReqs) })),
+        el("div", { class: "f-card" }, el("div", { class: "f-k mono dim", text: "runners" }), el("div", { class: "f-v mono", text: runners.map((r) => r.name).join(" · ") || "—" })),
+        el("div", { class: "f-card" }, el("div", { class: "f-k mono dim", text: "bottleneck" }), el("div", { class: "f-v mono", text: bottleneck || "none" }))
+      )
+    );
+
+    // per-runner story
+    const list = el("div", { class: "friendly-runners" });
+    for (const r of runners) {
+      const line = r.success_percent >= 99
+        ? `${r.name} was healthy — p99 ${r.p99_ms}ms, ${r.success_percent.toFixed(1)}% success`
+        : `${r.name} struggled — p99 ${r.p99_ms}ms, only ${r.success_percent.toFixed(1)}% success`;
+      const badge = r.success_percent >= 99 ? "ok" : "bad";
+      list.append(el("div", { class: `f-run ${badge}` }, el("span", { text: line })));
+    }
+    wrap.append(list);
+
+    if (spikes.length) {
+      const sList = el("ul", { class: "friendly-spikes" });
+      for (const s of spikes.slice(0, 6)) {
+        sList.append(el("li", { text: `${s.bucket_time} — ${s.runner} spiked (http ${s.http_p99_ms}ms / storage ${s.storage_p99_ms}ms)` }));
+      }
+      if (spikes.length > 6) sList.append(el("li", { class: "dim", text: `+ ${spikes.length - 6} more spikes` }));
+      wrap.append(el("h3", { class: "eyebrow", text: "where it hurt" }), sList);
+    } else {
+      wrap.append(el("p", { class: "dim", text: "No budget spikes — everything stayed under your thresholds." }));
+    }
+
+    if (broken.length) {
+      wrap.append(el("h3", { class: "eyebrow", text: "what was broken" }), el("p", { text: `${broken.join(", ")} returned errors or low success. Check the technical report for status codes.` }));
+    } else if (ok.length) {
+      wrap.append(el("p", { class: "dim", text: `${ok.join(", ")} stayed healthy.` }));
+    }
+  } catch (e) {
+    wrap.innerHTML = `<p class="dim">could not load friendly report: ${escHtml(e.message)}</p>`;
+  }
+}
+
 function showReport(id, title) {
   $("#report-title").textContent = title;
   $("#report-frame").src = `/api/runs/${id}/report`;
   $("#btn-open-report-tab").href = `/api/runs/${id}/report`;
+  // default to story tab
+  $("#friendly-wrap").hidden = false;
+  $("#report-frame").hidden = true;
+  $$(".report-tabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === "friendly"));
+  buildFriendlyReport(id);
   $("#main-split").hidden = true;
   $("#compare-view").hidden = true;
   $("#report-view").hidden = false;
@@ -1022,6 +1117,12 @@ function init() {
   $("#btn-start-run").addEventListener("click", () => { closeModal("#prerun-modal"); startRun(); });
 
   // views
+  $$(".report-tabs .tab").forEach((btn) => btn.addEventListener("click", () => {
+    const tab = btn.dataset.tab;
+    $$(".report-tabs .tab").forEach((t) => t.classList.toggle("active", t === btn));
+    $("#friendly-wrap").hidden = tab !== "friendly";
+    $("#report-frame").hidden = tab !== "technical";
+  }));
   $("#btn-back-to-form").addEventListener("click", showForm);
   $("#btn-back-from-compare").addEventListener("click", showForm);
   $("#fail-on").addEventListener("change", () => { if (selectedRuns().length === 2) runCompare(); });

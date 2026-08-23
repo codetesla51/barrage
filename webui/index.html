@@ -14,9 +14,7 @@
 
 <header class="topbar">
   <div class="brand">
-    <span class="brand-mark"><i class="ph-fill ph-wave-sine" aria-hidden="true"></i></span>
     <span class="brand-name">barrage</span>
-    <span class="brand-sub">ui</span>
   </div>
 
   <div class="run-clock" id="run-clock" hidden>
@@ -230,6 +228,20 @@
   </aside>
 </main>
 
+<!-- live running overlay -->
+<div class="live-overlay" id="live-overlay" hidden>
+  <div class="live-card">
+    <div class="live-head">
+      <span class="live-dot"></span>
+      <span class="mono" id="live-title">running</span>
+      <span class="mono dim" id="live-elapsed">0s / 0s</span>
+    </div>
+    <div class="live-bar"><span id="live-bar-fill"></span></div>
+    <p class="live-hint dim" id="live-hint">firing requests — hang tight</p>
+    <div class="live-runners mono dim" id="live-runners"></div>
+  </div>
+</div>
+
 <!-- report view -->
 <section class="fullview" id="report-view" hidden>
   <div class="fullview-head">
@@ -237,9 +249,16 @@
     <span class="crumb-sep">/</span>
     <span class="eyebrow" id="report-title">report</span>
     <span class="spacer"></span>
-    <a class="btn ghost" id="btn-open-report-tab" href="#" target="_blank" rel="noopener"><i class="ph ph-arrow-square-out" aria-hidden="true"></i> open standalone</a>
+    <div class="report-tabs">
+      <button class="tab active" data-tab="friendly" id="tab-friendly">story</button>
+      <button class="tab" data-tab="technical" id="tab-technical">technical</button>
+    </div>
+    <a class="btn ghost" id="btn-open-report-tab" href="#" target="_blank" rel="noopener"><i class="ph ph-arrow-square-out" aria-hidden="true"></i> open</a>
   </div>
-  <iframe id="report-frame" title="Run report"></iframe>
+  <div class="friendly-wrap" id="friendly-wrap">
+    <div id="friendly-report"></div>
+  </div>
+  <iframe id="report-frame" title="Run report" hidden></iframe>
 </section>
 
 <!-- compare view -->
