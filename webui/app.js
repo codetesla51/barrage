@@ -904,7 +904,6 @@ function beginPolling(id, durationS) {
         st.state === "running" ? `running ${elapsed}s` : st.state === "done" ? "done" : "error";
       $("#clock-duration").textContent = `of ${Math.round(st.duration_s)}s`;
       const pct = Math.min(100, (st.elapsed_s / Math.max(1, st.duration_s)) * 100);
-      $("#progress span").style.width = pct + "%";
       // live overlay + runner log updates
       $("#live-elapsed").textContent = `${elapsed}s / ${Math.round(st.duration_s)}s`;
       $("#live-bar-fill").value = pct;
@@ -928,7 +927,6 @@ function beginPolling(id, durationS) {
         clearInterval(pollTimer);
         pollTimer = null;
         clock.classList.remove("live");
-        $("#progress span").style.width = "0%";
         $("#live-overlay").hidden = true;
         if (st.state === "done") appendLogLine(`${elapsed}s`, "done — building report");
         else appendLogLine(`${elapsed}s`, `error: ${st.error || "unknown"}`);
@@ -976,6 +974,17 @@ function liveEstimateLine(elapsed) {
 }
 
 let latencyChart = null, throughputChart = null;
+// ---- runner identity: one icon + one color each, used across story + charts ----
+const RUNNER_META = {
+  http:  { label: "HTTP",  icon: "ph-globe",            color: "#4c9ffe" },
+  db:    { label: "DB",    icon: "ph-database",         color: "#e8a33d" },
+  redis: { label: "Redis", icon: "ph-lightning",        color: "#f47067" },
+};
+function runnerMeta(name) {
+  const m = RUNNER_META[String(name || "").toLowerCase()];
+  return m || { label: String(name || "run"), icon: "ph-pulse", color: "#9a9a9a" };
+}
+
 function renderFriendlyCharts(timeline, runners) {
   const sec = $("#chart-section");
   if (!timeline || !timeline.labels || timeline.labels.length === 0 || !runners || runners.length === 0) {
@@ -987,17 +996,15 @@ function renderFriendlyCharts(timeline, runners) {
   const gridColor = isDark ? "#262626" : "#e6e6e6";
   const tickColor = isDark ? "#7a7a7a" : "#6b6b6b";
 
-  // latency chart — p99 per bucket
+  // latency chart — p99 per bucket, line color = runner color
   const ctx1 = $("#latency-chart").getContext("2d");
   if (latencyChart) latencyChart.destroy();
-  const pal = ["#8a8a8a","#4a4a4a","#bdbdbd","#2a2a2a","#6e6e6e","#c8c8c8"];
-  const dashes = [[], [6,4], [2,3], [8,4,2,4]];
-  const ds1 = (timeline.series || []).map((s, i) => ({
+  const ds1 = (timeline.series || []).map((s) => ({
     label: s.name,
     data: s.p99_ms.map((v) => v === -1 ? null : v),
-    borderColor: pal[i % pal.length],
-    backgroundColor: pal[i % pal.length],
-    borderDash: dashes[i % dashes.length],
+    borderColor: runnerMeta(s.name).color,
+    backgroundColor: runnerMeta(s.name).color,
+    borderWidth: 2,
     tension: 0.25, pointRadius: 0, spanGaps: true,
   }));
   latencyChart = new Chart(ctx1, {
@@ -1022,7 +1029,7 @@ function renderFriendlyCharts(timeline, runners) {
       labels: runners.map((r) => r.name),
       datasets: [
         { label: "rate (target)", data: runners.map((r) => r.rate || 0), backgroundColor: isDark ? "#3a3a3a" : "#d9d9d9", borderColor: isDark ? "#5a5a5a" : "#9a9a9a", borderWidth: 1 },
-        { label: "throughput (achieved)", data: runners.map((r) => r.throughput || 0), backgroundColor: isDark ? "#8a8a8a" : "#4a4a4a" },
+        { label: "throughput (achieved)", data: runners.map((r) => r.throughput || 0), backgroundColor: runners.map((r) => runnerMeta(r.name).color) },
       ],
     },
     options: {
@@ -1115,15 +1122,34 @@ async function buildFriendlyReport(id) {
       )
     );
 
-    // per-runner stories with throughput health
+    // per-runner cards: identity, health, metrics at a glance
     const list = el("div", { class: "friendly-runners" });
     for (const r of runners) {
-      const throttleNote = r.throughput > 0 && r.rate > 0 && r.throughput / r.rate < 0.85 ? ` — throttled (rate ${r.rate}/s, achieved ${r.throughput.toFixed(1)}/s)` : "";
-      const statusNote = r.requests < 10 ? " — very few samples, treat p99 as noisy" : "";
+      const m = runnerMeta(r.name);
+      const throttledNow = r.throughput > 0 && r.rate > 0 && r.throughput / r.rate < 0.85;
       const health = r.success_percent >= 99 ? "healthy" : r.success_percent >= 90 ? "degraded" : "failing";
-      const line = `${r.name} — ${health} · p50 ${r.p50_ms}ms · p99 ${r.p99_ms}ms · ${r.success_percent.toFixed(1)}% success · ${r.requests} reqs${throttleNote}${statusNote}`;
-      const badge = r.success_percent >= 99 ? "ok" : "bad";
-      list.append(el("div", { class: `f-run ${badge}` }, el("span", { text: line })));
+      const latCls = r.p99_ms >= 500 ? "m-bad" : r.p99_ms >= 100 ? "m-warn" : "m-ok";
+      const chip = (k, v, cls = "") => el("span", { class: `metric mono ${cls}` },
+        el("b", { text: k }), v);
+      list.append(el("div", { class: `f-run`, style: `--rc:${m.color}` },
+        el("span", { class: "f-ico" }, el("i", { class: `ph ${m.icon}`, style: `color:${m.color}` })),
+        el("div", { class: "f-run-body" },
+          el("div", { class: "f-run-head" },
+            el("b", { class: "f-run-name", text: m.label, style: `color:${m.color}` }),
+            el("span", { class: `pill pill-${health}`, text: health }),
+            throttledNow ? el("span", { class: "pill pill-warn", title: `rate ${r.rate}/s, achieved ${(r.throughput || 0).toFixed(1)}/s`, text: "throttled" }) : null,
+            r.requests < 10 ? el("span", { class: "pill pill-warn", title: "percentiles noisy", text: "low samples" }) : null
+          ),
+          el("div", { class: "f-metrics" },
+            chip("p50", `${r.p50_ms}ms`),
+            chip("p95", `${r.p95_ms ?? "?"}ms`),
+            chip("p99", `${r.p99_ms}ms`, latCls),
+            chip("max", `${r.max_ms ?? "?"}ms`),
+            chip("success", `${r.success_percent.toFixed(1)}%`, r.success_percent >= 99 ? "m-ok" : r.success_percent >= 90 ? "m-warn" : "m-bad"),
+            chip("reqs", String(r.requests))
+          )
+        )
+      ));
     }
     wrap.append(list);
 
@@ -1133,8 +1159,13 @@ async function buildFriendlyReport(id) {
     if (spikes.length) {
       const sList = el("ul", { class: "friendly-spikes" });
       for (const s of spikes.slice(0, 8)) {
-        const tag = s.masked ? "masked — storage slow, app ok" : "correlated — app slowed too";
-        sList.append(el("li", { text: `${s.bucket_time} — ${s.runner} ${tag} (http ${s.http_p99_ms}ms / storage ${s.storage_p99_ms}ms)` }));
+        const rm = runnerMeta(s.runner);
+        sList.append(el("li", { class: s.masked ? "sp-masked" : "sp-corr" },
+          el("i", { class: `ph ${s.masked ? "ph-eye-slash" : "ph-link-break"}` }),
+          el("span", { class: "mono sp-time", text: s.bucket_time }),
+          el("b", { class: "sp-runner", text: rm.label, style: `color:${rm.color}` }),
+          el("span", { text: s.masked ? "masked — storage slow, app ok" : "correlated — app slowed too" }),
+          el("span", { class: "mono dim", text: `(http ${s.http_p99_ms}ms / storage ${s.storage_p99_ms}ms)` })));
       }
       if (spikes.length > 8) sList.append(el("li", { class: "dim", text: `+ ${spikes.length - 8} more spikes` }));
       wrap.append(el("h3", { class: "eyebrow", text: "where it hurt" }), sList);
@@ -1143,8 +1174,37 @@ async function buildFriendlyReport(id) {
     }
 
     if (broken.length) {
-      wrap.append(el("h3", { class: "eyebrow", text: "what was broken" }), el("p", { text: `${broken.map((r) => `${r.name} (${r.success_percent.toFixed(1)}% success, p99 ${r.p99_ms}ms)`).join(", ")} — check the technical report for status codes.` }));
+      wrap.append(el("h3", { class: "eyebrow", text: "what was broken" }), el("p", { text: `${broken.map((r) => `${runnerMeta(r.name).label} (${r.success_percent.toFixed(1)}% success, p99 ${r.p99_ms}ms)`).join(", ")} — check the technical report for status codes.` }));
     }
+
+    // next steps — the story should end with something actionable
+    const nextSteps = [];
+    if (severelyBroken.length) {
+      nextSteps.push(`Errors on ${severelyBroken.map((r) => runnerMeta(r.name).label).join(", ")} are fast failures — usually wrong routes, refused connections, or 5xx responses. Check status codes in the technical report.`);
+    } else if (broken.length) {
+      nextSteps.push(`Occasional failures on ${broken.map((r) => runnerMeta(r.name).label).join(", ")} only show up under load — look at timeouts and capacity, not correctness.`);
+    }
+    if (correlatedSpikes.length) {
+      nextSteps.push(`${runnerMeta(bottleneck).label} is dragging HTTP with it — indexes, connection-pool size, and query plans are the usual suspects.`);
+    }
+    if (maskedSpikes.length) {
+      nextSteps.push(`${maskedSpikes.map((s) => runnerMeta(s.runner).label).join(" & ")} spiked while HTTP stayed quiet — a bottleneck users can't feel yet. Tune it before they can.`);
+    }
+    if (throttled.length) {
+      nextSteps.push(`Throughput lagged target on ${throttled.map((r) => runnerMeta(r.name).label).join(", ")} — raise concurrency or the target is saturated (deliberately visible, not hidden).`);
+    }
+    if (!nextSteps.length && worst.p99_ms >= 300) {
+      nextSteps.push(`Nothing failed, but ${runnerMeta(bottleneck).label} runs warm at p99 ${worst.p99_ms}ms — set a tighter --fail-on budget and watch it across releases.`);
+    }
+    if (!nextSteps.length) {
+      nextSteps.push("Clean run — export this JSON and use it as your baseline for barrage compare.");
+    }
+    const stepsList = el("ul", { class: "friendly-next" });
+    for (const step of nextSteps) {
+      stepsList.append(el("li", {}, el("i", { class: "ph ph-arrow-right" }), el("span", { text: step })));
+    }
+    wrap.append(el("h3", { class: "eyebrow", text: "what to do next" }), stepsList);
+
     renderFriendlyCharts(timeline, runners);
   } catch (e) {
     wrap.innerHTML = `<p class="dim">could not load friendly report: ${escHtml(e.message)}</p>`;
@@ -1233,6 +1293,16 @@ function updateCompareButton() {
   if (picked) picked.disabled = !ready;
 }
 
+/* entering the compare page: clear selections and hide any previous result,
+   so the page shows pickers first and results only after a comparison runs */
+function resetCompareView() {
+  $$("#recent-list input[type=checkbox]:checked, #compare-run-list input[type=checkbox]:checked")
+    .forEach((cb) => { cb.checked = false; });
+  const result = $("#compare-result");
+  if (result) result.hidden = true;
+  updateCompareButton();
+}
+
 /* ---------- compare view ---------- */
 
 let compareUploadBaseline = null;
@@ -1290,6 +1360,8 @@ function renderCompareResult(data) {
       el("span", { class: "badge badge-ghost badge-sm mono", text: sp.status }),
       el("span", { class: "spike-plain", text: spikeText[sp.status] || "" })));
   }
+  const result = $("#compare-result");
+  if (result) result.hidden = false;
   $("#main-split").hidden = true;
   $("#report-view").hidden = true;
   $("#compare-view").hidden = false;
@@ -1297,6 +1369,7 @@ function renderCompareResult(data) {
 
 async function runCompare() {
   const [a, b] = selectedRuns();
+  if (!a || !b) return;
   // older id = baseline (ids are millisecond timestamps)
   const baseline = a < b ? a : b;
   const current = a < b ? b : a;
@@ -1314,6 +1387,14 @@ async function runCompare() {
   }
 
   renderCompareResult(data);
+}
+
+let _docBound = false;
+if (!_docBound) {
+  document.addEventListener("change", (e) => {
+    if (e.target.matches('input[type=checkbox][data-run-id]')) updateCompareButton();
+  });
+  _docBound = true;
 }
 
 /* ---------- theme ---------- */
@@ -1394,8 +1475,9 @@ function init() {
   $("#btn-compare-nav").addEventListener("click", () => {
     $("#main-split").hidden = true;
     $("#report-view").hidden = true;
-    $("#compare-view").hidden = false;
+    resetCompareView();
     refreshRecentRuns();
+    $("#compare-view").hidden = false;
   });
   $("#btn-compare-picked").addEventListener("click", runCompare);
   initGutter();

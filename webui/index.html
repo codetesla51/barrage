@@ -18,9 +18,8 @@
 
 <header class="navbar min-h-0 h-[52px] px-4 gap-3 border-b border-base-300 bg-base-200 relative shrink-0">
   <div class="navbar-start w-auto px-0">
-    <button class="brand flex items-center gap-2.5 cursor-pointer bg-transparent border-none p-0" id="btn-home" title="back to config">
-      <span class="brand-mark" aria-hidden="true"></span>
-      <span class="brand-name">BARRAGE</span>
+    <button class="brand flex items-center gap-1 cursor-pointer bg-transparent border-none p-0" id="btn-home" title="back to config">
+      <span class="brand-name">barrage<span class="brand-cursor">_</span></span>
     </button>
   </div>
 
@@ -47,7 +46,6 @@
       </button>
     </div>
   </div>
-  <div class="hairline-progress" id="progress" aria-hidden="true"><span></span></div>
 </header>
 
 <!-- recent runs dropdown -->
@@ -329,15 +327,17 @@
       </div>
       <ul id="compare-run-list" class="recent-list"></ul>
     </div>
-    <div id="compare-banner" class="banner" role="status"></div>
-    <div class="overflow-x-auto rounded-box border border-base-300 bg-base-100">
-      <table class="table table-sm" id="diff-table">
-        <thead><tr><th>RUNNER</th><th>BASELINE_P99</th><th>CURRENT_P99</th><th>CHANGE</th><th>VERDICT</th></tr></thead>
-        <tbody></tbody>
-      </table>
+    <div id="compare-result" hidden>
+      <div id="compare-banner" class="banner" role="status"></div>
+      <div class="overflow-x-auto rounded-box border border-base-300 bg-base-100">
+        <table class="table table-sm" id="diff-table">
+          <thead><tr><th>RUNNER</th><th>BASELINE_P99</th><th>CURRENT_P99</th><th>CHANGE</th><th>VERDICT</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <h3 class="eyebrow spike-head">spike diff</h3>
+      <ul class="spike-list" id="spike-list"></ul>
     </div>
-    <h3 class="eyebrow spike-head">spike diff</h3>
-    <ul class="spike-list" id="spike-list"></ul>
   </div>
 </section>
 

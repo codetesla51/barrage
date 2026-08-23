@@ -5,27 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Barrage — Correlation Dashboard</title>
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist/index.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist-mono/index.css">
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 
 <style>
   :root {
-    --bg: #0a0a0a;
-    --panel: #111111;
-    --panel-alt: #151515;
-    --ink: #fafafa;
-    --body: #b0b0b0;
+    --bg: #0d0d0d;
+    --panel: #101010;
+    --panel-alt: #161616;
+    --ink: #eaeaea;
+    --body: #a8a8a8;
     --mute: #767676;
     --faint: #4d4d4d;
-    --border: rgba(255,255,255,0.09);
-    --border-strong: rgba(255,255,255,0.16);
-    --on-ink: #0a0a0a;
+    --border: rgba(255,255,255,0.08);
+    --border-strong: rgba(255,255,255,0.15);
+    --on-ink: #0d0d0d;
+    --amber: #e8a33d;
 
-    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    --font-sans: 'Geist Variable', system-ui, -apple-system, sans-serif;
+    --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
   }
 
   * { box-sizing: border-box; }
@@ -36,8 +36,25 @@
     color: var(--ink);
     font-family: var(--font-sans);
     font-size: 14px;
-    line-height: 1.4;
+    line-height: 1.45;
+    letter-spacing: -0.01em;
     -webkit-font-smoothing: antialiased;
+  }
+
+  /* landing sync: blueprint grid + film grain */
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: 1999; pointer-events: none;
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,.02) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,.015) 1px, transparent 1px);
+    background-size: 72px 72px;
+  }
+  body::after {
+    content: "";
+    position: fixed; inset: 0; z-index: 2000; pointer-events: none;
+    opacity: .05; filter: contrast(120%);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 
   .wrap { max-width: 1200px; margin: 0 auto; padding: 0 20px 40px; }
@@ -54,7 +71,13 @@
 
   .topbar .left { display: flex; align-items: center; gap: 10px; }
 
-  .wordmark { font-weight: 600; font-size: 14px; }
+  .wordmark {
+    font-family: var(--font-mono);
+    font-weight: 700; font-size: 15px; letter-spacing: .02em; color: var(--ink);
+  }
+  .wordmark .cursor { color: var(--amber); animation: wm-blink 1.2s steps(1) infinite; }
+  @keyframes wm-blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .wordmark .cursor { animation: none; } }
 
   .subtitle {
     font-family: var(--font-mono);
@@ -363,8 +386,8 @@
 
   <div class="topbar">
     <div class="left">
-      <span class="wordmark">Barrage</span>
-      <span class="subtitle">/ correlation</span>
+      <span class="wordmark">barrage<span class="cursor">_</span></span>
+      <span class="subtitle">/ correlation report</span>
     </div>
     <div class="status-dot-row">
       {{if .Spikes}}

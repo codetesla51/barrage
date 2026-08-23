@@ -1,0 +1,40 @@
+# heavy run — stress profile for compare testing
+# ~4x the requests of config.light.yaml with ramp + more concurrency;
+# expect P99s to move — this is the "after" side of barrage compare
+duration: 20s
+bucket_width: 1s
+ramp: 3s
+concurrency: 50
+
+http:
+  rate: 40
+  target:
+    method: GET
+    url: http://localhost:8080/api/products
+    header:
+      accept: [application/json]
+
+db:
+  rate: 10
+  target:
+    driver: sqlite
+    conn: /tmp/barrage-load.db
+    queries:
+      - query: SELECT count(*) FROM orders
+        weight: 3
+        type: read
+      - query: INSERT INTO orders (customer, amount) VALUES ('load', 1)
+        weight: 1
+        type: write
+
+redis:
+  rate: 20
+  target:
+    addr: localhost:6379
+    queries:
+      - query: PING
+        weight: 3
+      - query: SET sess:loadtest ok
+        weight: 1
+      - query: INCR loadtest:hits
+        weight: 2

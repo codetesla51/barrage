@@ -1,0 +1,24 @@
+# light run — baseline for compare testing
+# ~15 req/s total against the demo server, gentle and steady
+duration: 20s
+bucket_width: 1s
+ramp: 3s
+concurrency: 10
+
+http:
+  rate: 10
+  target:
+    method: GET
+    url: http://localhost:8080/api/products
+    header:
+      accept: [application/json]
+
+redis:
+  rate: 5
+  target:
+    addr: localhost:6379
+    queries:
+      - query: PING
+        weight: 3
+      - query: SET sess:loadtest ok
+        weight: 1
