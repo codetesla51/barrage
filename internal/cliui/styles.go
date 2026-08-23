@@ -12,10 +12,10 @@ import (
 )
 
 var (
-	dimStyle   = lipgloss.NewStyle().Faint(true)
-	errStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-	warnStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	okStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("114"))
+	dimStyle    = lipgloss.NewStyle().Faint(true)
+	errStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
+	warnStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	okStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("114"))
 	accentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // amber
 )
 

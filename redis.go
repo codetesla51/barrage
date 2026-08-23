@@ -24,22 +24,34 @@ type RedisResult = DBResult
 // FireRedis executes Redis commands according to the specified target and
 // parameters. Commands are fired at rate per second (ramping up over ramp if
 // set) and run concurrently on a worker pool with up to concurrency workers.
-func FireRedis(target RedisTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration) (*DBResult, error) {
+func FireRedis(target RedisTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration, stats *RunStats) (*DBResult, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     target.Addr,
 		Password: target.Password,
 		DB:       target.DB,
 	})
 	defer client.Close()
-	ctx := context.Background()
+	// cancellable: runPaced cancels this at the deadline so in-flight commands
+	// abort instead of blocking shutdown on a wedged redis
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	if err := client.Ping(ctx).Err(); err != nil {
 		return nil, err
 	}
 
-	overall, start := runPaced(rate, concurrency, duration, ramp, func() dbQueryResult {
+	overall, start := runPaced(rate, concurrency, duration, ramp, func(opCtx context.Context) dbQueryResult {
 		pick := pickQuery(cumulativeWeights(target.Query))
 		queryStart := time.Now()
-		err := client.Do(ctx, splitCommand(pick.Query)...).Err()
+		// per-op timeout so a stalled connection can't hang past the deadline
+		opCtx, opCancel := context.WithTimeout(opCtx, 10*time.Second)
+		defer opCancel()
+		err := client.Do(opCtx, splitCommand(pick.Query)...).Err()
+		if stats != nil {
+			stats.RedisFired.Add(1)
+			if err != nil {
+				stats.RedisErr.Add(1)
+			}
+		}
 		return dbQueryResult{Latency: time.Since(queryStart), Success: err == nil, Err: err}
 	})
 

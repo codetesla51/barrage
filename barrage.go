@@ -1,6 +1,8 @@
 package barrage
 
 import (
+	"fmt"
+	"os"
 	"sync"
 	"time"
 )
@@ -33,12 +35,12 @@ type RedisRunnerConfig struct {
 	Rate   int         `yaml:"rate"`
 }
 type OrchestratorResult struct {
-	HTTPResult           *HTTPResult
-	DBResult             *DBResult
-	RedisResult          *RedisResult
-	ScenarioStats        *ScenarioStats
-	ScenarioName         string
-	ScenarioAggregates   []NamedScenarioStats
+	HTTPResult         *HTTPResult
+	DBResult           *DBResult
+	RedisResult        *RedisResult
+	ScenarioStats      *ScenarioStats
+	ScenarioName       string
+	ScenarioAggregates []NamedScenarioStats
 }
 
 func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
@@ -57,25 +59,28 @@ func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 	if bucketWidth <= 0 {
 		bucketWidth = time.Second
 	}
+	runStats := &RunStats{}
+	done := make(chan struct{})
+	go runStats.StartLogger(done, duration) // logs to stderr every 5s until the run ends
 	if cfg.HTTP != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			httpResult, httpErr = FireHTTP(cfg.HTTP.Target, cfg.HTTP.Rate, concurrency, duration, bucketWidth, ramp)
+			httpResult, httpErr = FireHTTP(cfg.HTTP.Target, cfg.HTTP.Rate, concurrency, duration, bucketWidth, ramp, runStats)
 		}()
 	}
 	if cfg.DB != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			dbResult, dbErr = FireDB(cfg.DB.Target, cfg.DB.Rate, concurrency, duration, bucketWidth, ramp)
+			dbResult, dbErr = FireDB(cfg.DB.Target, cfg.DB.Rate, concurrency, duration, bucketWidth, ramp, runStats)
 		}()
 	}
 	if cfg.Redis != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			redisResult, redisErr = FireRedis(cfg.Redis.Target, cfg.Redis.Rate, concurrency, duration, bucketWidth, ramp)
+			redisResult, redisErr = FireRedis(cfg.Redis.Target, cfg.Redis.Rate, concurrency, duration, bucketWidth, ramp, runStats)
 		}()
 	}
 	scenarios := effectiveScenarios(cfg)
@@ -84,7 +89,7 @@ func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 		go func() {
 			defer wg.Done()
 			if len(scenarios) == 1 {
-				stats, err := FireScenario(scenarios[0], concurrency, duration, bucketWidth)
+				stats, err := FireScenario(scenarios[0], concurrency, duration, bucketWidth, runStats)
 				scenarioStats = stats
 				scenarioErr = err
 				name := scenarios[0].Name
@@ -96,7 +101,7 @@ func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 					scenarioAggregates = []NamedScenarioStats{{Name: name, Stats: stats}}
 				}
 			} else {
-				aggs, err := FireScenarios(scenarios, concurrency, duration, bucketWidth)
+				aggs, err := FireScenarios(scenarios, concurrency, duration, bucketWidth, runStats)
 				scenarioErr = err
 				if err == nil {
 					scenarioAggregates = aggs
@@ -109,6 +114,8 @@ func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 		}()
 	}
 	wg.Wait()
+	close(done)
+	fmt.Fprintf(os.Stderr, "[barrage] done · %s\n", runStats.Summary())
 	if httpErr != nil {
 		return nil, httpErr
 	}

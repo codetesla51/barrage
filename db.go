@@ -1,6 +1,7 @@
 package barrage
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"math/rand"
@@ -111,25 +112,34 @@ func OpenConnection(conn string, driver string) (*sql.DB, error) {
 // FireDB executes database queries according to the specified target and
 // parameters. Queries are fired at rate per second (ramping up over ramp if
 // set) and run concurrently on a worker pool with up to concurrency workers.
-func FireDB(target DBTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration) (*DBResult, error) {
+func FireDB(target DBTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration, stats *RunStats) (*DBResult, error) {
 	db, err := OpenConnection(target.Conn, target.Driver)
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
 
-	overall, start := runPaced(rate, concurrency, duration, ramp, func() dbQueryResult {
+	overall, start := runPaced(rate, concurrency, duration, ramp, func(ctx context.Context) dbQueryResult {
 		pick := pickQuery(cumulativeWeights(target.Query))
 		queryStart := time.Now()
+		// per-op timeout so a wedged database can't stall shutdown
+		opCtx, opCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer opCancel()
 		var err error
 		if queryIsRead(pick) {
 			var rows *sql.Rows
-			rows, err = db.Query(pick.Query, pick.Args...)
+			rows, err = db.QueryContext(opCtx, pick.Query, pick.Args...)
 			if err == nil {
 				rows.Close()
 			}
 		} else {
-			_, err = db.Exec(pick.Query, pick.Args...)
+			_, err = db.ExecContext(opCtx, pick.Query, pick.Args...)
+		}
+		if stats != nil {
+			stats.DBFired.Add(1)
+			if err != nil {
+				stats.DBErr.Add(1)
+			}
 		}
 		return dbQueryResult{Latency: time.Since(queryStart), Success: err == nil, Err: err}
 	})

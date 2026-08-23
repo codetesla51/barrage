@@ -1,6 +1,7 @@
 package barrage
 
 import (
+	"context"
 	"math"
 	"sync"
 	"time"
@@ -53,11 +54,16 @@ func rateFor(elapsed, ramp time.Duration, rate int) int {
 // time the run started, which callers use to align buckets. Results are
 // recorded with the time they were submitted so buckets reflect load timing,
 // not completion timing.
-func runPaced(rate, concurrency int, duration, ramp time.Duration, fn func() dbQueryResult) ([]dbQueryResult, time.Time) {
+func runPaced(rate, concurrency int, duration, ramp time.Duration, fn func(ctx context.Context) dbQueryResult) ([]dbQueryResult, time.Time) {
 	if concurrency < 1 {
 		concurrency = DefaultConcurrency
 	}
 	pool := pond.NewPool(concurrency)
+
+	// ctx is cancelled the moment the deadline fires, so in-flight work aborts
+	// instead of blocking StopAndWait forever on a wedged backend.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	var mu sync.Mutex
 	overall := make([]dbQueryResult, 0)
@@ -73,7 +79,7 @@ func runPaced(rate, concurrency int, duration, ramp time.Duration, fn func() dbQ
 			submitted := time.Now()
 			hits++
 			pool.Submit(func() {
-				res := fn()
+				res := fn(ctx)
 				res.Timestamp = submitted
 				mu.Lock()
 				overall = append(overall, res)
@@ -85,6 +91,7 @@ func runPaced(rate, concurrency int, duration, ramp time.Duration, fn func() dbQ
 			}
 			next.Reset(wait)
 		case <-deadline:
+			cancel()
 			pool.StopAndWait()
 			return overall, start
 		}

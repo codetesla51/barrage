@@ -10,11 +10,12 @@ import (
 
 // Demo HTTP app for barrage scenario testing.
 // Routes:
-//   POST /api/login    -> {"token":"tok-123","user":{"id":42}}
-//   GET  /api/me       -> checks Authorization: Bearer <token>
-//   GET  /api/products -> [{"id":1,"name":"widget"}]
-//   POST /api/orders   -> {"id":1,"customer":42,"status":"ok"}
-//   GET  /api/checkout -> echoes token query param
+//
+//	POST /api/login    -> {"token":"tok-123","user":{"id":42}}
+//	GET  /api/me       -> checks Authorization: Bearer <token>
+//	GET  /api/products -> [{"id":1,"name":"widget"}]
+//	POST /api/orders   -> {"id":1,"customer":42,"status":"ok"}
+//	GET  /api/checkout -> echoes token query param
 func main() {
 	http.HandleFunc("/api/login", handleLogin)
 	http.HandleFunc("/api/me", handleMe)

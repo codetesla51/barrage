@@ -137,10 +137,10 @@ func configuredRunnerNames(cfg *OrchestratorConfig) []string {
 }
 
 type startRunRequest struct {
-	YAML              string `json:"yaml"`
-	HTTPThresholdMS   int64  `json:"http_threshold_ms"`
-	DBThresholdMS     int64  `json:"db_threshold_ms"`
-	RedisThresholdMS  int64  `json:"redis_threshold_ms"`
+	YAML             string `json:"yaml"`
+	HTTPThresholdMS  int64  `json:"http_threshold_ms"`
+	DBThresholdMS    int64  `json:"db_threshold_ms"`
+	RedisThresholdMS int64  `json:"redis_threshold_ms"`
 }
 
 // handleStartRun validates the config, then starts the run in the background.
@@ -246,12 +246,12 @@ func (s *UIServer) executeRun(run *uiRun, req startRunRequest) {
 
 // uiRunSummary is one row of the Recent Runs list.
 type uiRunSummary struct {
-	ID        string             `json:"id"`
-	CreatedAt time.Time          `json:"created_at"`
-	Duration  string             `json:"duration"`
-	Runners   []map[string]any   `json:"runners"`
-	State     string             `json:"state"`
-	Error     string             `json:"error,omitempty"`
+	ID        string           `json:"id"`
+	CreatedAt time.Time        `json:"created_at"`
+	Duration  string           `json:"duration"`
+	Runners   []map[string]any `json:"runners"`
+	State     string           `json:"state"`
+	Error     string           `json:"error,omitempty"`
 }
 
 func (s *UIServer) handleListRuns(w http.ResponseWriter, r *http.Request) {
@@ -460,9 +460,9 @@ func (s *UIServer) handleCompare(w http.ResponseWriter, r *http.Request) {
 
 func (s *UIServer) handleCompareUpload(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Baseline   json.RawMessage `json:"baseline"`
-		Current    json.RawMessage `json:"current"`
-		FailOnMS   int64           `json:"fail_on_ms"`
+		Baseline json.RawMessage `json:"baseline"`
+		Current  json.RawMessage `json:"current"`
+		FailOnMS int64           `json:"fail_on_ms"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20*5)).Decode(&req); err != nil {
 		s.writeErr(w, http.StatusBadRequest, "invalid JSON body")

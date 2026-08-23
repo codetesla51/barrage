@@ -1,6 +1,7 @@
 package barrage
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -54,7 +55,7 @@ func TestRateFor(t *testing.T) {
 }
 
 func TestRunPacedFiresAtRate(t *testing.T) {
-	overall, start := runPaced(100, 5, 500*time.Millisecond, 0, func() dbQueryResult {
+	overall, start := runPaced(100, 5, 500*time.Millisecond, 0, func(ctx context.Context) dbQueryResult {
 		return dbQueryResult{Latency: time.Millisecond, Success: true}
 	})
 
@@ -76,7 +77,7 @@ func TestRunPacedFiresAtRate(t *testing.T) {
 }
 
 func TestRunPacedWithRamp(t *testing.T) {
-	overall, _ := runPaced(200, 5, 500*time.Millisecond, 250*time.Millisecond, func() dbQueryResult {
+	overall, _ := runPaced(200, 5, 500*time.Millisecond, 250*time.Millisecond, func(ctx context.Context) dbQueryResult {
 		return dbQueryResult{Latency: time.Millisecond, Success: true}
 	})
 

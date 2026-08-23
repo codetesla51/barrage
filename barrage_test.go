@@ -29,7 +29,7 @@ func TestFireHTTP_WithMethodBodyHeaders(t *testing.T) {
 		Header: http.Header{"Content-Type": []string{"application/json"}},
 	}
 
-	result, err := FireHTTP(target, 10, 0, 1*time.Second, 1*time.Second, 0)
+	result, err := FireHTTP(target, 10, 0, 1*time.Second, 1*time.Second, 0, nil)
 	if err != nil {
 		t.Fatalf("FireHTTP returned error: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestFireHTTP_WithRamp(t *testing.T) {
 	defer ts.Close()
 
 	target := HTTPTarget{URL: ts.URL}
-	result, err := FireHTTP(target, 50, 4, 2*time.Second, time.Second, time.Second)
+	result, err := FireHTTP(target, 50, 4, 2*time.Second, time.Second, time.Second, nil)
 	if err != nil {
 		t.Fatalf("FireHTTP returned error: %v", err)
 	}

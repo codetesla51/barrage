@@ -64,13 +64,13 @@ func TestCompareRunMissingRunner(t *testing.T) {
 
 func TestCompareSpikes(t *testing.T) {
 	baseline := &JSONReport{Spikes: []JSONSpike{
-		{BucketTime: "12:00:01", Runner: "db", HTTPP99MS: 90, StorageP99MS: 150}, // worsened in current
+		{BucketTime: "12:00:01", Runner: "db", HTTPP99MS: 90, StorageP99MS: 150},   // worsened in current
 		{BucketTime: "12:00:02", Runner: "redis", HTTPP99MS: 5, StorageP99MS: 300}, // fixed in current
-		{BucketTime: "12:00:03", Runner: "db", HTTPP99MS: 200, StorageP99MS: 400}, // improved in current
+		{BucketTime: "12:00:03", Runner: "db", HTTPP99MS: 200, StorageP99MS: 400},  // improved in current
 	}}
 	current := &JSONReport{Spikes: []JSONSpike{
-		{BucketTime: "12:00:01", Runner: "db", HTTPP99MS: 95, StorageP99MS: 180}, // worsened
-		{BucketTime: "12:00:03", Runner: "db", HTTPP99MS: 150, StorageP99MS: 250}, // improved
+		{BucketTime: "12:00:01", Runner: "db", HTTPP99MS: 95, StorageP99MS: 180},    // worsened
+		{BucketTime: "12:00:03", Runner: "db", HTTPP99MS: 150, StorageP99MS: 250},   // improved
 		{BucketTime: "12:00:04", Runner: "redis", HTTPP99MS: 10, StorageP99MS: 500}, // new
 	}}
 

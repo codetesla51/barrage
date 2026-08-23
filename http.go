@@ -47,7 +47,7 @@ type HTTPBucket struct {
 	StatusCodes map[string]int
 }
 
-func FireHTTP(target HTTPTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration) (*HTTPResult, error) {
+func FireHTTP(target HTTPTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration, stats *RunStats) (*HTTPResult, error) {
 	targeter := vegeta.NewStaticTargeter(vegeta.Target{
 		Method: target.Method,
 		URL:    target.URL,
@@ -71,6 +71,12 @@ func FireHTTP(target HTTPTarget, rate, concurrency int, duration, bucketWidth, r
 	bucketed := make(map[int64][]*vegeta.Result) // bucket index -> results
 
 	for sample := range attacker.Attack(targeter, pacer, duration, "load-test") {
+		if stats != nil {
+			stats.HTTPFired.Add(1)
+			if sample.Code >= 400 || sample.Error != "" {
+				stats.HTTPErr.Add(1)
+			}
+		}
 		overall.Add(sample)
 		idx := sample.Timestamp.Unix() / int64(bucketWidth.Seconds())
 		bucketed[idx] = append(bucketed[idx], sample)

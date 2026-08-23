@@ -360,7 +360,7 @@ func runUserWithScenarios(ctx context.Context, id int, scenarios []Scenario, run
 
 // RunScenario runs a scenario repeatedly with concurrency virtual users until duration expires.
 // It is simple and readable: context timeout, VU goroutines, channel, wg, collect.
-func RunScenario(ctx context.Context, s Scenario, cfg OrchestratorConfig, runner *HTTPRunner) []ScenarioResult {
+func RunScenario(ctx context.Context, s Scenario, cfg OrchestratorConfig, runner *HTTPRunner, stats *RunStats) []ScenarioResult {
 	if runner == nil {
 		return nil
 	}
@@ -398,6 +398,14 @@ func RunScenario(ctx context.Context, s Scenario, cfg OrchestratorConfig, runner
 
 	var all []ScenarioResult
 	for r := range results {
+		if stats != nil {
+			stats.ScenLoops.Add(1)
+			for _, st := range r.Steps {
+				if st.Err != nil || st.StatusCode >= 400 {
+					stats.ScenErr.Add(1)
+				}
+			}
+		}
 		all = append(all, r)
 	}
 
@@ -405,7 +413,7 @@ func RunScenario(ctx context.Context, s Scenario, cfg OrchestratorConfig, runner
 }
 
 // RunScenarios runs multiple weighted scenarios. Each VU picks one scenario once at launch.
-func RunScenarios(ctx context.Context, scenarios []Scenario, cfg OrchestratorConfig, runner *HTTPRunner) []ScenarioResult {
+func RunScenarios(ctx context.Context, scenarios []Scenario, cfg OrchestratorConfig, runner *HTTPRunner, stats *RunStats) []ScenarioResult {
 	if runner == nil {
 		return nil
 	}
@@ -446,6 +454,14 @@ func RunScenarios(ctx context.Context, scenarios []Scenario, cfg OrchestratorCon
 
 	var all []ScenarioResult
 	for r := range results {
+		if stats != nil {
+			stats.ScenLoops.Add(1)
+			for _, st := range r.Steps {
+				if st.Err != nil || st.StatusCode >= 400 {
+					stats.ScenErr.Add(1)
+				}
+			}
+		}
 		all = append(all, r)
 	}
 

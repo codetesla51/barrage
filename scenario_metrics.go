@@ -49,7 +49,7 @@ func effectiveScenarios(cfg OrchestratorConfig) []Scenario {
 
 // FireScenario runs a scenario and returns aggregated metrics.
 // It is the scenario equivalent of FireHTTP / FireDB.
-func FireScenario(s Scenario, concurrency int, duration, bucketWidth time.Duration) (*ScenarioStats, error) {
+func FireScenario(s Scenario, concurrency int, duration, bucketWidth time.Duration, stats *RunStats) (*ScenarioStats, error) {
 	if len(s.Steps) == 0 {
 		return nil, nil
 	}
@@ -71,13 +71,13 @@ func FireScenario(s Scenario, concurrency int, duration, bucketWidth time.Durati
 		Concurrency: concurrency,
 	}
 
-	results := RunScenario(context.Background(), s, cfg, runner)
-	stats := buildScenarioStats(results, runStart, bucketWidth, duration)
-	return stats, nil
+	results := RunScenario(context.Background(), s, cfg, runner, stats)
+	agg := buildScenarioStats(results, runStart, bucketWidth, duration)
+	return agg, nil
 }
 
 // FireScenarios runs multiple weighted scenarios and returns per-name stats.
-func FireScenarios(scenarios []Scenario, concurrency int, duration, bucketWidth time.Duration) ([]NamedScenarioStats, error) {
+func FireScenarios(scenarios []Scenario, concurrency int, duration, bucketWidth time.Duration, stats *RunStats) ([]NamedScenarioStats, error) {
 	if len(scenarios) == 0 {
 		return nil, nil
 	}
@@ -104,7 +104,7 @@ func FireScenarios(scenarios []Scenario, concurrency int, duration, bucketWidth 
 		Concurrency: concurrency,
 	}
 
-	results := RunScenarios(context.Background(), scenarios, cfg, runner)
+	results := RunScenarios(context.Background(), scenarios, cfg, runner, stats)
 	byName := buildScenarioStatsByName(results, runStart, bucketWidth, duration)
 
 	ordered := make([]NamedScenarioStats, 0, len(byName))
@@ -279,5 +279,3 @@ func buildScenarioBuckets(results []ScenarioResult, bucketWidth time.Duration) [
 	}
 	return buckets
 }
-
-

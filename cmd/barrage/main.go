@@ -21,7 +21,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-var version = "v0.3.6"
+var version = "v0.3.7"
 
 const banner = `     ________  ________  ________  ________  ________  ________  _______
     |\   __  \|\   __  \|\   __  \|\   __  \|\   __  \|\   ____\|\  ___ \
@@ -82,7 +82,7 @@ func newUICmd() *cobra.Command {
 		Use:     "web",
 		Aliases: []string{"ui"},
 		Short:   "Start the local web UI for building configs and running tests",
-		Long: banner + "\n\nStarts a localhost web server with a config builder, live YAML preview,\nand inline reports. No auth — same trust model as the CLI.",
+		Long:    banner + "\n\nStarts a localhost web server with a config builder, live YAML preview,\nand inline reports. No auth — same trust model as the CLI.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			srv := barrage.NewUIServer(addr)
 			fmt.Printf("barrage web listening on http://%s\n", addr)
