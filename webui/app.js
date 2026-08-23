@@ -169,25 +169,45 @@ function generateYAML() {
 
 /* ---------- yaml preview ---------- */
 
-/* the cdnjs yaml grammar self-registers with hljs when loaded after it.
-   if the CDN is unreachable we degrade to a plain-text preview below. */
+// tiny local YAML highlighter — no CDN dependency. we control the generator's
+// output shape, so a per-line tokenizer is enough.
+function escHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function hlValue(v) {
+  let out = escHtml(v);
+  out = out.replace(/\{\{(\w+)\}\}/g, '<span class="yk-var">{{$1}}</span>');
+  out = out.replace(/'[^']*'/g, (m) => `<span class="yk-str">${m}</span>`);
+  out = out.replace(/(^|\s)(-?\d+(?:\.\d+)?(?:ms|s|m|h)?)(?=\s|$)/g,
+    (m, pre, num) => `${pre}<span class="yk-num">${num}</span>`);
+  return out;
+}
+
+function hlLine(raw) {
+  let line = raw, comment = "";
+  const cIdx = raw.search(/(^|\s)#/);
+  if (cIdx >= 0) {
+    comment = `<span class="yk-com">${escHtml(raw.slice(cIdx))}</span>`;
+    line = raw.slice(0, cIdx);
+  }
+  const km = line.match(/^(\s*)(?:-\s+)?([A-Za-z_][\w.\-]*)(:)(.*)$/);
+  if (!km) return escHtml(line) + comment;
+  const [, indent, key, colon, rest] = km;
+  const dash = /^\s*-\s/.test(line) ? "- " : "";
+  return `${indent}${dash}<span class="yk-key">${escHtml(key)}</span><span class="yk-pun">:</span>${hlValue(rest)}${comment}`;
+}
+
+function yamlHighlight(code) {
+  return code.split("\n").map(hlLine).join("\n");
+}
 
 let previewTimer = null;
 function updatePreview() {
   clearTimeout(previewTimer);
   previewTimer = setTimeout(() => {
-    const code = $("#yaml-code");
-    const yaml = generateYAML();
-    if (typeof hljs === "undefined") {
-      code.textContent = yaml; // CDN unavailable — still show the YAML
-      return;
-    }
-    try {
-      code.innerHTML = hljs.highlight(yaml, { language: "yaml" }).value;
-    } catch {
-      code.textContent = yaml;
-    }
-  }, 60);
+    $("#yaml-code").innerHTML = yamlHighlight(generateYAML());
+  }, 50);
 }
 
 /* ---------- validation ---------- */
@@ -294,10 +314,15 @@ function updateSectionSummaries() {
 
 /* ---------- repeatable rows ---------- */
 
-function delButton(onRemove) {
+// removes the DOM row and splices state; both must happen or the UI lies
+function delButton(rowEl, onRemove) {
   return el("button", {
     class: "row-del", type: "button", title: "remove row", "aria-label": "remove row",
-    onclick: () => { onRemove(); changed(); },
+    onclick: () => {
+      onRemove();
+      rowEl.remove();
+      changed();
+    },
   }, el("i", { class: "ph ph-x", "aria-hidden": "true" }));
 }
 
@@ -308,7 +333,7 @@ function kvRow(pair, placeholderK, placeholderV, onRemove) {
   const v = el("input", { class: "mono grow", placeholder: placeholderV, value: pair.v, autocomplete: "off" });
   k.addEventListener("input", () => { pair.k = k.value; changed(); });
   v.addEventListener("input", () => { pair.v = v.value; changed(); });
-  row.append(k, v, delButton(onRemove));
+  row.append(k, v, delButton(row, onRemove));
   return row;
 }
 
@@ -346,8 +371,9 @@ function appendDbQueryRow(container, q) {
   t.value = q.type;
   t.setAttribute("aria-label", "query type");
   t.addEventListener("change", () => { q.type = t.value; changed(); });
-  container.append(el("div", { class: "row" }, ta, w, t,
-    delButton(() => { state.db.queries.splice(state.db.queries.indexOf(q), 1); })));
+  const row = el("div", { class: "row" });
+  row.append(ta, w, t, delButton(row, () => { state.db.queries.splice(state.db.queries.indexOf(q), 1); }));
+  container.append(row);
 }
 
 function addRedisQuery(q = { query: "PING", weight: 1 }) {
@@ -362,8 +388,9 @@ function appendRedisQueryRow(container, q) {
   const w = el("input", { class: "mono w-small", type: "number", min: "0", value: q.weight, title: "weight" });
   w.setAttribute("aria-label", "command weight");
   w.addEventListener("input", () => { q.weight = w.value; changed(); });
-  container.append(el("div", { class: "row" }, inp, w,
-    delButton(() => { state.redis.queries.splice(state.redis.queries.indexOf(q), 1); })));
+  const row = el("div", { class: "row" });
+  row.append(inp, w, delButton(row, () => { state.redis.queries.splice(state.redis.queries.indexOf(q), 1); }));
+  container.append(row);
 }
 
 function addScenario() {
@@ -417,9 +444,8 @@ function appendScenarioBox(container, scenario) {
     methodSel.addEventListener("change", () => { st.method = methodSel.value; changed(); });
     const urlInp = el("input", { class: "mono grow", placeholder: "https://host/path or {{var}} allowed", value: st.url, autocomplete: "off" });
     urlInp.addEventListener("input", () => { st.url = urlInp.value; changed(); });
-    const delStep = delButton(() => {
+    const delStep = delButton(rowBox, () => {
       const i = scenario.steps.indexOf(st); if (i >= 0) scenario.steps.splice(i, 1);
-      rowBox.remove();
     });
     line1.append(order, methodSel, urlInp, delStep);
 
@@ -556,48 +582,67 @@ const PRESETS = {
 };
 
 function applyPreset(name) {
+  const labels = { http: "HTTP only", "http-db": "HTTP + DB", full: "Full stack", blank: "Blank" };
   if (name === "blank") {
     state = defaultState();
-    location.reload(); // simplest honest reset — everything rebinds clean
-    return;
+  } else {
+    const preset = PRESETS[name];
+    if (!preset) return;
+    Object.assign(state.http, structuredClone(preset.http));
+    state.http.on = true;
+    if (preset.db) { Object.assign(state.db, structuredClone(preset.db)); state.db.on = true; }
+    if (preset.redis) { Object.assign(state.redis, structuredClone(preset.redis)); state.redis.on = true; }
   }
-  const preset = PRESETS[name];
-  Object.assign(state.http, structuredClone(preset.http));
-  state.http.on = true;
-  if (preset.db) { Object.assign(state.db, structuredClone(preset.db)); state.db.on = true; }
-  if (preset.redis) { Object.assign(state.redis, structuredClone(preset.redis)); state.redis.on = true; }
   hydrateFormFromState();
-  changed();
+  toast(`${labels[name]} preset applied`, "ok");
 }
 
 /* push state back into the static inputs + rebuild dynamic rows */
+/* push state back into the inputs + rebuild dynamic rows.
+   flashes each section that got populated so it's obvious what was filled. */
 function hydrateFormFromState() {
   const put = (name, v) => { const n = document.querySelector(`[name="${name}"]`); if (n) n.value = v; };
+  const flashIf = (on, sectionId) => {
+    const sec = $(sectionId);
+    sec.classList.remove("flash");
+    if (on) {
+      void sec.offsetWidth; // restart the transition
+      sec.classList.add("flash");
+      setTimeout(() => sec.classList.remove("flash"), 1200);
+    }
+  };
+
   put("duration", state.duration); put("bucket_width", state.bucket_width);
   put("ramp", state.ramp); put("concurrency", state.concurrency);
   put("http_threshold", state.http_threshold); put("db_threshold", state.db_threshold);
   put("redis_threshold", state.redis_threshold);
 
-  $("en-http").checked = state.http.on;
+  $("#en-http").checked = state.http.on;
   put("http-rate", state.http.rate); put("http-method", state.http.method);
   put("http-url", state.http.url); put("http-body", state.http.body);
   const headerBox = $("#http-headers");
   headerBox.innerHTML = "";
   state.http.headers.forEach((h) => appendHeaderRow(headerBox, h, state.http.headers));
+  flashIf(state.http.on, "#sec-http");
 
   $("#en-db").checked = state.db.on;
   put("db-rate", state.db.rate); put("db-driver", state.db.driver); put("db-conn", state.db.conn);
   $("#db-queries").innerHTML = "";
   state.db.queries.forEach((q) => appendDbQueryRow($("#db-queries"), q));
+  flashIf(state.db.on, "#sec-db");
 
   $("#en-redis").checked = state.redis.on;
   put("redis-rate", state.redis.rate); put("redis-addr", state.redis.addr);
   put("redis-password", state.redis.password); put("redis-dbnum", state.redis.dbnum);
   $("#redis-queries").innerHTML = "";
   state.redis.queries.forEach((q) => appendRedisQueryRow($("#redis-queries"), q));
+  flashIf(state.redis.on, "#sec-redis");
 
+  const anyScenario = state.scenarios.some((s) => s.on);
+  $("#en-scenarios").checked = anyScenario;
   $("#scenario-list").innerHTML = "";
   state.scenarios.forEach((s) => appendScenarioBox($("#scenario-list"), s));
+  flashIf(anyScenario, "#sec-scenarios");
 
   changed();
 }
@@ -1010,6 +1055,10 @@ function init() {
 
   refreshRecentRuns();
   changed();
+
+  // deep link for testing/automation: ?preset=http|http-db|full|blank
+  const qp = new URLSearchParams(location.search).get("preset");
+  if (qp === "blank" || PRESETS[qp]) applyPreset(qp);
 }
 
 init();

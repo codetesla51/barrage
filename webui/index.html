@@ -8,21 +8,25 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist-mono/index.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/regular/style.css">
 <link rel="stylesheet" href="styles.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/yaml.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
 </head>
 <body>
 
 <header class="topbar">
-  <div class="brand"><i class="ph ph-wave-sine" aria-hidden="true"></i><span>barrage</span><span class="brand-sub">ui</span></div>
+  <div class="brand">
+    <span class="brand-mark"><i class="ph-fill ph-wave-sine" aria-hidden="true"></i></span>
+    <span class="brand-name">barrage</span>
+    <span class="brand-sub">ui</span>
+  </div>
+
   <div class="run-clock" id="run-clock" hidden>
-    <span class="dot" id="clock-dot"></span>
+    <span class="dot" aria-hidden="true"></span>
     <span class="mono" id="clock-text">idle</span>
     <span class="mono dim" id="clock-duration"></span>
   </div>
+
   <div class="topbar-actions">
-    <button class="btn ghost" id="btn-recent" title="Recent runs (Ctrl+K)" aria-haspopup="true">
+    <button class="btn ghost" id="btn-recent" title="Recent runs (Ctrl+K)">
       <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i><span>runs</span>
     </button>
     <button class="btn ghost icon-only" id="btn-help" title="Shortcuts (?)" aria-label="Keyboard shortcuts">
@@ -38,12 +42,13 @@
 <!-- recent runs dropdown -->
 <div class="recent-panel" id="recent-panel" hidden>
   <div class="recent-head">
-    <span>recent runs</span>
-    <button class="btn tiny ghost" id="btn-compare-selected" disabled>
+    <span class="eyebrow">recent runs</span>
+    <span class="spacer"></span>
+    <button class="btn tiny primary" id="btn-compare-selected" disabled>
       <i class="ph ph-git-diff" aria-hidden="true"></i><span>compare selected</span>
     </button>
   </div>
-  <div class="recent-hint dim">select exactly two runs to compare</div>
+  <div class="recent-hint dim">tick two runs to compare them</div>
   <ul id="recent-list" class="recent-list"></ul>
 </div>
 
@@ -54,153 +59,184 @@
     <div class="form-scroll">
 
       <div class="presets" role="group" aria-label="Presets">
-        <span class="eyebrow">start from</span>
-        <button class="btn chip" data-preset="http">HTTP only</button>
-        <button class="btn chip" data-preset="http-db">HTTP + DB</button>
-        <button class="btn chip" data-preset="full">Full stack</button>
-        <button class="btn chip" data-preset="blank">Blank</button>
+        <span class="presets-label">start from:</span>
+        <button class="preset-card" data-preset="http" type="button"><i class="ph ph-globe" aria-hidden="true"></i>HTTP only</button>
+        <button class="preset-card" data-preset="http-db" type="button"><i class="ph ph-database" aria-hidden="true"></i>HTTP + DB</button>
+        <button class="preset-card" data-preset="full" type="button"><i class="ph ph-stack" aria-hidden="true"></i>Full stack</button>
+        <button class="preset-card" data-preset="blank" type="button"><i class="ph ph-file-plus" aria-hidden="true"></i>Blank</button>
       </div>
 
       <!-- run settings -->
       <fieldset class="section" id="sec-global">
-        <legend class="section-head"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i> run settings</legend>
-        <div class="grid-4">
-          <label>duration<input class="mono" name="duration" value="15s" autocomplete="off"><small class="dim">total run length</small></label>
-          <label>bucket_width<input class="mono" name="bucket_width" value="1s" autocomplete="off"><small class="dim">timeline bucket size</small></label>
-          <label>ramp<input class="mono" name="ramp" value="3s" autocomplete="off"><small class="dim">0 = no ramp</small></label>
-          <label>concurrency<input class="mono" name="concurrency" type="number" min="0" value="10" autocomplete="off"><small class="dim">in-flight per runner</small></label>
-        </div>
-        <div class="grid-3 thresholds">
-          <label title="Flag HTTP as a spike if its P99 crosses this value">http_threshold<input class="mono" name="http_threshold" value="100ms"><small class="dim">spike budget</small></label>
-          <label title="Flag DB as a spike if its P99 crosses this value">db_threshold<input class="mono" name="db_threshold" value="100ms"><small class="dim">spike budget</small></label>
-          <label title="Flag Redis as a spike if its P99 crosses this value">redis_threshold<input class="mono" name="redis_threshold" value="100ms"><small class="dim">spike budget</small></label>
+        <legend class="section-head">
+          <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>
+          run settings
+        </legend>
+        <div class="card-body">
+          <div class="grid-4">
+            <label>duration<input class="mono" name="duration" value="15s" autocomplete="off"><small class="dim">total run length</small></label>
+            <label>bucket_width<input class="mono" name="bucket_width" value="1s" autocomplete="off"><small class="dim">timeline bucket size</small></label>
+            <label>ramp<input class="mono" name="ramp" value="3s" autocomplete="off"><small class="dim">0 = off</small></label>
+            <label>concurrency<input class="mono" name="concurrency" type="number" min="0" value="10" autocomplete="off"><small class="dim">in-flight per runner</small></label>
+          </div>
+          <div class="grid-3 thresholds">
+            <label title="Flag HTTP as a spike if its P99 crosses this value">http_threshold<input class="mono" name="http_threshold" value="100ms"><small class="dim">spike budget</small></label>
+            <label title="Flag DB as a spike if its P99 crosses this value">db_threshold<input class="mono" name="db_threshold" value="100ms"><small class="dim">spike budget</small></label>
+            <label title="Flag Redis as a spike if its P99 crosses this value">redis_threshold<input class="mono" name="redis_threshold" value="100ms"><small class="dim">spike budget</small></label>
+          </div>
         </div>
       </fieldset>
 
       <!-- HTTP -->
       <fieldset class="section" id="sec-http" data-section="http">
         <legend class="section-head">
-          <i class="ph ph-globe" aria-hidden="true"></i> http
-          <span class="section-summary mono dim" id="sum-http"></span>
-          <span class="switch-wrap"><input type="checkbox" id="en-http" aria-label="Include http runner"><label for="en-http">include</label></span>
+          <i class="ph ph-globe" aria-hidden="true"></i>
+          http
+          <span class="section-summary mono" id="sum-http"></span>
+          <span class="switch-wrap">
+            <input type="checkbox" class="switch-input" id="en-http">
+            <label for="en-http" class="switch" aria-label="Include http runner"><span class="track"></span></label>
+          </span>
         </legend>
-        <div class="grid-row">
-          <label>rate<input class="mono" name="http-rate" type="number" min="1" value="10"><small class="dim">requests / second</small></label>
-          <label>target.method
-            <select name="http-method">
-              <option>GET</option><option>POST</option><option>PUT</option>
-              <option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option>
-            </select><small class="dim">http verb</small>
-          </label>
-          <label class="grow">target.url<input class="mono" name="http-url" placeholder="http://localhost:8080/api/orders" autocomplete="off"><small class="dim">required</small></label>
-        </div>
-        <label>target.body<textarea class="mono" name="http-body" rows="2" placeholder='{"customer": 42}' spellcheck="false"></textarea><small class="dim">optional request body</small></label>
-        <div class="repeatable">
-          <span class="eyebrow">target.header <span class="dim">(values are lists)</span></span>
-          <div id="http-headers" class="rows"></div>
-          <button class="btn tiny add-row" data-add="http-header"><i class="ph ph-plus" aria-hidden="true"></i> header</button>
+        <div class="card-body">
+          <div class="fields-http">
+            <label>rate<input class="mono" name="http-rate" type="number" min="1" value="10"><small class="dim">requests / sec</small></label>
+            <label>method
+              <select name="http-method">
+                <option>GET</option><option>POST</option><option>PUT</option>
+                <option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option>
+              </select>
+            </label>
+            <label class="grow">url<input class="mono" name="http-url" placeholder="http://localhost:8080/api/orders" autocomplete="off"><small class="dim">required</small></label>
+          </div>
+          <label>body<textarea class="mono" name="http-body" rows="2" placeholder='{"customer": 42}' spellcheck="false"></textarea><small class="dim">optional request body</small></label>
+          <div class="repeatable">
+            <span class="eyebrow">headers <span class="dim">(values are lists)</span></span>
+            <div id="http-headers" class="rows"></div>
+            <button class="btn tiny add-row" data-add="http-header" type="button"><i class="ph ph-plus" aria-hidden="true"></i> header</button>
+          </div>
         </div>
       </fieldset>
 
       <!-- DB -->
       <fieldset class="section" id="sec-db" data-section="db">
         <legend class="section-head">
-          <i class="ph ph-database" aria-hidden="true"></i> db
-          <span class="section-summary mono dim" id="sum-db"></span>
-          <span class="switch-wrap"><input type="checkbox" id="en-db" aria-label="Include db runner"><label for="en-db">include</label></span>
+          <i class="ph ph-database" aria-hidden="true"></i>
+          db
+          <span class="section-summary mono" id="sum-db"></span>
+          <span class="switch-wrap">
+            <input type="checkbox" class="switch-input" id="en-db">
+            <label for="en-db" class="switch" aria-label="Include db runner"><span class="track"></span></label>
+          </span>
         </legend>
-        <div class="grid-row">
-          <label>rate<input class="mono" name="db-rate" type="number" min="1" value="5"><small class="dim">queries / second</small></label>
-          <label>target.driver
-            <select name="db-driver">
-              <option value="postgres">postgres</option><option value="mysql">mysql</option><option value="sqlite">sqlite</option>
-            </select><small class="dim">backend</small>
-          </label>
-          <label class="grow">target.conn
-            <span class="conn-wrap">
-              <input class="mono" name="db-conn" type="password" placeholder="postgres://user:pass@localhost:5432/mydb?sslmode=disable" autocomplete="off">
-              <button class="btn tiny ghost icon-only reveal" data-reveal="db-conn" type="button" title="Show/hide DSN" aria-label="Show or hide connection string"><i class="ph ph-eye" aria-hidden="true"></i></button>
-            </span>
-            <small class="dim">required · often contains credentials</small>
-          </label>
-        </div>
-        <div class="repeatable">
-          <span class="eyebrow">target.queries <span class="dim">(weighted mix)</span></span>
-          <div id="db-queries" class="rows"></div>
-          <button class="btn tiny add-row" data-add="db-query"><i class="ph ph-plus" aria-hidden="true"></i> query</button>
+        <div class="card-body">
+          <div class="fields-db">
+            <label>rate<input class="mono" name="db-rate" type="number" min="1" value="5"><small class="dim">queries / sec</small></label>
+            <label>driver
+              <select name="db-driver">
+                <option value="postgres">postgres</option><option value="mysql">mysql</option><option value="sqlite">sqlite</option>
+              </select>
+            </label>
+            <label class="grow">conn
+              <span class="conn-wrap">
+                <input class="mono" name="db-conn" type="password" placeholder="postgres://user:pass@localhost:5432/mydb?sslmode=disable" autocomplete="off">
+                <button class="btn tiny ghost icon-only reveal" data-reveal="db-conn" type="button" title="Show/hide DSN" aria-label="Show or hide connection string"><i class="ph ph-eye" aria-hidden="true"></i></button>
+              </span>
+              <small class="dim">required · often contains credentials</small>
+            </label>
+          </div>
+          <div class="repeatable">
+            <span class="eyebrow">queries <span class="dim">(weighted mix)</span></span>
+            <div id="db-queries" class="rows"></div>
+            <button class="btn tiny add-row" data-add="db-query" type="button"><i class="ph ph-plus" aria-hidden="true"></i> query</button>
+          </div>
         </div>
       </fieldset>
 
       <!-- Redis -->
       <fieldset class="section" id="sec-redis" data-section="redis">
         <legend class="section-head">
-          <i class="ph ph-lightning" aria-hidden="true"></i> redis
-          <span class="section-summary mono dim" id="sum-redis"></span>
-          <span class="switch-wrap"><input type="checkbox" id="en-redis" aria-label="Include redis runner"><label for="en-redis">include</label></span>
+          <i class="ph ph-lightning" aria-hidden="true"></i>
+          redis
+          <span class="section-summary mono" id="sum-redis"></span>
+          <span class="switch-wrap">
+            <input type="checkbox" class="switch-input" id="en-redis">
+            <label for="en-redis" class="switch" aria-label="Include redis runner"><span class="track"></span></label>
+          </span>
         </legend>
-        <div class="grid-row">
-          <label>rate<input class="mono" name="redis-rate" type="number" min="1" value="20"><small class="dim">commands / second</small></label>
-          <label class="grow">target.addr<input class="mono" name="redis-addr" placeholder="localhost:6379" autocomplete="off"><small class="dim">required host:port</small></label>
-          <label>target.password
-            <span class="conn-wrap">
-              <input class="mono" name="redis-password" type="password" autocomplete="off">
-              <button class="btn tiny ghost icon-only reveal" data-reveal="redis-password" type="button" title="Show/hide password" aria-label="Show or hide password"><i class="ph ph-eye" aria-hidden="true"></i></button>
-            </span>
-            <small class="dim">optional</small>
-          </label>
-          <label>target.db<input class="mono" name="redis-dbnum" type="number" min="0" value="0"><small class="dim">database index</small></label>
-        </div>
-        <div class="repeatable">
-          <span class="eyebrow">target.queries</span>
-          <div id="redis-queries" class="rows"></div>
-          <button class="btn tiny add-row" data-add="redis-query"><i class="ph ph-plus" aria-hidden="true"></i> command</button>
+        <div class="card-body">
+          <div class="fields-redis">
+            <label>rate<input class="mono" name="redis-rate" type="number" min="1" value="20"><small class="dim">commands / sec</small></label>
+            <label class="grow">addr<input class="mono" name="redis-addr" placeholder="localhost:6379" autocomplete="off"><small class="dim">host:port · required</small></label>
+            <label>password
+              <span class="conn-wrap">
+                <input class="mono" name="redis-password" type="password" autocomplete="off">
+                <button class="btn tiny ghost icon-only reveal" data-reveal="redis-password" type="button" title="Show/hide password" aria-label="Show or hide password"><i class="ph ph-eye" aria-hidden="true"></i></button>
+              </span>
+              <small class="dim">optional</small>
+            </label>
+            <label class="w-narrow">db<input class="mono" name="redis-dbnum" type="number" min="0" value="0"><small class="dim">index</small></label>
+          </div>
+          <div class="repeatable">
+            <span class="eyebrow">commands</span>
+            <div id="redis-queries" class="rows"></div>
+            <button class="btn tiny add-row" data-add="redis-query" type="button"><i class="ph ph-plus" aria-hidden="true"></i> command</button>
+          </div>
         </div>
       </fieldset>
 
       <!-- Scenarios -->
       <fieldset class="section" id="sec-scenarios" data-section="scenarios">
         <legend class="section-head">
-          <i class="ph ph-steps" aria-hidden="true"></i> scenarios
-          <span class="section-summary mono dim" id="sum-scenarios"></span>
-          <span class="switch-wrap"><input type="checkbox" id="en-scenarios" aria-label="Include scenarios"><label for="en-scenarios">include</label></span>
+          <i class="ph ph-steps" aria-hidden="true"></i>
+          scenarios
+          <span class="section-summary mono" id="sum-scenarios"></span>
+          <span class="switch-wrap">
+            <input type="checkbox" class="switch-input" id="en-scenarios">
+            <label for="en-scenarios" class="switch" aria-label="Include scenarios"><span class="track"></span></label>
+          </span>
         </legend>
-        <p class="dim note">sequential journeys per virtual user · cannot combine with http · extract vars with <code class="mono">$.path</code>, reuse as <code class="mono">{{name}}</code></p>
-        <div class="repeatable">
-          <div id="scenario-list" class="rows"></div>
-          <button class="btn tiny add-row" data-add="scenario"><i class="ph ph-plus" aria-hidden="true"></i> scenario</button>
+        <div class="card-body">
+          <p class="dim note">sequential journeys run by virtual users · can't combine with http · extract vars with <code>$.path</code>, reuse as <code>{{name}}</code></p>
+          <div class="repeatable">
+            <div id="scenario-list" class="rows"></div>
+            <button class="btn tiny add-row" data-add="scenario" type="button"><i class="ph ph-plus" aria-hidden="true"></i> scenario</button>
+          </div>
         </div>
       </fieldset>
 
     </div>
 
     <div class="form-footer">
-      <button class="btn primary" id="btn-run" disabled>
-        <i class="ph ph-play" aria-hidden="true"></i><span>Run</span>
+      <button class="btn primary big" id="btn-run" disabled>
+        <i class="ph-fill ph-play" aria-hidden="true"></i><span>Run test</span>
       </button>
       <button class="btn ghost" id="btn-import">
         <i class="ph ph-upload-simple" aria-hidden="true"></i><span>Import YAML</span>
       </button>
-      <span class="validation-summary dim" id="validation-summary" role="status"></span>
+      <span class="validation-summary" id="validation-summary" role="status"></span>
     </div>
   </section>
 
   <!-- RIGHT: yaml preview -->
   <aside class="panel preview-panel" aria-label="YAML preview">
     <div class="preview-head">
-      <span class="eyebrow">config.yaml</span>
+      <span class="filetab"><span class="fdot"></span> config.yaml</span>
       <span class="spacer"></span>
       <button class="btn tiny ghost" id="btn-copy-yaml"><i class="ph ph-copy" aria-hidden="true"></i> copy</button>
       <button class="btn tiny ghost" id="btn-download-yaml"><i class="ph ph-download-simple" aria-hidden="true"></i> download</button>
     </div>
-    <div class="preview-scroll"><pre class="hljs yaml-preview"><code id="yaml-code"></code></pre></div>
+    <div class="preview-scroll"><pre class="yaml-preview"><code id="yaml-code"></code></pre></div>
   </aside>
 </main>
 
 <!-- report view -->
 <section class="fullview" id="report-view" hidden>
   <div class="fullview-head">
-    <button class="btn ghost" id="btn-back-to-form"><i class="ph ph-arrow-left" aria-hidden="true"></i> back to config</button>
+    <button class="btn ghost" id="btn-back-to-form"><i class="ph ph-arrow-left" aria-hidden="true"></i> config</button>
+    <span class="crumb-sep">/</span>
     <span class="eyebrow" id="report-title">report</span>
+    <span class="spacer"></span>
     <a class="btn ghost" id="btn-open-report-tab" href="#" target="_blank" rel="noopener"><i class="ph ph-arrow-square-out" aria-hidden="true"></i> open standalone</a>
   </div>
   <iframe id="report-frame" title="Run report"></iframe>
@@ -209,12 +245,11 @@
 <!-- compare view -->
 <section class="fullview" id="compare-view" hidden>
   <div class="fullview-head">
-    <button class="btn ghost" id="btn-back-from-compare"><i class="ph ph-arrow-left" aria-hidden="true"></i> back to config</button>
+    <button class="btn ghost" id="btn-back-from-compare"><i class="ph ph-arrow-left" aria-hidden="true"></i> config</button>
+    <span class="crumb-sep">/</span>
     <span class="eyebrow">compare</span>
     <span class="spacer"></span>
-    <label class="failon">fail_on
-      <input class="mono" id="fail-on" value="100ms">
-    </label>
+    <label class="failon mono">fail_on <input id="fail-on" value="100ms"></label>
   </div>
   <div class="compare-scroll">
     <div id="compare-banner" class="banner" role="status"></div>
@@ -235,8 +270,8 @@
   <div class="modal-actions">
     <label class="check"><input type="checkbox" id="skip-preview"> don't show this again</label>
     <span class="spacer"></span>
-    <button class="btn ghost" id="btn-back-edit">Back to edit</button>
-    <button class="btn primary" id="btn-start-run"><i class="ph ph-play" aria-hidden="true"></i> Start run</button>
+    <button class="btn ghost" id="btn-back-edit" type="button">Back to edit</button>
+    <button class="btn primary" id="btn-start-run" type="button"><i class="ph-fill ph-play" aria-hidden="true"></i> Start run</button>
   </div>
 </dialog>
 
@@ -248,8 +283,8 @@
   <p class="import-errors" id="import-errors" role="alert"></p>
   <div class="modal-actions">
     <span class="spacer"></span>
-    <button class="btn ghost" id="btn-import-cancel">Cancel</button>
-    <button class="btn primary" id="btn-import-apply">Populate form</button>
+    <button class="btn ghost" id="btn-import-cancel" type="button">Cancel</button>
+    <button class="btn primary" id="btn-import-apply" type="button">Populate form</button>
   </div>
 </dialog>
 
@@ -257,12 +292,12 @@
 <dialog class="modal small" id="help-modal">
   <h2 class="modal-title"><i class="ph ph-keyboard" aria-hidden="true"></i> shortcuts</h2>
   <ul class="shortcut-list">
-    <li><kbd>Ctrl/Cmd</kbd>+<kbd>Enter</kbd> run</li>
-    <li><kbd>Ctrl/Cmd</kbd>+<kbd>K</kbd> recent runs</li>
-    <li><kbd>Ctrl/Cmd</kbd>+<kbd>I</kbd> import yaml</li>
-    <li><kbd>?</kbd> this overlay</li>
+    <li><kbd>Ctrl/Cmd</kbd>+<kbd>Enter</kbd><span class="spacer"></span>run test</li>
+    <li><kbd>Ctrl/Cmd</kbd>+<kbd>K</kbd><span class="spacer"></span>recent runs</li>
+    <li><kbd>Ctrl/Cmd</kbd>+<kbd>I</kbd><span class="spacer"></span>import yaml</li>
+    <li><kbd>?</kbd><span class="spacer"></span>this overlay</li>
   </ul>
-  <div class="modal-actions"><span class="spacer"></span><button class="btn ghost" id="btn-help-close">Close</button></div>
+  <div class="modal-actions"><span class="spacer"></span><button class="btn ghost" id="btn-help-close" type="button">Close</button></div>
 </dialog>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
