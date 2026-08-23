@@ -24,7 +24,7 @@ type RedisResult = DBResult
 // FireRedis executes Redis commands according to the specified target and
 // parameters. Commands are fired at rate per second (ramping up over ramp if
 // set) and run concurrently on a worker pool with up to concurrency workers.
-func FireRedis(target RedisTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration) (*RedisResult, error) {
+func FireRedis(target RedisTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration, prog ...*RunProgress) (*DBResult, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     target.Addr,
 		Password: target.Password,
@@ -36,11 +36,16 @@ func FireRedis(target RedisTarget, rate, concurrency int, duration, bucketWidth,
 		return nil, err
 	}
 
+	live := liveProg(prog)
 	overall, start := runPaced(rate, concurrency, duration, ramp, func() dbQueryResult {
 		pick := pickQuery(cumulativeWeights(target.Query))
 		queryStart := time.Now()
 		err := client.Do(ctx, splitCommand(pick.Query)...).Err()
-		return dbQueryResult{Latency: time.Since(queryStart), Success: err == nil, Err: err}
+		res := dbQueryResult{Latency: time.Since(queryStart), Success: err == nil, Err: err}
+		if live != nil {
+			live.Record("redis", res.Success, res.Latency)
+		}
+		return res
 	})
 
 	return buildDBResult(overall, start, bucketWidth, duration), nil

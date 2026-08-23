@@ -42,6 +42,17 @@ type OrchestratorResult struct {
 }
 
 func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
+	return orchestrate(cfg, nil)
+}
+
+// OrchestratorWithProgress runs the same load test as Orchestrator but records
+// each completed hit into prog so the CLI can render live progress. The
+// returned metrics are identical to Orchestrator's.
+func OrchestratorWithProgress(cfg OrchestratorConfig, prog *RunProgress) (*OrchestratorResult, error) {
+	return orchestrate(cfg, prog)
+}
+
+func orchestrate(cfg OrchestratorConfig, prog *RunProgress) (*OrchestratorResult, error) {
 	var wg sync.WaitGroup
 	var httpResult *HTTPResult
 	var dbResult *DBResult
@@ -61,7 +72,7 @@ func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			httpResult, httpErr = FireHTTP(cfg.HTTP.Target, cfg.HTTP.Rate, concurrency, duration, bucketWidth, ramp)
+			httpResult, httpErr = FireHTTP(cfg.HTTP.Target, cfg.HTTP.Rate, concurrency, duration, bucketWidth, ramp, prog)
 		}()
 	}
 	if cfg.DB != nil {
@@ -75,7 +86,7 @@ func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			redisResult, redisErr = FireRedis(cfg.Redis.Target, cfg.Redis.Rate, concurrency, duration, bucketWidth, ramp)
+			redisResult, redisErr = FireRedis(cfg.Redis.Target, cfg.Redis.Rate, concurrency, duration, bucketWidth, ramp, prog)
 		}()
 	}
 	scenarios := effectiveScenarios(cfg)
@@ -84,7 +95,7 @@ func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 		go func() {
 			defer wg.Done()
 			if len(scenarios) == 1 {
-				stats, err := FireScenario(scenarios[0], concurrency, duration, bucketWidth)
+				stats, err := FireScenario(scenarios[0], concurrency, duration, bucketWidth, prog)
 				scenarioStats = stats
 				scenarioErr = err
 				name := scenarios[0].Name
@@ -96,7 +107,7 @@ func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 					scenarioAggregates = []NamedScenarioStats{{Name: name, Stats: stats}}
 				}
 			} else {
-				aggs, err := FireScenarios(scenarios, concurrency, duration, bucketWidth)
+				aggs, err := FireScenarios(scenarios, concurrency, duration, bucketWidth, prog)
 				scenarioErr = err
 				if err == nil {
 					scenarioAggregates = aggs

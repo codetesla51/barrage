@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/codetesla51/barrage"
+	"github.com/codetesla51/barrage/internal/cliui"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
@@ -44,6 +45,7 @@ type runOptions struct {
 	dbThreshold    time.Duration
 	redisThreshold time.Duration
 	verbose        bool
+	interactive    bool
 }
 
 type compareOptions struct {
@@ -78,12 +80,13 @@ func newRootCmd() *cobra.Command {
 func newUICmd() *cobra.Command {
 	var addr string
 	cmd := &cobra.Command{
-		Use:   "ui",
-		Short: "Start the local web UI for building configs and running tests",
+		Use:     "web",
+		Aliases: []string{"ui"},
+		Short:   "Start the local web UI for building configs and running tests",
 		Long: banner + "\n\nStarts a localhost web server with a config builder, live YAML preview,\nand inline reports. No auth — same trust model as the CLI.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			srv := barrage.NewUIServer(addr)
-			fmt.Printf("barrage ui listening on http://%s\n", addr)
+			fmt.Printf("barrage web listening on http://%s\n", addr)
 			return srv.ListenAndServe()
 		},
 	}
@@ -115,6 +118,7 @@ func newRunCmd() *cobra.Command {
 	f.DurationVar(&opts.dbThreshold, "db-threshold", 100*time.Millisecond, "DB spike threshold for correlation")
 	f.DurationVar(&opts.redisThreshold, "redis-threshold", 100*time.Millisecond, "Redis spike threshold for correlation")
 	f.BoolVarP(&opts.verbose, "verbose", "v", false, "print per-bucket detail")
+	f.BoolVar(&opts.interactive, "interactive", false, "render live progress while the run executes (auto-disabled in CI, pipes, and with --json)")
 	return cmd
 }
 
@@ -173,15 +177,15 @@ func runLoadTest(opts *runOptions) error {
 	fmt.Println(banner)
 	fmt.Println()
 	fmt.Printf("barrage %s\n", version)
-	fmt.Printf("duration %s · bucket %s · concurrency %d · ramp %s\n",
-		time.Duration(cfg.Duration), time.Duration(cfg.BucketWidth), effectiveConcurrency(cfg), time.Duration(cfg.Ramp))
+	fmt.Println(cliui.Dim(fmt.Sprintf("duration %s · bucket %s · concurrency %d · ramp %s",
+		time.Duration(cfg.Duration), time.Duration(cfg.BucketWidth), effectiveConcurrency(cfg), time.Duration(cfg.Ramp))))
 	if rates := configuredRates(cfg); len(rates) > 0 {
-		fmt.Printf("rates    %s\n", strings.Join(rates, " · "))
+		fmt.Println(cliui.Dim("rates    " + strings.Join(rates, " · ")))
 	}
 
 	fmt.Println()
 
-	result, err := barrage.Orchestrator(*cfg)
+	result, err := executeWithProgress(opts, cfg)
 	if err != nil {
 		return fmt.Errorf("load test failed: %w", err)
 	}
@@ -218,6 +222,40 @@ func runLoadTest(opts *runOptions) error {
 		fmt.Printf("JSON written to %s\n", opts.jsonPath)
 	}
 	return nil
+}
+
+// executeWithProgress runs the load test, optionally rendering the inline
+// live view. Interactive mode is only used when explicitly requested and the
+// environment supports it; everything else gets the classic silent run.
+func executeWithProgress(opts *runOptions, cfg *barrage.OrchestratorConfig) (*barrage.OrchestratorResult, error) {
+	interactive := cliui.Interactive(opts.interactive, opts.jsonPath != "", cliui.IsTTY(os.Stdout.Fd()), envMap())
+	if !interactive {
+		return barrage.Orchestrator(*cfg)
+	}
+
+	prog := barrage.NewRunProgress(time.Duration(cfg.Duration), time.Duration(cfg.Ramp), effectiveConcurrency(cfg))
+	done := make(chan error, 1)
+	var result *barrage.OrchestratorResult
+	go func() {
+		var err error
+		result, err = barrage.OrchestratorWithProgress(*cfg, prog)
+		done <- err
+	}()
+	if err := cliui.RunProgressUI(prog, done, 60); err != nil {
+		// renderer could not start; the run is already going so a silent
+		// restart is impossible — tell the user how to get output.
+		return nil, fmt.Errorf("live progress failed (%v); re-run without --interactive", err)
+	}
+	return result, nil
+}
+
+func envMap() map[string]string {
+	return map[string]string{
+		"CI":             os.Getenv("CI"),
+		"TF_BUILD":       os.Getenv("TF_BUILD"),
+		"GITHUB_ACTIONS": os.Getenv("GITHUB_ACTIONS"),
+		"TERM":           os.Getenv("TERM"),
+	}
 }
 
 func loadJSONReport(path string) (*barrage.JSONReport, error) {
@@ -257,6 +295,9 @@ func runCompare(opts *compareOptions) error {
 		if r.Regressed(opts.failOn.Milliseconds()) {
 			verdict = "REGRESSION"
 			failed = true
+			if cliui.IsTTY(os.Stdout.Fd()) {
+				verdict = cliui.Err(verdict)
+			}
 		}
 		table = append(table, []string{
 			r.Name,
@@ -305,7 +346,7 @@ func printResults(result *barrage.OrchestratorResult, verbose bool) {
 		rows = append(rows, []string{
 			strings.ToLower(r.Name),
 			strconv.Itoa(int(r.Requests)),
-			fmt.Sprintf("%.1f%%", r.Success),
+			cliui.SuccessColorize(r.Success),
 			fmt.Sprintf("%.1f/s", r.Rate),
 			r.Mean.String(), r.P50.String(), r.P95.String(), r.P99.String(), r.Max.String(),
 			formatStatusCodes(r.StatusCodes),
@@ -388,7 +429,7 @@ func printSpikes(spikes barrage.CorrelationResult, httpThreshold time.Duration) 
 			note = s.Runner + "-only"
 		}
 		rows = append(rows, []string{
-			time.Unix(s.BucketIndex, 0).Format("15:04:05"), s.Runner, httpP99, s.StorageLatency.String(), note,
+			time.Unix(s.BucketIndex, 0).Format("15:04:05"), s.Runner, httpP99, s.StorageLatency.String(), cliui.SpikeNoteColorize(note),
 		})
 	}
 	fmt.Println("correlated spikes")
