@@ -1189,7 +1189,14 @@ function fmtTime(iso) {
 }
 
 function renderRecentList() {
-  const list = $("#recent-list");
+  // the same rows render in the topbar dropdown and inside the compare view
+  for (const listEl of [$("#recent-list"), $("#compare-run-list")]) {
+    if (!listEl) continue;
+    renderRunItems(listEl);
+  }
+}
+
+function renderRunItems(list) {
   list.innerHTML = "";
   if (recentCache.length === 0) {
     list.append(el("li", { class: "empty-note dim", text: "no runs yet — press Run to create the first one" }));
@@ -1216,11 +1223,14 @@ function renderRecentList() {
 }
 
 function selectedRuns() {
-  return $$("#recent-list input[type=checkbox]:checked").map((cb) => cb.dataset.runId);
+  return $$("#recent-list input[type=checkbox]:checked, #compare-run-list input[type=checkbox]:checked").map((cb) => cb.dataset.runId);
 }
 
 function updateCompareButton() {
-  $("#btn-compare-selected").disabled = selectedRuns().length !== 2;
+  const ready = selectedRuns().length === 2;
+  $("#btn-compare-selected").disabled = !ready;
+  const picked = $("#btn-compare-picked");
+  if (picked) picked.disabled = !ready;
 }
 
 /* ---------- compare view ---------- */
@@ -1387,6 +1397,7 @@ function init() {
     $("#compare-view").hidden = false;
     refreshRecentRuns();
   });
+  $("#btn-compare-picked").addEventListener("click", runCompare);
   initGutter();
   bindStaticFields();
 

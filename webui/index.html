@@ -311,7 +311,15 @@
       </div>
       <button class="btn btn-primary w-full" id="btn-compare-upload" disabled><i class="ph ph-upload-simple" aria-hidden="true"></i> compare files</button>
     </div>
-    <div class="divider text-xs opacity-60 mono my-2">or pick from recent runs above</div>
+    <div class="card card-border bg-base-100 p-4 mb-4">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="eyebrow">or compare recent runs</span>
+        <span class="text-xs opacity-60">tick two</span>
+        <span class="spacer"></span>
+        <button class="btn btn-primary btn-xs" id="btn-compare-picked" disabled><i class="ph ph-git-diff" aria-hidden="true"></i> compare selected</button>
+      </div>
+      <ul id="compare-run-list" class="recent-list"></ul>
+    </div>
     <div id="compare-banner" class="banner" role="status"></div>
     <div class="overflow-x-auto rounded-box border border-base-300 bg-base-100">
       <table class="table table-sm" id="diff-table">
