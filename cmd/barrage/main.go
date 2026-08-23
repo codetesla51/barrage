@@ -21,7 +21,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-var version = "v0.3.7"
+var version = "v0.3.8"
 
 const banner = `     ________  ________  ________  ________  ________  ________  _______
     |\   __  \|\   __  \|\   __  \|\   __  \|\   __  \|\   ____\|\  ___ \
@@ -191,7 +191,7 @@ func runLoadTest(opts *runOptions) error {
 	printResults(result, opts.verbose)
 
 	var spikes barrage.CorrelationResult
-	if result.HTTPResult != nil && (result.DBResult != nil || result.RedisResult != nil) {
+	if result.DBResult != nil || result.RedisResult != nil {
 		spikes = barrage.Correlate(result, opts.httpThreshold, opts.dbThreshold, opts.redisThreshold)
 		printSpikes(spikes, opts.httpThreshold)
 	}

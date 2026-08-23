@@ -3,8 +3,11 @@ package barrage
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"sync/atomic"
 	"time"
+
+	"github.com/codetesla51/barrage/internal/cliui"
 )
 
 // RunStats carries live per-runner counters so the CLI can log progress
@@ -20,13 +23,14 @@ type RunStats struct {
 	ScenErr    atomic.Uint64
 }
 
-// StartLogger prints one status line every interval until done is closed.
-// It writes to stderr so report files and piped stdout stay clean.
+// StartLogger prints one structured status line every 5s until done closes.
+// Output goes to stderr so report files and piped stdout stay clean.
 func (s *RunStats) StartLogger(done <-chan struct{}, duration time.Duration) {
 	if s == nil {
 		return
 	}
 	start := time.Now()
+	total := mmss(duration)
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	for {
@@ -34,33 +38,74 @@ func (s *RunStats) StartLogger(done <-chan struct{}, duration time.Duration) {
 		case <-done:
 			return
 		case <-tick.C:
-			fmt.Fprintf(os.Stderr, "[barrage] %s / %s%s\n",
-				time.Since(start).Round(time.Second), duration, s.line())
+			elapsed := mmss(time.Since(start).Round(time.Second))
+			fmt.Fprintf(os.Stderr, "  %s %s%s\n",
+				cliui.Dim(elapsed+"/"+total),
+				cliui.Dim("│"),
+				s.segments(),
+			)
 		}
 	}
 }
 
-// Summary returns the final totals line.
+// Summary returns the styled final totals line.
 func (s *RunStats) Summary() string {
 	if s == nil {
 		return ""
 	}
-	return "totals " + s.line()[2:] // strip leading " ·" from line()
+	return s.segments()
 }
 
-func (s *RunStats) line() string {
+func (s *RunStats) segments() string {
 	out := ""
-	if s.HTTPFired.Load() > 0 {
-		out += fmt.Sprintf(" · http %d (%d err)", s.HTTPFired.Load(), s.HTTPErr.Load())
+	add := func(name string, fired, err uint64) {
+		count := comma(int64(fired))
+		errTxt := cliui.Dim("0 err")
+		if err > 0 {
+			errTxt = cliui.Err(comma(int64(err)) + " err")
+		}
+		out += fmt.Sprintf(" %s %s %s %s", cliui.Dim("│"), name,
+			cliui.Accent(count), errTxt)
 	}
-	if s.DBFired.Load() > 0 {
-		out += fmt.Sprintf(" · db %d (%d err)", s.DBFired.Load(), s.DBErr.Load())
+	if v := s.HTTPFired.Load(); v > 0 {
+		add("http", v, s.HTTPErr.Load())
 	}
-	if s.RedisFired.Load() > 0 {
-		out += fmt.Sprintf(" · redis %d (%d err)", s.RedisFired.Load(), s.RedisErr.Load())
+	if v := s.DBFired.Load(); v > 0 {
+		add("db", v, s.DBErr.Load())
 	}
-	if s.ScenLoops.Load() > 0 {
-		out += fmt.Sprintf(" · scenarios %d loops (%d step errs)", s.ScenLoops.Load(), s.ScenErr.Load())
+	if v := s.RedisFired.Load(); v > 0 {
+		add("redis", v, s.RedisErr.Load())
+	}
+	if v := s.ScenLoops.Load(); v > 0 {
+		add("scen", v, s.ScenErr.Load())
 	}
 	return out
+}
+
+// mmss formats a duration as mm:ss (hh:mm:ss past an hour).
+func mmss(d time.Duration) string {
+	d = d.Round(time.Second)
+	h := int64(d.Hours())
+	m := int64(d.Minutes()) % 60
+	sec := int64(d.Seconds()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", h, m, sec)
+	}
+	return fmt.Sprintf("%02d:%02d", m, sec)
+}
+
+// comma groups digits with commas: 1234567 → "1,234,567".
+func comma(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	if len(s) <= 3 {
+		return s
+	}
+	var out []byte
+	for i, c := range []byte(s) {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, c)
+	}
+	return string(out)
 }

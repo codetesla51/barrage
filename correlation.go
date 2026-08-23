@@ -41,12 +41,22 @@ type CorrelationResult struct {
 //     endpoint that leaves the datastores idle is an app problem, not a
 //     storage one.
 func Correlate(result *OrchestratorResult, httpThreshold, dbThreshold, redisThreshold time.Duration) CorrelationResult {
-	if result == nil || result.HTTPResult == nil {
+	if result == nil {
 		return CorrelationResult{}
 	}
 
-	httpByIndex := make(map[int64]HTTPBucket, len(result.HTTPResult.Buckets))
-	for _, b := range result.HTTPResult.Buckets {
+	// App-side reference buckets: the http runner when present, otherwise the
+	// worst per-bucket journey latency across scenarios — so spike correlation
+	// also works in scenarios mode, where there is no http: section.
+	httpBuckets := []HTTPBucket{}
+	if result.HTTPResult != nil {
+		httpBuckets = result.HTTPResult.Buckets
+	} else {
+		httpBuckets = scenarioHTTPBuckets(result.ScenarioAggregates)
+	}
+
+	httpByIndex := make(map[int64]HTTPBucket, len(httpBuckets))
+	for _, b := range httpBuckets {
 		httpByIndex[b.Start.Unix()] = b
 	}
 
@@ -61,7 +71,7 @@ func Correlate(result *OrchestratorResult, httpThreshold, dbThreshold, redisThre
 	var spikes []CorrelatedSpike
 	check := func(runner string, buckets []Bucket, threshold time.Duration) {
 		byIndex := storageByIndex(buckets)
-		for _, httpBucket := range result.HTTPResult.Buckets {
+		for _, httpBucket := range httpBuckets {
 			index := httpBucket.Start.Unix()
 			storageBucket, ok := byIndex[index]
 			if !ok || storageBucket.P99 <= threshold {
@@ -85,4 +95,46 @@ func Correlate(result *OrchestratorResult, httpThreshold, dbThreshold, redisThre
 
 	sort.SliceStable(spikes, func(i, j int) bool { return spikes[i].BucketIndex < spikes[j].BucketIndex })
 	return CorrelationResult{Spikes: spikes}
+}
+
+// scenarioHTTPBuckets merges per-scenario buckets into one app-side timeline.
+// Latency per bucket = worst journey p99 across scenarios (conservative:
+// users feel the slowest flow); requests = sum. Success = lowest scenario
+// success rate in the bucket.
+func scenarioHTTPBuckets(aggs []NamedScenarioStats) []HTTPBucket {
+	byIndex := map[int64]*HTTPBucket{}
+	for _, a := range aggs {
+		if a.Stats == nil {
+			continue
+		}
+		for _, b := range a.Stats.Buckets {
+			hb, ok := byIndex[b.Start]
+			if !ok {
+				hb = &HTTPBucket{
+					Start: time.Unix(b.Start, 0),
+					End:   time.Unix(b.End, 0),
+				}
+				byIndex[b.Start] = hb
+			}
+			hb.Requests += b.Requests
+			if b.P99 > hb.P99 {
+				hb.P99 = b.P99
+			}
+			if b.P50 > hb.P50 {
+				hb.P50 = b.P50
+			}
+			if b.Requests > 0 {
+				rate := float64(b.Success) / float64(b.Requests) * 100
+				if hb.Success == 0 || rate < hb.Success {
+					hb.Success = rate
+				}
+			}
+		}
+	}
+	out := make([]HTTPBucket, 0, len(byIndex))
+	for _, b := range byIndex {
+		out = append(out, *b)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })
+	return out
 }
