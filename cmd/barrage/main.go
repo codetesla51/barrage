@@ -71,8 +71,24 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newRunCmd(), newCompareCmd(), newVersionCmd())
+	root.AddCommand(newRunCmd(), newCompareCmd(), newVersionCmd(), newUICmd())
 	return root
+}
+
+func newUICmd() *cobra.Command {
+	var addr string
+	cmd := &cobra.Command{
+		Use:   "ui",
+		Short: "Start the local web UI for building configs and running tests",
+		Long: banner + "\n\nStarts a localhost web server with a config builder, live YAML preview,\nand inline reports. No auth — same trust model as the CLI.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			srv := barrage.NewUIServer(addr)
+			fmt.Printf("barrage ui listening on http://%s\n", addr)
+			return srv.ListenAndServe()
+		},
+	}
+	cmd.Flags().StringVar(&addr, "addr", "localhost:7676", "listen address")
+	return cmd
 }
 
 func newRunCmd() *cobra.Command {

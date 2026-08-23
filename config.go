@@ -36,22 +36,31 @@ func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 }
 
 // LoadConfig reads a YAML file and populates an OrchestratorConfig from it.
-//
-// The http, db, and redis sections are optional: a missing section means that
-// runner is skipped, so a file may configure any subset of them. At least one
-// runner must be present. Unknown YAML keys are rejected so that a misspelled
-// key surfaces as an error instead of being silently ignored.
 func LoadConfig(path string) (*OrchestratorConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
+	return loadConfigBytes(data, path)
+}
+
+// LoadConfigBytes parses YAML bytes with the exact same rules as LoadConfig.
+// It backs the web UI's import and validate endpoints so the browser form and
+// the CLI loader can never disagree about what is valid.
+func LoadConfigBytes(data []byte) (*OrchestratorConfig, error) {
+	return loadConfigBytes(data, "")
+}
+
+func loadConfigBytes(data []byte, path string) (*OrchestratorConfig, error) {
 	cfg := &OrchestratorConfig{}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(cfg); err != nil {
 		if errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("config file %q is empty", path)
+			if path != "" {
+				return nil, fmt.Errorf("config file %q is empty", path)
+			}
+			return nil, errors.New("config is empty")
 		}
 		return nil, err
 	}
