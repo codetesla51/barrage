@@ -54,6 +54,9 @@ html[data-theme="light"] {
 }
 
 * { box-sizing: border-box; }
+/* author display rules (e.g. .fullview { display:flex }) must never resurrect
+   elements the app hides with the hidden attribute */
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; }
 body {
   font-family: "Geist Variable", -apple-system, sans-serif;
