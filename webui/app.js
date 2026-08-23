@@ -465,7 +465,7 @@ function appendScenarioBox(container, scenario) {
   }
 
   function stepRow(st, idx) {
-    st.method = st.method || "GET";
+    st.method = (st.method || "GET").toString().trim().toUpperCase() || "GET";
     st.url = st.url || "";
     st.body = st.body || "";
     st.headers = st.headers || [];
@@ -489,9 +489,19 @@ function appendScenarioBox(container, scenario) {
     up.disabled = idx === 0;
     down.disabled = idx >= scenario.steps.length - 1;
 
-    const methodSel = el("select", { class: "w-med" },
-      ["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => el("option", { value: m, text: m })));
+    const validMethods = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+    if (!validMethods.includes(st.method)) st.method = "GET";
+    const methodSel = document.createElement("select");
+    methodSel.className = "w-med";
+    validMethods.forEach((m) => {
+      const o = document.createElement("option");
+      o.value = m;
+      o.textContent = m;
+      if (m === st.method) o.selected = true;
+      methodSel.appendChild(o);
+    });
     methodSel.value = st.method;
+    if (!methodSel.value) methodSel.selectedIndex = 0;
     methodSel.addEventListener("change", () => { st.method = methodSel.value; changed(); });
     const urlInp = el("input", { class: "mono grow", placeholder: "https://host/path or {{var}} allowed", value: st.url, autocomplete: "off" });
     urlInp.addEventListener("input", () => { st.url = urlInp.value; changed(); });
