@@ -314,6 +314,24 @@ func printResults(result *barrage.OrchestratorResult, verbose bool) {
 	if result.RedisResult != nil {
 		printBucketTable("redis", result.RedisResult.Buckets)
 	}
+	if len(result.ScenarioAggregates) > 0 {
+		for _, agg := range result.ScenarioAggregates {
+			if agg.Stats == nil {
+				continue
+			}
+			name := agg.Name
+			if name == "" {
+				name = "scenario"
+			}
+			printBucketTable(name, agg.Stats.Buckets)
+		}
+	} else if result.ScenarioStats != nil {
+		name := result.ScenarioName
+		if name == "" {
+			name = "scenario"
+		}
+		printBucketTable(name, result.ScenarioStats.Buckets)
+	}
 }
 
 // writeTable prints a header and rows as an aligned column table.
@@ -369,7 +387,7 @@ func effectiveConcurrency(cfg *barrage.OrchestratorConfig) int {
 }
 
 func configuredRates(cfg *barrage.OrchestratorConfig) []string {
-	rates := make([]string, 0, 3)
+	rates := make([]string, 0, 4)
 	if cfg.HTTP != nil {
 		rates = append(rates, fmt.Sprintf("http %d/s", cfg.HTTP.Rate))
 	}
@@ -378,6 +396,13 @@ func configuredRates(cfg *barrage.OrchestratorConfig) []string {
 	}
 	if cfg.Redis != nil {
 		rates = append(rates, fmt.Sprintf("redis %d/s", cfg.Redis.Rate))
+	}
+	for _, sc := range cfg.Scenarios {
+		name := sc.Name
+		if name == "" {
+			name = "scenario"
+		}
+		rates = append(rates, fmt.Sprintf("%s %d steps w=%d", name, len(sc.Steps), sc.Weight))
 	}
 	return rates
 }

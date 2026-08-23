@@ -1,0 +1,26 @@
+# Single scenario demo — login flow with extract + interpolate
+# Run: go run ./cmd/demoserver  (in one terminal, :8080)
+# Then: go run ./cmd/barrage run -c config.scenario.yaml -o
+duration: 10s
+bucket_width: 1s
+concurrency: 10
+
+scenarios:
+  - name: login-flow
+    steps:
+      - method: POST
+        url: http://localhost:8080/api/login
+        body: '{"user":"alice","pass":"secret"}'
+        headers:
+          Content-Type: application/json
+        extract:
+          token: $.token
+      - method: GET
+        url: http://localhost:8080/api/me
+        headers:
+          Authorization: Bearer {{token}}
+      - method: POST
+        url: http://localhost:8080/api/orders
+        body: '{"customer": 42}'
+        headers:
+          Content-Type: application/json

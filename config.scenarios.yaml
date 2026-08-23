@@ -1,0 +1,31 @@
+# Multiple weighted scenarios demo
+# Run: go run ./cmd/demoserver  (in one terminal, :8080)
+# Then: go run ./cmd/barrage run -c config.scenarios.yaml -o           (HTML report)
+# Or:   go run ./cmd/barrage run -c config.scenarios.yaml --json out.json
+duration: 10s
+bucket_width: 1s
+concurrency: 20
+
+scenarios:
+  - name: browse
+    weight: 70
+    steps:
+      - method: GET
+        url: http://localhost:8080/api/products
+      - method: GET
+        url: http://localhost:8080/api/orders
+
+  - name: checkout-flow
+    weight: 30
+    steps:
+      - method: POST
+        url: http://localhost:8080/api/login
+        body: '{"user":"alice"}'
+        headers:
+          Content-Type: application/json
+        extract:
+          token: $.token
+      - method: GET
+        url: http://localhost:8080/api/checkout?token={{token}}
+        headers:
+          Authorization: Bearer {{token}}

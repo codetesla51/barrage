@@ -118,6 +118,7 @@ which layer spiked.
 | HTTP load | Yes | Yes |
 | DB load | Yes | Usually no |
 | Redis load | Yes | Usually no |
+| Scenario user journeys | Yes | Varies |
 | Correlate latency | Yes | No |
 | Compare runs / CI gate | Yes | No |
 | HTML report | Yes | Varies |
@@ -135,8 +136,6 @@ which layer spiked.
 ## When Barrage is not the right tool
 
 - **Browser/E2E testing** — no browser, no DOM, no UI assertions.
-- **Complex user journeys** — it fires configured requests; it does not script
-  login flows or multi-step state.
 - **WebSocket / streaming traffic**.
 - **Distributed cloud load** — it runs from one process; scale vertically, not
   across regions.
@@ -213,6 +212,25 @@ redis:
     queries:           # one command is picked per request, weighted
       - query: PING
         weight: 1
+
+# scenarios: sequential user journeys (alternative to http/db/redis, can run with db/redis)
+scenarios:
+  - name: login-flow
+    weight: 1                         # pick weight, default 1
+    steps:
+      - method: POST
+        url: http://localhost:8080/api/login
+        body: '{"user":"alice"}'
+        headers:
+          Content-Type: application/json
+        extract:
+          token: $.token              # pull $.token from JSON response into Vars
+      - method: GET
+        url: http://localhost:8080/api/me
+        headers:
+          Authorization: Bearer {{token}}  # {{var}} interpolated per virtual user
+      - method: GET
+        url: http://localhost:8080/api/checkout?token={{token}}
 ```
 
 ### Field reference
@@ -240,6 +258,15 @@ redis:
   the list of compiled-in drivers. Each driver expects its own connection DSN:
   Postgres `postgres://...`, MySQL `user:pass@tcp(host:3306)/db`, SQLite a file
   path such as `/tmp/test.db`.
+- `scenarios` runs sequential HTTP steps per virtual user. Each VU picks one
+  scenario once at launch (weighted by `weight`), then loops it until
+  `duration` expires. `extract` maps a var name to a JSON path (`$.token`,
+  `$.user.id` via gjson); the value is stored per VU and `{{var}}` is
+  interpolated into later step `url`, `body`, and `headers`. Missing vars stay
+  as `{{var}}` so misconfig is visible; non-JSON or missing paths leave the
+  var unset. Scenarios cannot be combined with `http:` (use one or the other)
+  but can run alongside `db`/`redis` — buckets use the same
+  `Start.Unix()/bucket_width` scheme so timelines align.
 
 ## CLI
 
@@ -376,10 +403,13 @@ chart renders these as gaps, not as a latency of -1ms.
 
 ## Demo stack
 
-Two helpers for exercising a local reference backend:
+Helpers for exercising a local reference backend:
 
-- `cmd/demoserver` — a minimal HTTP application (`:8080/api/orders`) with no
-  artificial latency. Run it, point the `http` target at it, and load it.
+- `cmd/demoserver` — HTTP app on `:8080` with routes for scenarios:
+  `POST /api/login` → `{"token":"tok-123"}`, `GET /api/me` (checks
+  `Authorization: Bearer {{token}}`), `GET /api/products`, `POST /api/orders`,
+  `GET /api/checkout?token={{token}}`. See `config.scenario.yaml` (single flow)
+  and `config.scenarios.yaml` (weighted browse vs checkout) for examples.
 - `cmd/seeddb` — bulk-seeds an `orders` table (COPY, 100k-row chunks) so DB
   queries have real work to do:
 

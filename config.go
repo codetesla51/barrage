@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -54,8 +55,31 @@ func LoadConfig(path string) (*OrchestratorConfig, error) {
 		}
 		return nil, err
 	}
-	if cfg.HTTP == nil && cfg.DB == nil && cfg.Redis == nil {
-		return nil, errors.New("config must specify at least one runner: http, db, or redis")
+	if cfg.DeprecatedScenario != nil {
+		return nil, errors.New("scenario: is removed, use scenarios: with a list (e.g. scenarios:\n  - name: my-flow\n    steps:\n      - method: GET\n        url: http://example.com)")
+	}
+	hasScenario := len(cfg.Scenarios) > 0
+	if cfg.HTTP == nil && cfg.DB == nil && cfg.Redis == nil && !hasScenario {
+		return nil, errors.New("config must specify at least one runner: http, db, redis, or scenarios")
+	}
+	if hasScenario && cfg.HTTP != nil {
+		return nil, errors.New("scenarios mode cannot be combined with http section")
+	}
+	for idx, sc := range cfg.Scenarios {
+		if sc.Weight == 0 {
+			cfg.Scenarios[idx].Weight = 1
+		}
+		if len(sc.Steps) == 0 {
+			return nil, fmt.Errorf("scenarios[%d] %q must have at least one step", idx, sc.Name)
+		}
+		for i, step := range sc.Steps {
+			if !isValidMethod(step.Method) {
+				return nil, fmt.Errorf("scenarios[%d] step %d: invalid method %q", idx, i, step.Method)
+			}
+			if strings.TrimSpace(step.URL) == "" {
+				return nil, fmt.Errorf("scenarios[%d] step %d: url must not be empty", idx, i)
+			}
+		}
 	}
 	if cfg.HTTP != nil && cfg.HTTP.Rate <= 0 {
 		return nil, errors.New("http rate must be greater than zero")
@@ -134,4 +158,16 @@ func (t *HTTPTarget) UnmarshalYAML(node *yaml.Node) error {
 		}
 	}
 	return nil
+}
+
+func isValidMethod(m string) bool {
+	if m == "" {
+		return false
+	}
+	switch strings.ToUpper(m) {
+	case "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "TRACE", "CONNECT":
+		return true
+	default:
+		return false
+	}
 }

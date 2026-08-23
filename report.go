@@ -73,6 +73,24 @@ func NewReportData(result *OrchestratorResult, correlation CorrelationResult) Re
 	if result.RedisResult != nil {
 		data.Runners = append(data.Runners, summarizeRunner("Redis", result.RedisResult.Requests, result.RedisResult.Success, result.RedisResult.P50, result.RedisResult.P95, result.RedisResult.P99, result.RedisResult.Max, result.RedisResult.Mean, result.RedisResult.Rate, result.RedisResult.Throughput, nil))
 	}
+	if len(result.ScenarioAggregates) > 0 {
+		for _, agg := range result.ScenarioAggregates {
+			if agg.Stats == nil {
+				continue
+			}
+			name := agg.Name
+			if name == "" {
+				name = "scenario"
+			}
+			data.Runners = append(data.Runners, summarizeRunner(name, agg.Stats.Requests, agg.Stats.Success, agg.Stats.P50, agg.Stats.P95, agg.Stats.P99, agg.Stats.Max, agg.Stats.Mean, agg.Stats.Rate, agg.Stats.Throughput, nil))
+		}
+	} else if result.ScenarioStats != nil {
+		name := result.ScenarioName
+		if name == "" {
+			name = "scenario"
+		}
+		data.Runners = append(data.Runners, summarizeRunner(name, result.ScenarioStats.Requests, result.ScenarioStats.Success, result.ScenarioStats.P50, result.ScenarioStats.P95, result.ScenarioStats.P99, result.ScenarioStats.Max, result.ScenarioStats.Mean, result.ScenarioStats.Rate, result.ScenarioStats.Throughput, nil))
+	}
 	return data
 }
 
@@ -133,6 +151,24 @@ func buildTimeline(result *OrchestratorResult) TimelineChart {
 	}
 	if result.RedisResult != nil {
 		addSeries("Redis", result.RedisResult.Buckets)
+	}
+	if len(result.ScenarioAggregates) > 0 {
+		for _, agg := range result.ScenarioAggregates {
+			if agg.Stats == nil {
+				continue
+			}
+			name := agg.Name
+			if name == "" {
+				name = "scenario"
+			}
+			addSeries(name, agg.Stats.Buckets)
+		}
+	} else if result.ScenarioStats != nil {
+		name := result.ScenarioName
+		if name == "" {
+			name = "scenario"
+		}
+		addSeries(name, result.ScenarioStats.Buckets)
 	}
 
 	indices := make([]int64, 0, len(indexSet))
@@ -230,6 +266,13 @@ func timelineColor(name string) string {
 		return "#606060"
 	case "Redis":
 		return "#e0524d"
+	}
+	// scenario name gets a distinct color
+	if name != "" && name != "scenario" {
+		return "#7aa5ff"
+	}
+	if name == "scenario" {
+		return "#7aa5ff"
 	}
 	return "#767676"
 }
