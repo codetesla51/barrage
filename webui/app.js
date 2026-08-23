@@ -169,15 +169,24 @@ function generateYAML() {
 
 /* ---------- yaml preview ---------- */
 
-if (window.hljsDefineYaml) hljs.registerLanguage("yaml", window.hljsDefineYaml);
-else if (window.yaml) hljs.registerLanguage("yaml", window.yaml);
+/* the cdnjs yaml grammar self-registers with hljs when loaded after it.
+   if the CDN is unreachable we degrade to a plain-text preview below. */
 
 let previewTimer = null;
 function updatePreview() {
   clearTimeout(previewTimer);
   previewTimer = setTimeout(() => {
     const code = $("#yaml-code");
-    code.innerHTML = hljs.highlight(generateYAML(), { language: "yaml" }).value;
+    const yaml = generateYAML();
+    if (typeof hljs === "undefined") {
+      code.textContent = yaml; // CDN unavailable — still show the YAML
+      return;
+    }
+    try {
+      code.innerHTML = hljs.highlight(yaml, { language: "yaml" }).value;
+    } catch {
+      code.textContent = yaml;
+    }
   }, 60);
 }
 
@@ -600,6 +609,10 @@ function closeModal(id) { document.querySelector(id).close(); }
 
 function importIntoState(raw) {
   let doc;
+  if (typeof jsyaml === "undefined") {
+    $("#import-errors").textContent = "yaml parser failed to load from CDN — check your connection and reload";
+    return false;
+  }
   try {
     doc = jsyaml.load(raw);
   } catch (e) {
