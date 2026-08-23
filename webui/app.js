@@ -47,7 +47,7 @@ function el(tag, attrs = {}, ...children) {
 function toast(msg, kind = "ok", href = null) {
   const icon = el("i", { class: `ph ${kind === "ok" ? "ph-check-circle" : "ph-warning-circle"}`, "aria-hidden": "true" });
   const body = el("span", {}, msg);
-  const t = el("div", { class: `toast ${kind}` }, icon, body);
+  const t = el("div", { class: `toast-item ${kind}` }, icon, body);
   if (href) {
     const link = el("a", { href, target: "_blank", rel: "noopener", text: "open" });
     t.append(link);
@@ -217,7 +217,7 @@ function setYamlMode(mode) {
   yamlEditMode = mode === "edit";
   $("#preview-view").hidden = yamlEditMode;
   $("#editor-view").hidden = !yamlEditMode;
-  $$(".preview-tabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.ptab === mode));
+  $$(".preview-tabs .tab").forEach((t) => t.classList.toggle("tab-active", t.dataset.ptab === mode));
   if (yamlEditMode) {
     suppressEditorSync = true;
     $("#yaml-editor").value = generateYAML();
@@ -375,8 +375,8 @@ function delButton(rowEl, onRemove) {
 // one key -> value input pair; onRemove must splice the pair out of state
 function kvRow(pair, placeholderK, placeholderV, onRemove) {
   const row = el("div", { class: "row" });
-  const k = el("input", { class: "mono grow", placeholder: placeholderK, value: pair.k, autocomplete: "off" });
-  const v = el("input", { class: "mono grow", placeholder: placeholderV, value: pair.v, autocomplete: "off" });
+  const k = el("input", { class: "input input-sm mono grow", placeholder: placeholderK, value: pair.k, autocomplete: "off" });
+  const v = el("input", { class: "input input-sm mono grow", placeholder: placeholderV, value: pair.v, autocomplete: "off" });
   k.addEventListener("input", () => { pair.k = k.value; changed(); });
   v.addEventListener("input", () => { pair.v = v.value; changed(); });
   row.append(k, v, delButton(row, onRemove));
@@ -404,13 +404,13 @@ function addDbQuery(q = { query: "", weight: 1, type: "" }) {
 }
 
 function appendDbQueryRow(container, q) {
-  const ta = el("textarea", { class: "mono grow", rows: "2", placeholder: "SELECT count(*) FROM orders", spellcheck: "false" });
+  const ta = el("textarea", { class: "textarea textarea-sm mono grow", rows: "2", placeholder: "SELECT count(*) FROM orders", spellcheck: "false" });
   ta.value = q.query;
   ta.addEventListener("input", () => { q.query = ta.value; changed(); });
-  const w = el("input", { class: "mono w-small", type: "number", min: "0", value: q.weight, title: "weight" });
+  const w = el("input", { class: "input input-sm mono w-small", type: "number", min: "0", value: q.weight, title: "weight" });
   w.setAttribute("aria-label", "query weight");
   w.addEventListener("input", () => { q.weight = w.value; changed(); });
-  const t = el("select", { class: "w-med", title: "read/write routing" },
+  const t = el("select", { class: "select select-sm w-med", title: "read/write routing" },
     el("option", { value: "", text: "auto-detect" }),
     el("option", { value: "read", text: "read" }),
     el("option", { value: "write", text: "write" }));
@@ -429,9 +429,9 @@ function addRedisQuery(q = { query: "PING", weight: 1 }) {
 }
 
 function appendRedisQueryRow(container, q) {
-  const inp = el("input", { class: "mono grow", value: q.query, placeholder: "PING", autocomplete: "off" });
+  const inp = el("input", { class: "input input-sm mono grow", value: q.query, placeholder: "PING", autocomplete: "off" });
   inp.addEventListener("input", () => { q.query = inp.value; changed(); });
-  const w = el("input", { class: "mono w-small", type: "number", min: "0", value: q.weight, title: "weight" });
+  const w = el("input", { class: "input input-sm mono w-small", type: "number", min: "0", value: q.weight, title: "weight" });
   w.setAttribute("aria-label", "command weight");
   w.addEventListener("input", () => { q.weight = w.value; changed(); });
   const row = el("div", { class: "row" });
@@ -449,9 +449,9 @@ function addScenario() {
 function appendScenarioBox(container, scenario) {
   const box = el("fieldset", { class: "scenario-box" });
   const headRow = el("div", { class: "row" });
-  const nameInp = el("input", { class: "grow", placeholder: "name — e.g. login-flow", value: scenario.name, autocomplete: "off" });
+  const nameInp = el("input", { class: "input input-sm grow", placeholder: "name — e.g. login-flow", value: scenario.name, autocomplete: "off" });
   nameInp.addEventListener("input", () => { scenario.name = nameInp.value; changed(); });
-  const wInp = el("input", { class: "mono w-small", type: "number", min: "0", value: scenario.weight, title: "pick weight" });
+  const wInp = el("input", { class: "input input-sm mono w-small", type: "number", min: "0", value: scenario.weight, title: "pick weight" });
   wInp.setAttribute("aria-label", "scenario weight");
   wInp.addEventListener("input", () => { scenario.weight = wInp.value; changed(); });
   headRow.append(nameInp, wInp);
@@ -492,7 +492,7 @@ function appendScenarioBox(container, scenario) {
     const validMethods = ["GET", "POST", "PUT", "PATCH", "DELETE"];
     if (!validMethods.includes(st.method)) st.method = "GET";
     const methodSel = document.createElement("select");
-    methodSel.className = "w-med";
+    methodSel.className = "select select-sm w-med";
     validMethods.forEach((m) => {
       const o = document.createElement("option");
       o.value = m;
@@ -503,14 +503,14 @@ function appendScenarioBox(container, scenario) {
     methodSel.value = st.method;
     if (!methodSel.value) methodSel.selectedIndex = 0;
     methodSel.addEventListener("change", () => { st.method = methodSel.value; changed(); });
-    const urlInp = el("input", { class: "mono grow", placeholder: "https://host/path or {{var}} allowed", value: st.url, autocomplete: "off" });
+    const urlInp = el("input", { class: "input input-sm mono grow", placeholder: "https://host/path or {{var}} allowed", value: st.url, autocomplete: "off" });
     urlInp.addEventListener("input", () => { st.url = urlInp.value; changed(); });
     const delStep = delButton(rowBox, () => {
       const i = scenario.steps.indexOf(st); if (i >= 0) scenario.steps.splice(i, 1);
     });
     line1.append(order, methodSel, urlInp, delStep);
 
-    const bodyInp = el("textarea", { class: "mono", rows: "2", placeholder: "body — optional, {{var}} allowed", spellcheck: "false" });
+    const bodyInp = el("textarea", { class: "textarea textarea-sm mono", rows: "2", placeholder: "body — optional, {{var}} allowed", spellcheck: "false" });
     bodyInp.value = st.body || "";
     bodyInp.addEventListener("input", () => { st.body = bodyInp.value; changed(); });
 
@@ -888,7 +888,7 @@ function beginPolling(id, durationS) {
       $("#progress span").style.width = pct + "%";
       // live overlay + runner log updates
       $("#live-elapsed").textContent = `${elapsed}s / ${Math.round(st.duration_s)}s`;
-      $("#live-bar-fill").style.width = pct + "%";
+      $("#live-bar-fill").value = pct;
       $("#live-title").textContent = st.state === "running" ? `running — ${elapsed}s` : st.state;
       $("#log-elapsed").textContent = `${elapsed}s`;
       if (st.state === "running") {
@@ -1130,7 +1130,7 @@ function showReport(id, title) {
   // default to story tab
   $("#friendly-wrap").hidden = false;
   $("#report-frame").hidden = true;
-  $$(".report-tabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === "friendly"));
+  $$(".report-tabs .tab").forEach((t) => t.classList.toggle("tab-active", t.dataset.tab === "friendly"));
   buildFriendlyReport(id);
   $("#main-split").hidden = true;
   $("#compare-view").hidden = true;
@@ -1170,7 +1170,7 @@ function renderRecentList() {
   for (const run of recentCache) {
     const stats = (run.runners || []).map((r) => `${r.name} p99 ${r.p99_ms}ms`).join(" · ");
     const li = el("li", { class: "recent-row" });
-    const cb = el("input", { type: "checkbox", "data-run-id": run.id, "aria-label": `select run ${run.id} for compare` });
+    const cb = el("input", { type: "checkbox", class: "checkbox checkbox-sm", "data-run-id": run.id, "aria-label": `select run ${run.id} for compare` });
     cb.addEventListener("change", updateCompareButton);
     const main = el("div", { class: "recent-main" },
       el("span", { class: "recent-name mono", text: `run ${run.id}` }),
@@ -1226,8 +1226,8 @@ function renderCompareResult(data) {
   tbody.innerHTML = "";
   for (const r of data.rows) {
     const verdict = r.regressed
-      ? el("span", { class: "verdict-tag" }, el("span", { class: "badge reg", text: "REGRESSION" }), el("span", { class: "spike-plain", text: "Got slower ⚠" }))
-      : el("span", { class: "verdict-tag" }, el("span", { class: "badge ok", text: "ok" }), el("span", { class: "spike-plain", text: "Within budget" }));
+      ? el("span", { class: "verdict-tag" }, el("span", { class: "badge badge-error badge-outline badge-sm", text: "REGRESSION" }), el("span", { class: "spike-plain", text: "Got slower ⚠" }))
+      : el("span", { class: "verdict-tag" }, el("span", { class: "badge badge-ghost badge-sm", text: "ok" }), el("span", { class: "spike-plain", text: "Within budget" }));
     tbody.append(el("tr", {},
       el("td", { text: r.name }),
       el("td", { class: "mono", text: `${r.baseline_p99_ms}ms` }),
@@ -1248,8 +1248,8 @@ function renderCompareResult(data) {
   for (const sp of data.spikes) {
     ul.append(el("li", { class: "spike-row" },
       el("span", { class: "mono", text: sp.bucket_time }),
-      el("span", { class: "badge reg", text: sp.runner }),
-      el("span", { class: "badge reg", text: sp.status }),
+      el("span", { class: "badge badge-error badge-outline badge-sm", text: sp.runner }),
+      el("span", { class: "badge badge-ghost badge-sm mono", text: sp.status }),
       el("span", { class: "spike-plain", text: spikeText[sp.status] || "" })));
   }
   $("#main-split").hidden = true;
@@ -1392,7 +1392,7 @@ function init() {
   // views
   $$(".report-tabs .tab").forEach((btn) => btn.addEventListener("click", () => {
     const tab = btn.dataset.tab;
-    $$(".report-tabs .tab").forEach((t) => t.classList.toggle("active", t === btn));
+    $$(".report-tabs .tab").forEach((t) => t.classList.toggle("tab-active", t === btn));
     $("#friendly-wrap").hidden = tab !== "friendly";
     $("#report-frame").hidden = tab !== "technical";
   }));

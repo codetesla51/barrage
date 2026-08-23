@@ -7,15 +7,18 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist/index.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist-mono/index.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<!-- daisyUI 5 + tailwind 4 browser build -->
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 <link rel="stylesheet" href="styles.css">
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
-<header class="topbar">
-  <div class="brand">
-    <span class="brand-name">barrage</span>
+<header class="navbar min-h-0 h-[52px] px-4 gap-3 border-b border-base-300 bg-base-200 relative shrink-0">
+  <div class="navbar-start w-auto px-0 gap-2">
+    <span class="font-bold tracking-tight text-[15px]">barrage</span>
   </div>
 
   <div class="run-clock" id="run-clock" hidden>
@@ -24,17 +27,17 @@
     <span class="mono dim" id="clock-duration"></span>
   </div>
 
-  <div class="topbar-actions">
-    <button class="btn ghost" id="btn-compare-nav" title="Compare two reports">
+  <div class="navbar-end w-auto px-0 ml-auto gap-1">
+    <button class="btn btn-ghost btn-sm" id="btn-compare-nav" title="Compare two reports">
       <i class="ph ph-git-diff" aria-hidden="true"></i><span>compare</span>
     </button>
-    <button class="btn ghost" id="btn-recent" title="Recent runs (Ctrl+K)">
+    <button class="btn btn-ghost btn-sm" id="btn-recent" title="Recent runs (Ctrl+K)">
       <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i><span>runs</span>
     </button>
-    <button class="btn ghost icon-only" id="btn-help" title="Shortcuts (?)" aria-label="Keyboard shortcuts">
+    <button class="btn btn-ghost btn-square btn-sm" id="btn-help" title="Shortcuts (?)" aria-label="Keyboard shortcuts">
       <i class="ph ph-question" aria-hidden="true"></i>
     </button>
-    <button class="btn ghost icon-only" id="btn-theme" title="Toggle theme" aria-label="Toggle theme">
+    <button class="btn btn-ghost btn-square btn-sm" id="btn-theme" title="Toggle theme" aria-label="Toggle theme">
       <i class="ph ph-moon" aria-hidden="true" id="theme-icon"></i>
     </button>
   </div>
@@ -43,15 +46,15 @@
 
 <!-- recent runs dropdown -->
 <div class="recent-panel" id="recent-panel" hidden>
-  <div class="recent-head">
+  <div class="flex items-center gap-2 pb-1.5">
     <span class="eyebrow">recent runs</span>
     <span class="spacer"></span>
-    <button class="btn tiny primary" id="btn-compare-selected" disabled>
+    <button class="btn btn-primary btn-xs" id="btn-compare-selected" disabled>
       <i class="ph ph-git-diff" aria-hidden="true"></i><span>compare selected</span>
     </button>
   </div>
-  <div class="recent-hint dim">tick two runs to compare them</div>
-  <ul id="recent-list" class="recent-list"></ul>
+  <div class="text-xs opacity-60 pb-2">tick two runs to compare them</div>
+  <ul id="recent-list" class="list p-0 m-0"></ul>
 </div>
 
 <main class="split" id="main-split" style="--left: 54%">
@@ -60,13 +63,12 @@
   <section class="panel form-panel" aria-label="Config form">
     <div class="form-scroll">
 
-      <div class="mode-row">
-        <span class="presets-label">mode:</span>
-        <div class="mode-tabs" role="group" aria-label="Mode">
-          <button class="mode-tab active" data-mode="simple">simple</button>
-          <button class="mode-tab" data-mode="advanced">advanced</button>
+      <div class="flex items-center gap-2 flex-wrap">
+        <div class="join mode-tabs" role="group" aria-label="Mode">
+          <button class="mode-tab join-item active" data-mode="simple">simple</button>
+          <button class="mode-tab join-item" data-mode="advanced">advanced</button>
         </div>
-        <span class="dim" style="font-size:11px;margin-left:10px">simple hides the tricky bits</span>
+        <span class="text-[11px] opacity-60">simple hides the tricky bits</span>
       </div>
       <div class="presets" role="group" aria-label="Presets">
         <span class="presets-label">start from:</span>
@@ -83,141 +85,129 @@
       </div>
 
       <!-- run settings -->
-      <fieldset class="section" id="sec-global">
-        <div class="simple-hint dim" data-simple-only>Quick start — just pick a preset above and hit Run. Advanced settings are hidden in simple mode.</div>
-        <legend class="section-head">
+      <fieldset class="card card-border bg-base-100 section" id="sec-global">
+        <div class="section-head">
           <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>
           run settings
-        </legend>
-        <div class="card-body">
+        </div>
+        <div class="card-body p-4 pt-3 gap-4">
+          <div class="simple-hint opacity-60" data-simple-only>Quick start — pick a preset above and hit Run. Advanced settings are hidden in simple mode.</div>
           <div class="grid-4">
-            <label>duration <span class="label-friendly">— how long to test</span><input class="mono" name="duration" value="15s" autocomplete="off"><small class="dim">e.g. 15s, 1m, 30s</small></label>
-            <label class="adv">bucket_width <span class="label-friendly dim">— chart detail</span><input class="mono" name="bucket_width" value="1s" autocomplete="off"><small class="dim">timeline bucket size</small></label>
-            <label class="adv">ramp <span class="label-friendly dim">— warm-up</span><input class="mono" name="ramp" value="3s" autocomplete="off"><small class="dim">0 = off</small></label>
-            <label>concurrency <span class="label-friendly">— parallel users</span><input class="mono" name="concurrency" type="number" min="0" value="10" autocomplete="off"><small class="dim">parallel users</small></label>
+            <label>duration <span class="label-friendly">— how long to test</span><input class="input input-sm mono w-full" name="duration" value="15s" autocomplete="off"><small class="opacity-60">e.g. 15s, 1m, 30s</small></label>
+            <label class="adv">bucket_width <span class="label-friendly">— chart detail</span><input class="input input-sm mono w-full" name="bucket_width" value="1s" autocomplete="off"><small class="opacity-60">timeline bucket size</small></label>
+            <label class="adv">ramp <span class="label-friendly">— warm-up</span><input class="input input-sm mono w-full" name="ramp" value="3s" autocomplete="off"><small class="opacity-60">0 = off</small></label>
+            <label>concurrency <span class="label-friendly">— parallel users</span><input class="input input-sm mono w-full" name="concurrency" type="number" min="0" value="10" autocomplete="off"><small class="opacity-60">parallel users</small></label>
           </div>
           <div class="grid-3 thresholds adv">
-            <label title="Flag HTTP as a spike if its P99 crosses this value">http_threshold<input class="mono" name="http_threshold" value="100ms"><small class="dim">spike budget</small></label>
-            <label title="Flag DB as a spike if its P99 crosses this value">db_threshold<input class="mono" name="db_threshold" value="100ms"><small class="dim">spike budget</small></label>
-            <label title="Flag Redis as a spike if its P99 crosses this value">redis_threshold<input class="mono" name="redis_threshold" value="100ms"><small class="dim">spike budget</small></label>
+            <label title="Flag HTTP as a spike if its P99 crosses this value">http_threshold<input class="input input-sm mono w-full" name="http_threshold" value="100ms"><small class="opacity-60">spike budget</small></label>
+            <label title="Flag DB as a spike if its P99 crosses this value">db_threshold<input class="input input-sm mono w-full" name="db_threshold" value="100ms"><small class="opacity-60">spike budget</small></label>
+            <label title="Flag Redis as a spike if its P99 crosses this value">redis_threshold<input class="input input-sm mono w-full" name="redis_threshold" value="100ms"><small class="opacity-60">spike budget</small></label>
           </div>
         </div>
       </fieldset>
 
       <!-- HTTP -->
-      <fieldset class="section" id="sec-http" data-section="http">
-        <legend class="section-head">
+      <fieldset class="card card-border bg-base-100 section" id="sec-http" data-section="http">
+        <div class="section-head">
           <i class="ph ph-globe" aria-hidden="true"></i>
           http
           <span class="section-summary mono" id="sum-http"></span>
-          <span class="switch-wrap">
-            <input type="checkbox" class="switch-input" id="en-http">
-            <label for="en-http" class="switch" aria-label="Include http runner"><span class="track"></span></label>
-          </span>
-        </legend>
-        <div class="card-body">
+          <input type="checkbox" class="toggle toggle-sm" id="en-http" aria-label="Include http runner">
+        </div>
+        <div class="card-body p-4 pt-3 gap-4">
           <div class="fields-http">
-            <label>rate<input class="mono" name="http-rate" type="number" min="1" value="10"><small class="dim">requests / sec</small></label>
+            <label>rate<input class="input input-sm mono w-full" name="http-rate" type="number" min="1" value="10"><small class="opacity-60">requests / sec</small></label>
             <label>method
-              <select name="http-method">
+              <select class="select select-sm w-full" name="http-method">
                 <option>GET</option><option>POST</option><option>PUT</option>
                 <option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option>
               </select>
             </label>
-            <label class="grow">url<input class="mono" name="http-url" placeholder="http://localhost:8080/api/orders" autocomplete="off"><small class="dim">required</small></label>
+            <label class="grow">url<input class="input input-sm mono w-full" name="http-url" placeholder="http://localhost:8080/api/orders" autocomplete="off"><small class="opacity-60">required</small></label>
           </div>
-          <label class="adv">body — optional <span class="dim">what to send</span><textarea class="mono" name="http-body" rows="2" placeholder='{"customer": 42}' spellcheck="false"></textarea><small class="dim">JSON or text to send</small></label>
+          <label class="adv">body — optional <span class="opacity-60">what to send</span><textarea class="textarea textarea-sm mono w-full" name="http-body" rows="2" placeholder='{"customer": 42}' spellcheck="false"></textarea><small class="opacity-60">JSON or text to send</small></label>
           <div class="repeatable adv">
-            <span class="eyebrow">headers <span class="dim">— only if your API needs them</span></span>
+            <span class="eyebrow">headers <span class="opacity-60">— only if your API needs them</span></span>
             <div id="http-headers" class="rows"></div>
-            <button class="btn tiny add-row" data-add="http-header" type="button"><i class="ph ph-plus" aria-hidden="true"></i> header</button>
+            <button class="btn btn-ghost btn-xs add-row" data-add="http-header" type="button"><i class="ph ph-plus" aria-hidden="true"></i> header</button>
           </div>
         </div>
       </fieldset>
 
       <!-- DB -->
-      <fieldset class="section" id="sec-db" data-section="db">
-        <legend class="section-head">
+      <fieldset class="card card-border bg-base-100 section" id="sec-db" data-section="db">
+        <div class="section-head">
           <i class="ph ph-database" aria-hidden="true"></i>
           db
           <span class="section-summary mono" id="sum-db"></span>
-          <span class="switch-wrap">
-            <input type="checkbox" class="switch-input" id="en-db">
-            <label for="en-db" class="switch" aria-label="Include db runner"><span class="track"></span></label>
-          </span>
-        </legend>
-        <div class="card-body">
+          <input type="checkbox" class="toggle toggle-sm" id="en-db" aria-label="Include db runner">
+        </div>
+        <div class="card-body p-4 pt-3 gap-4">
           <div class="fields-db">
-            <label>rate<input class="mono" name="db-rate" type="number" min="1" value="5"><small class="dim">queries / sec</small></label>
+            <label>rate<input class="input input-sm mono w-full" name="db-rate" type="number" min="1" value="5"><small class="opacity-60">queries / sec</small></label>
             <label>driver
-              <select name="db-driver">
+              <select class="select select-sm w-full" name="db-driver">
                 <option value="postgres">postgres</option><option value="mysql">mysql</option><option value="sqlite">sqlite</option>
               </select>
             </label>
             <label class="grow">conn
               <span class="conn-wrap">
-                <input class="mono" name="db-conn" type="password" placeholder="postgres://user:pass@localhost:5432/mydb?sslmode=disable" autocomplete="off">
-                <button class="btn tiny ghost icon-only reveal" data-reveal="db-conn" type="button" title="Show/hide DSN" aria-label="Show or hide connection string"><i class="ph ph-eye" aria-hidden="true"></i></button>
+                <input class="input input-sm mono w-full" name="db-conn" type="password" placeholder="postgres://user:pass@localhost:5432/mydb?sslmode=disable" autocomplete="off">
+                <button class="btn btn-ghost btn-square btn-xs reveal" data-reveal="db-conn" type="button" title="Show/hide DSN" aria-label="Show or hide connection string"><i class="ph ph-eye" aria-hidden="true"></i></button>
               </span>
-              <small class="dim">required · often contains credentials</small>
+              <small class="opacity-60">required · often contains credentials</small>
             </label>
           </div>
           <div class="repeatable">
-            <span class="eyebrow">queries <span class="dim">(weighted mix)</span></span>
+            <span class="eyebrow">queries <span class="opacity-60">(weighted mix)</span></span>
             <div id="db-queries" class="rows"></div>
-            <button class="btn tiny add-row" data-add="db-query" type="button"><i class="ph ph-plus" aria-hidden="true"></i> query</button>
+            <button class="btn btn-ghost btn-xs add-row" data-add="db-query" type="button"><i class="ph ph-plus" aria-hidden="true"></i> query</button>
           </div>
         </div>
       </fieldset>
 
       <!-- Redis -->
-      <fieldset class="section" id="sec-redis" data-section="redis">
-        <legend class="section-head">
+      <fieldset class="card card-border bg-base-100 section" id="sec-redis" data-section="redis">
+        <div class="section-head">
           <i class="ph ph-lightning" aria-hidden="true"></i>
           redis
           <span class="section-summary mono" id="sum-redis"></span>
-          <span class="switch-wrap">
-            <input type="checkbox" class="switch-input" id="en-redis">
-            <label for="en-redis" class="switch" aria-label="Include redis runner"><span class="track"></span></label>
-          </span>
-        </legend>
-        <div class="card-body">
+          <input type="checkbox" class="toggle toggle-sm" id="en-redis" aria-label="Include redis runner">
+        </div>
+        <div class="card-body p-4 pt-3 gap-4">
           <div class="fields-redis">
-            <label>rate<input class="mono" name="redis-rate" type="number" min="1" value="20"><small class="dim">commands / sec</small></label>
-            <label class="grow">addr<input class="mono" name="redis-addr" placeholder="localhost:6379" autocomplete="off"><small class="dim">host:port · required</small></label>
+            <label>rate<input class="input input-sm mono w-full" name="redis-rate" type="number" min="1" value="20"><small class="opacity-60">commands / sec</small></label>
+            <label class="grow">addr<input class="input input-sm mono w-full" name="redis-addr" placeholder="localhost:6379" autocomplete="off"><small class="opacity-60">host:port · required</small></label>
             <label>password
               <span class="conn-wrap">
-                <input class="mono" name="redis-password" type="password" autocomplete="off">
-                <button class="btn tiny ghost icon-only reveal" data-reveal="redis-password" type="button" title="Show/hide password" aria-label="Show or hide password"><i class="ph ph-eye" aria-hidden="true"></i></button>
+                <input class="input input-sm mono w-full" name="redis-password" type="password" autocomplete="off">
+                <button class="btn btn-ghost btn-square btn-xs reveal" data-reveal="redis-password" type="button" title="Show/hide password" aria-label="Show or hide password"><i class="ph ph-eye" aria-hidden="true"></i></button>
               </span>
-              <small class="dim">optional</small>
+              <small class="opacity-60">optional</small>
             </label>
-            <label class="w-narrow">db<input class="mono" name="redis-dbnum" type="number" min="0" value="0"><small class="dim">index</small></label>
+            <label class="w-narrow">db<input class="input input-sm mono w-full" name="redis-dbnum" type="number" min="0" value="0"><small class="opacity-60">index</small></label>
           </div>
           <div class="repeatable">
             <span class="eyebrow">commands</span>
             <div id="redis-queries" class="rows"></div>
-            <button class="btn tiny add-row" data-add="redis-query" type="button"><i class="ph ph-plus" aria-hidden="true"></i> command</button>
+            <button class="btn btn-ghost btn-xs add-row" data-add="redis-query" type="button"><i class="ph ph-plus" aria-hidden="true"></i> command</button>
           </div>
         </div>
       </fieldset>
 
       <!-- Scenarios -->
-      <fieldset class="section" id="sec-scenarios" data-section="scenarios">
-        <legend class="section-head">
+      <fieldset class="card card-border bg-base-100 section" id="sec-scenarios" data-section="scenarios">
+        <div class="section-head">
           <i class="ph ph-steps" aria-hidden="true"></i>
           scenarios
           <span class="section-summary mono" id="sum-scenarios"></span>
-          <span class="switch-wrap">
-            <input type="checkbox" class="switch-input" id="en-scenarios">
-            <label for="en-scenarios" class="switch" aria-label="Include scenarios"><span class="track"></span></label>
-          </span>
-        </legend>
-        <div class="card-body">
-          <p class="dim note">sequential journeys run by virtual users · can't combine with http · extract vars with <code>$.path</code>, reuse as <code>{{name}}</code></p>
+          <input type="checkbox" class="toggle toggle-sm" id="en-scenarios" aria-label="Include scenarios">
+        </div>
+        <div class="card-body p-4 pt-3 gap-4">
+          <p class="text-xs opacity-60 m-0">sequential journeys run by virtual users · can't combine with http · extract vars with <code>$.path</code>, reuse as <code>{{name}}</code></p>
           <div class="repeatable">
             <div id="scenario-list" class="rows"></div>
-            <button class="btn tiny add-row" data-add="scenario" type="button"><i class="ph ph-plus" aria-hidden="true"></i> scenario</button>
+            <button class="btn btn-ghost btn-xs add-row" data-add="scenario" type="button"><i class="ph ph-plus" aria-hidden="true"></i> scenario</button>
           </div>
         </div>
       </fieldset>
@@ -225,10 +215,10 @@
     </div>
 
     <div class="form-footer">
-      <button class="btn primary big" id="btn-run" disabled>
+      <button class="btn btn-primary" id="btn-run" disabled>
         <i class="ph-fill ph-play" aria-hidden="true"></i><span>Run test</span>
       </button>
-      <button class="btn ghost" id="btn-import">
+      <button class="btn btn-ghost" id="btn-import">
         <i class="ph ph-upload-simple" aria-hidden="true"></i><span>Import YAML</span>
       </button>
       <span class="validation-summary" id="validation-summary" role="status"></span>
@@ -238,21 +228,21 @@
   <div class="gutter" id="gutter" role="separator" aria-orientation="vertical" aria-label="Resize panels" tabindex="0"><span></span></div>
 
   <!-- RIGHT: yaml preview -->
-  <aside class="panel preview-panel" aria-label="YAML preview">
+  <aside class="panel preview-panel bg-base-100" aria-label="YAML preview">
     <div class="preview-head">
       <span class="filetab"><span class="fdot"></span> config.yaml</span>
       <span class="spacer"></span>
-      <div class="preview-tabs">
-        <button class="tab tiny active" data-ptab="preview" id="ptab-preview">preview</button>
-        <button class="tab tiny" data-ptab="edit" id="ptab-edit">edit</button>
+      <div class="tabs tabs-box tabs-xs" role="tablist" aria-label="Preview mode">
+        <button role="tab" class="tab tab-active" data-ptab="preview" id="ptab-preview">preview</button>
+        <button role="tab" class="tab" data-ptab="edit" id="ptab-edit">edit</button>
       </div>
-      <button class="btn tiny ghost" id="btn-copy-yaml"><i class="ph ph-copy" aria-hidden="true"></i> copy</button>
-      <button class="btn tiny ghost" id="btn-download-yaml"><i class="ph ph-download-simple" aria-hidden="true"></i> download</button>
+      <button class="btn btn-ghost btn-xs" id="btn-copy-yaml"><i class="ph ph-copy" aria-hidden="true"></i> copy</button>
+      <button class="btn btn-ghost btn-xs" id="btn-download-yaml"><i class="ph ph-download-simple" aria-hidden="true"></i> download</button>
     </div>
     <div class="preview-scroll" id="preview-view"><pre class="yaml-preview"><code id="yaml-code"></code></pre></div>
     <div class="editor-wrap" id="editor-view" hidden>
       <textarea class="yaml-editor mono" id="yaml-editor" spellcheck="false" placeholder="paste or write yaml here — form updates live"></textarea>
-      <div class="editor-status mono dim" id="editor-status"></div>
+      <div class="editor-status mono opacity-60" id="editor-status"></div>
     </div>
   </aside>
 </main>
@@ -265,31 +255,31 @@
       <span class="mono" id="live-title">running</span>
       <span class="mono dim" id="live-elapsed">0s / 0s</span>
     </div>
-    <div class="live-bar"><span id="live-bar-fill"></span></div>
-    <p class="live-hint dim" id="live-hint">firing requests — hang tight</p>
-    <div class="live-runners mono dim" id="live-runners"></div>
+    <progress class="progress w-full" id="live-bar-fill" value="0" max="100"></progress>
+    <p class="text-[13px] opacity-70 m-0 mt-2" id="live-hint">firing requests — hang tight</p>
+    <div class="mono text-xs opacity-60" id="live-runners"></div>
   </div>
 </div>
 
 <!-- report view -->
 <section class="fullview" id="report-view" hidden>
   <div class="fullview-head">
-    <button class="btn ghost" id="btn-back-to-form"><i class="ph ph-arrow-left" aria-hidden="true"></i> config</button>
-    <span class="crumb-sep">/</span>
+    <button class="btn btn-ghost btn-sm" id="btn-back-to-form"><i class="ph ph-arrow-left" aria-hidden="true"></i> config</button>
+    <span class="opacity-40">/</span>
     <span class="eyebrow" id="report-title">report</span>
     <span class="spacer"></span>
-    <div class="report-tabs">
-      <button class="tab active" data-tab="friendly" id="tab-friendly">story</button>
-      <button class="tab" data-tab="technical" id="tab-technical">technical</button>
+    <div class="tabs tabs-box tabs-sm" role="tablist" aria-label="Report view">
+      <button role="tab" class="tab tab-active" data-tab="friendly" id="tab-friendly">story</button>
+      <button role="tab" class="tab" data-tab="technical" id="tab-technical">technical</button>
     </div>
-    <a class="btn ghost" id="btn-open-report-tab" href="#" target="_blank" rel="noopener"><i class="ph ph-arrow-square-out" aria-hidden="true"></i> open</a>
+    <a class="btn btn-ghost btn-sm" id="btn-open-report-tab" href="#" target="_blank" rel="noopener"><i class="ph ph-arrow-square-out" aria-hidden="true"></i> open</a>
   </div>
   <div class="friendly-wrap" id="friendly-wrap">
     <div id="friendly-report"></div>
     <div class="chart-section" id="chart-section" hidden>
-      <h3 class="eyebrow">latency over time <span class="dim">— p99 per bucket</span></h3>
+      <h3 class="eyebrow">latency over time <span class="opacity-60">— p99 per bucket</span></h3>
       <div class="chart-box"><canvas id="latency-chart"></canvas></div>
-      <h3 class="eyebrow" style="margin-top:16px">requests & success <span class="dim">— throughput vs rate</span></h3>
+      <h3 class="eyebrow" style="margin-top:16px">requests &amp; success <span class="opacity-60">— throughput vs rate</span></h3>
       <div class="chart-box"><canvas id="throughput-chart"></canvas></div>
     </div>
   </div>
@@ -299,32 +289,34 @@
 <!-- compare view -->
 <section class="fullview" id="compare-view" hidden>
   <div class="fullview-head">
-    <button class="btn ghost" id="btn-back-from-compare"><i class="ph ph-arrow-left" aria-hidden="true"></i> config</button>
-    <span class="crumb-sep">/</span>
+    <button class="btn btn-ghost btn-sm" id="btn-back-from-compare"><i class="ph ph-arrow-left" aria-hidden="true"></i> config</button>
+    <span class="opacity-40">/</span>
     <span class="eyebrow">compare</span>
     <span class="spacer"></span>
-    <label class="failon mono">fail_on <input id="fail-on" value="100ms"></label>
+    <label class="flex flex-row items-center gap-2 text-xs opacity-80 mono">fail_on <input class="input input-sm mono w-24" id="fail-on" value="100ms"></label>
   </div>
   <div class="compare-scroll">
-    <div class="compare-upload">
+    <div class="card card-border bg-base-100 p-4 mb-4 flex flex-wrap items-end gap-4">
       <div class="upload-col">
-        <label class="eyebrow">baseline report <span class="dim">(results.json)</span></label>
-        <input type="file" id="compare-baseline-file" accept=".json">
-        <span class="mono dim" id="compare-baseline-name"></span>
+        <span class="eyebrow">baseline report <span class="opacity-60">(results.json)</span></span>
+        <input type="file" id="compare-baseline-file" accept=".json,application/json" class="file-input file-input-sm w-full">
+        <span class="mono text-xs opacity-60" id="compare-baseline-name"></span>
       </div>
       <div class="upload-col">
-        <label class="eyebrow">current report <span class="dim">(results.json)</span></label>
-        <input type="file" id="compare-current-file" accept=".json">
-        <span class="mono dim" id="compare-current-name"></span>
+        <span class="eyebrow">current report <span class="opacity-60">(results.json)</span></span>
+        <input type="file" id="compare-current-file" accept=".json,application/json" class="file-input file-input-sm w-full">
+        <span class="mono text-xs opacity-60" id="compare-current-name"></span>
       </div>
-      <button class="btn primary" id="btn-compare-upload" disabled><i class="ph ph-upload-simple" aria-hidden="true"></i> compare files</button>
+      <button class="btn btn-primary" id="btn-compare-upload" disabled><i class="ph ph-upload-simple" aria-hidden="true"></i> compare files</button>
     </div>
-    <div class="compare-divider"><span class="dim mono">or pick from recent runs above</span></div>
+    <div class="divider text-xs opacity-60 mono my-2">or pick from recent runs above</div>
     <div id="compare-banner" class="banner" role="status"></div>
-    <table class="diff-table" id="diff-table">
-      <thead><tr><th>RUNNER</th><th>BASELINE_P99</th><th>CURRENT_P99</th><th>CHANGE</th><th>VERDICT</th></tr></thead>
-      <tbody></tbody>
-    </table>
+    <div class="overflow-x-auto rounded-box border border-base-300 bg-base-100">
+      <table class="table table-sm" id="diff-table">
+        <thead><tr><th>RUNNER</th><th>BASELINE_P99</th><th>CURRENT_P99</th><th>CHANGE</th><th>VERDICT</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
     <h3 class="eyebrow spike-head">spike diff</h3>
     <ul class="spike-list" id="spike-list"></ul>
   </div>
@@ -332,46 +324,53 @@
 
 <!-- pre-run preview modal -->
 <dialog class="modal" id="prerun-modal">
-  <h2 class="modal-title"><i class="ph ph-clipboard-text" aria-hidden="true"></i> about to run</h2>
-  <p id="prerun-summary" class="prerun-summary"></p>
-  <ul class="target-list" id="prerun-targets"></ul>
-  <div class="modal-actions">
-    <label class="check"><input type="checkbox" id="skip-preview"> don't show this again</label>
-    <span class="spacer"></span>
-    <button class="btn ghost" id="btn-back-edit" type="button">Back to edit</button>
-    <button class="btn primary" id="btn-start-run" type="button"><i class="ph-fill ph-play" aria-hidden="true"></i> Start run</button>
+  <div class="modal-box max-w-xl">
+    <h2 class="modal-title"><i class="ph ph-clipboard-text" aria-hidden="true"></i> about to run</h2>
+    <p id="prerun-summary" class="text-sm leading-relaxed opacity-90"></p>
+    <ul class="target-list" id="prerun-targets"></ul>
+    <div class="modal-action">
+      <label class="flex flex-row items-center gap-2 cursor-pointer text-xs"><input type="checkbox" class="checkbox checkbox-sm" id="skip-preview"> don't show this again</label>
+      <button class="btn btn-ghost" id="btn-back-edit" type="button">Back to edit</button>
+      <button class="btn btn-primary" id="btn-start-run" type="button"><i class="ph-fill ph-play" aria-hidden="true"></i> Start run</button>
+    </div>
   </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
 
 <!-- import modal -->
 <dialog class="modal" id="import-modal">
-  <h2 class="modal-title"><i class="ph ph-upload-simple" aria-hidden="true"></i> import yaml</h2>
-  <div class="import-stack">
-    <label class="eyebrow">drop a file <span class="dim">— .yaml, .yml</span><input type="file" id="import-file" accept=".yaml,.yml,.txt"></label>
-    <span class="dim" style="text-align:center;font-size:12px">or paste below</span>
-    <textarea class="mono" id="import-text" rows="12" placeholder="paste a config.yaml here…" spellcheck="false"></textarea>
+  <div class="modal-box max-w-xl">
+    <h2 class="modal-title"><i class="ph ph-upload-simple" aria-hidden="true"></i> import yaml</h2>
+    <div class="flex flex-col gap-3">
+      <label class="eyebrow flex flex-col gap-2">drop a file <span class="opacity-60">— .yaml, .yml</span><input type="file" id="import-file" accept=".yaml,.yml,.txt" class="file-input file-input-sm w-full"></label>
+      <div class="divider text-xs opacity-60 my-0">or paste below</div>
+      <textarea class="textarea mono w-full" id="import-text" rows="12" placeholder="paste a config.yaml here…" spellcheck="false"></textarea>
+    </div>
+    <p class="text-error text-xs whitespace-pre-wrap mt-2" id="import-errors" role="alert"></p>
+    <div class="modal-action">
+      <button class="btn btn-ghost" id="btn-import-cancel" type="button">Cancel</button>
+      <button class="btn btn-primary" id="btn-import-apply" type="button">Populate form</button>
+    </div>
   </div>
-  <p class="import-errors" id="import-errors" role="alert"></p>
-  <div class="modal-actions">
-    <span class="spacer"></span>
-    <button class="btn ghost" id="btn-import-cancel" type="button">Cancel</button>
-    <button class="btn primary" id="btn-import-apply" type="button">Populate form</button>
-  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
 
 <!-- shortcuts overlay -->
-<dialog class="modal small" id="help-modal">
-  <h2 class="modal-title"><i class="ph ph-keyboard" aria-hidden="true"></i> shortcuts</h2>
-  <ul class="shortcut-list">
-    <li><kbd>Ctrl/Cmd</kbd>+<kbd>Enter</kbd><span class="spacer"></span>run test</li>
-    <li><kbd>Ctrl/Cmd</kbd>+<kbd>K</kbd><span class="spacer"></span>recent runs</li>
-    <li><kbd>Ctrl/Cmd</kbd>+<kbd>I</kbd><span class="spacer"></span>import yaml</li>
-    <li><kbd>?</kbd><span class="spacer"></span>this overlay</li>
-  </ul>
-  <div class="modal-actions"><span class="spacer"></span><button class="btn ghost" id="btn-help-close" type="button">Close</button></div>
+<dialog class="modal" id="help-modal">
+  <div class="modal-box max-w-sm">
+    <h2 class="modal-title"><i class="ph ph-keyboard" aria-hidden="true"></i> shortcuts</h2>
+    <ul class="shortcut-list">
+      <li><kbd class="kbd kbd-sm">Ctrl/Cmd</kbd>+<kbd class="kbd kbd-sm">Enter</kbd><span class="spacer"></span>run test</li>
+      <li><kbd class="kbd kbd-sm">Ctrl/Cmd</kbd>+<kbd class="kbd kbd-sm">K</kbd><span class="spacer"></span>recent runs</li>
+      <li><kbd class="kbd kbd-sm">Ctrl/Cmd</kbd>+<kbd class="kbd kbd-sm">I</kbd><span class="spacer"></span>import yaml</li>
+      <li><kbd class="kbd kbd-sm">?</kbd><span class="spacer"></span>this overlay</li>
+    </ul>
+    <div class="modal-action"><button class="btn btn-ghost" id="btn-help-close" type="button">Close</button></div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
 
-<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="toasts toast toast-end toast-bottom z-60" id="toasts" aria-live="polite"></div>
 
 <script src="app.js"></script>
 </body>
