@@ -214,6 +214,9 @@ redis:
         weight: 1
 
 # scenarios: sequential user journeys (alternative to http/db/redis, can run with db/redis)
+# NOTE: scenarios replaces the http runner — you cannot combine `scenarios:` with
+# an `http:` section in the same config. A scenario is your HTTP load: to mix
+# plain hits with flows, model the plain hit as a one-step scenario.
 scenarios:
   - name: login-flow
     weight: 1                         # pick weight, default 1
