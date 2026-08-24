@@ -113,6 +113,11 @@ func OpenConnection(conn string, driver string) (*sql.DB, error) {
 // parameters. Queries are fired at rate per second (ramping up over ramp if
 // set) and run concurrently on a worker pool with up to concurrency workers.
 func FireDB(target DBTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration, stats *RunStats) (*DBResult, error) {
+	// Clamp sub-second bucketWidth to 1s; int64(bucketWidth.Seconds()) is used as
+	// a divisor and truncates to 0 for anything under a second, panicking.
+	if bucketWidth < time.Second {
+		bucketWidth = time.Second
+	}
 	db, err := OpenConnection(target.Conn, target.Driver)
 	if err != nil {
 		return nil, err
@@ -201,7 +206,7 @@ func buildDBResult(overall []dbQueryResult, runStart time.Time, bucketWidth, dur
 // (same base as the HTTP runner), so bucket indices match across runners
 // regardless of when each one started. Buckets with no results are omitted.
 func buildDBBuckets(results []dbQueryResult, bucketWidth time.Duration) []Bucket {
-	if len(results) == 0 || bucketWidth <= 0 {
+	if len(results) == 0 || bucketWidth < time.Second {
 		return nil
 	}
 

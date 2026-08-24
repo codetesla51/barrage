@@ -56,7 +56,7 @@ func FireScenario(s Scenario, concurrency int, duration, bucketWidth time.Durati
 	if concurrency <= 0 {
 		concurrency = DefaultConcurrency
 	}
-	if bucketWidth <= 0 {
+	if bucketWidth < time.Second {
 		bucketWidth = time.Second
 	}
 	if s.Name == "" {
@@ -84,7 +84,7 @@ func FireScenarios(scenarios []Scenario, concurrency int, duration, bucketWidth 
 	if concurrency <= 0 {
 		concurrency = DefaultConcurrency
 	}
-	if bucketWidth <= 0 {
+	if bucketWidth < time.Second {
 		bucketWidth = time.Second
 	}
 	for i := range scenarios {
