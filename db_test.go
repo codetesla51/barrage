@@ -1,6 +1,9 @@
 package barrage
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestIsReadQuery(t *testing.T) {
 	cases := []struct {
@@ -44,6 +47,24 @@ func TestQueryIsRead(t *testing.T) {
 	for _, c := range cases {
 		if got := queryIsRead(c.query); got != c.want {
 			t.Errorf("%s: queryIsRead(%+v) = %v, want %v", c.name, c.query, got, c.want)
+		}
+	}
+}
+
+func TestBuildDBBucketsSubSecondWidthDoesNotPanic(t *testing.T) {
+	// A bucketWidth under one second used to truncate to 0 in
+	// int64(bucketWidth.Seconds()) and panic with a divide-by-zero. With the
+	// clamp in place, sub-second and zero widths are treated as no bucketing
+	// rather than crashing.
+	samples := []dbQueryResult{
+		{Timestamp: time.Unix(1, 0), Latency: 10 * time.Millisecond, Success: true},
+		{Timestamp: time.Unix(2, 0), Latency: 20 * time.Millisecond, Success: true},
+	}
+	for _, w := range []time.Duration{0, 500 * time.Millisecond, time.Second} {
+		// Must not panic.
+		got := buildDBBuckets(samples, w)
+		if w < time.Second && got != nil {
+			t.Errorf("bucketWidth=%v: expected nil buckets, got %d", w, len(got))
 		}
 	}
 }

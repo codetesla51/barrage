@@ -48,6 +48,13 @@ type HTTPBucket struct {
 }
 
 func FireHTTP(target HTTPTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration, stats *RunStats) (*HTTPResult, error) {
+	// bucketWidth is used as a divisor via int64(bucketWidth.Seconds()); anything
+	// below one second truncates to 0 and panics with a divide-by-zero. Clamp it
+	// to a safe minimum (mirrors the guard in scenario_metrics.go, which only
+	// caught the <= 0 case and missed sub-second values like 500ms).
+	if bucketWidth < time.Second {
+		bucketWidth = time.Second
+	}
 	targeter := vegeta.NewStaticTargeter(vegeta.Target{
 		Method: target.Method,
 		URL:    target.URL,
