@@ -1,5 +1,6 @@
 # Build artifacts
-/report.html
+report.html
+compare.html
 /barrage
 /barrage.exe
 /bin/
