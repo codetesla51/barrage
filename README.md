@@ -488,6 +488,24 @@ Run any of them against the demo stack:
 barrage run -c examples/scenarios-weighted.yaml
 ```
 
+A scenario run looks like this: the `rates` line names each journey with its
+step count and weight, the runner column carries the scenario name, and there
+is no STATUS column content (scenarios record success as 2xx-per-step, not
+status histograms) — the header still prints, the cells are empty.
+
+```
+$ barrage run -c examples/scenario-login.yaml
+
+barrage v0.3.12
+duration 10s · bucket 1s · concurrency 10 · ramp 0s
+rates    login-flow 3 steps w=1
+
+[barrage] done ·  │ scen 32,989 3 err
+RUNNER      REQUESTS  SUCCESS  RATE      MEAN        P50         P95         P99          MAX           STATUS
+login-flow  32989     100.0%   3298.9/s  3.030392ms  2.272002ms  8.125266ms  11.957243ms  35.747684ms
+Report written to report.html
+```
+
 ## Development
 
 ```sh

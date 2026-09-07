@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Barrage — Correlation Dashboard</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist/index.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist-mono/index.css">
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+<style>
+  :root {
+    --bg: #0d0d0d;
+    --panel: #101010;
+    --panel-alt: #161616;
+    --ink: #eaeaea;
+    --body: #a8a8a8;
+    --mute: #767676;
+    --faint: #4d4d4d;
+    --border: rgba(255,255,255,0.08);
+    --border-strong: rgba(255,255,255,0.15);
+    --on-ink: #0d0d0d;
+    --amber: #e8a33d;
+
+    --font-sans: 'Geist Variable', system-ui, -apple-system, sans-serif;
+    --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.45;
+    letter-spacing: -0.01em;
+    -webkit-font-smoothing: antialiased;
+  }
+
+   
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: 1999; pointer-events: none;
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,.02) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,.015) 1px, transparent 1px);
+    background-size: 72px 72px;
+  }
+  body::after {
+    content: "";
+    position: fixed; inset: 0; z-index: 2000; pointer-events: none;
+    opacity: .05; filter: contrast(120%);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 0 20px 40px; }
+
+   
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 52px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+
+  .topbar .left { display: flex; align-items: center; gap: 10px; }
+
+  .wordmark {
+    font-family: var(--font-mono);
+    font-weight: 700; font-size: 15px; letter-spacing: .02em; color: var(--ink);
+  }
+  .wordmark .cursor { color: var(--amber); animation: wm-blink 1.2s steps(1) infinite; }
+  @keyframes wm-blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .wordmark .cursor { animation: none; } }
+
+  .subtitle {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--mute);
+  }
+
+  .status-dot-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--mute);
+  }
+
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink); }
+  .status-dot.idle { background: var(--faint); }
+
+  .export-btn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .export-btn:hover { border-color: var(--ink); }
+
+   
+  .run-summary { margin-bottom: 16px; }
+
+  .section-title {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--mute);
+    margin: 0 0 8px;
+  }
+
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+  }
+
+  .summary-card { background: var(--panel); padding: 14px 16px; min-width: 0; }
+
+  .summary-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .summary-name { font-weight: 600; font-size: 13px; }
+
+  .summary-status {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 7px;
+    border: 1px solid var(--border-strong);
+    white-space: nowrap;
+  }
+  .summary-status.ok { color: #7dd87d; border-color: rgba(125,216,125,0.35); }
+  .summary-status.warn { color: #e0b46a; border-color: rgba(224,180,106,0.35); }
+  .summary-status.bad { color: #e07a7a; border-color: rgba(224,122,122,0.35); }
+
+  .summary-metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 18px;
+  }
+
+  .sm { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; min-width: 0; }
+
+  .sm-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--mute);
+    white-space: nowrap;
+  }
+
+  .sm-value {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--ink);
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+   
+  .metric-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+
+  .metric-tile {
+    background: var(--panel);
+    padding: 14px 16px;
+  }
+
+  .metric-tile .label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--mute);
+    margin-bottom: 8px;
+  }
+
+  .metric-tile .value {
+    font-family: var(--font-mono);
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    color: var(--ink);
+    line-height: 1;
+  }
+
+  .metric-tile .value.sub-value {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--body);
+    margin-top: 6px;
+  }
+
+  .metric-tile .unit {
+    font-size: 13px;
+    color: var(--mute);
+    font-weight: 400;
+    margin-left: 2px;
+  }
+
+   
+  .panel-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1.4fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+  }
+
+  .panel {
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .panel-header h2 {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0;
+    color: var(--body);
+  }
+
+  .panel-header .meta {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--mute);
+  }
+
+   
+  .chart-body { padding: 16px; flex: 1; display: flex; flex-direction: column; }
+
+  .legend { display: flex; gap: 16px; margin-bottom: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--body); }
+
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+
+  .legend-dot { width: 7px; height: 7px; border-radius: 2px; }
+
+  .chart-container { position: relative; flex: 1; min-height: 220px; width: 100%; }
+
+   
+  .table-scroll { overflow: auto; max-height: 340px; }
+
+  table { width: 100%; border-collapse: collapse; }
+
+  th {
+    position: sticky;
+    top: 0;
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--mute);
+    font-weight: 400;
+    background: var(--panel-alt);
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  td {
+    padding: 9px 16px;
+    font-size: 12.5px;
+    border-bottom: 1px solid var(--border);
+    color: var(--body);
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--panel-alt); }
+
+  td.mono { font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
+
+  .lat-cell { display: flex; align-items: center; gap: 7px; }
+
+  .lat-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+
+  .bottleneck-chip {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 7px;
+    border: 1px solid var(--border-strong);
+  }
+
+  .bottleneck-chip.http { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+  .bottleneck-chip.db { background: transparent; color: var(--mute); }
+  .bottleneck-chip.redis { background: transparent; color: #e0524d; border-color: rgba(224,82,77,0.4); }
+
+   
+  .empty-panel {
+    padding: 60px 20px;
+    text-align: center;
+    background: var(--panel);
+    border: 1px solid var(--border);
+  }
+
+  .empty-panel .mark {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    color: var(--faint);
+    margin-bottom: 10px;
+  }
+
+  .empty-panel h3 { font-size: 14px; font-weight: 600; margin: 0 0 6px; color: var(--ink); }
+
+  .empty-panel p {
+    color: var(--mute);
+    font-size: 12.5px;
+    max-width: 320px;
+    margin: 0 auto;
+  }
+
+   
+  footer {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--faint);
+  }
+
+   
+  @media (max-width: 900px) {
+    .metric-grid { grid-template-columns: repeat(3, 1fr); }
+    .panel-grid { grid-template-columns: 1fr; }
+    .summary-grid { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 560px) {
+    .wrap { padding: 0 12px 32px; }
+    .metric-grid { grid-template-columns: repeat(2, 1fr); }
+    .metric-tile .value { font-size: 21px; }
+    th, td { padding: 7px 10px; font-size: 11.5px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="left">
+      <span class="wordmark">barrage<span class="cursor">_</span></span>
+      <span class="subtitle">/ correlation report</span>
+    </div>
+    <div class="status-dot-row">
+      
+        <span class="status-dot idle"></span> clean run
+      
+      <button type="button" class="export-btn" id="exportBtn" title="Download this run as JSON">Export JSON</button>
+    </div>
+  </div>
+
+  <section class="run-summary">
+    <h2 class="section-title">run summary</h2>
+    <div class="summary-grid">
+      
+      <div class="summary-card">
+        <div class="summary-header">
+          <span class="summary-name">login-flow</span>
+          <span class="summary-status ok">100.0%</span>
+        </div>
+        <div class="summary-metrics">
+          <div class="sm"><span class="sm-label">requests</span><span class="sm-value">32989</span></div>
+          <div class="sm"><span class="sm-label">p50</span><span class="sm-value">2.272002ms</span></div>
+          <div class="sm"><span class="sm-label">p99</span><span class="sm-value">11.957243ms</span></div>
+          <div class="sm"><span class="sm-label">max</span><span class="sm-value">35.747684ms</span></div>
+          <div class="sm"><span class="sm-label">mean</span><span class="sm-value">3.030392ms</span></div>
+          <div class="sm"><span class="sm-label">rate</span><span class="sm-value">3298.9/s</span></div>
+          <div class="sm"><span class="sm-label">throughput</span><span class="sm-value">3298.6/s</span></div>
+          
+        </div>
+      </div>
+      
+    </div>
+  </section>
+
+  
+
+    <div class="empty-panel">
+      <div class="mark">·</div>
+      <h3>No spikes</h3>
+      <p>DB and Redis P99 never crossed their thresholds during this run.</p>
+    </div>
+
+  
+
+  
+  <section>
+    <h2 class="section-title">latency timeline</h2>
+    <div class="panel">
+      <div class="panel-header">
+        <h2>p99 latency by bucket</h2>
+        <span class="meta">p99 · ms</span>
+      </div>
+      <div class="chart-body">
+        <div class="legend">
+          
+          <span class="legend-item"><span class="legend-dot" style="background:#7aa5ff"></span>login-flow</span>
+          
+        </div>
+        <div class="chart-container">
+          <canvas id="timelineChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const tLabels = ["10:03:53","10:03:54","10:03:55","10:03:56","10:03:57","10:03:58","10:03:59","10:04:00","10:04:01","10:04:02","10:04:03",];
+      const tDatasets = [];
+      
+      tDatasets.push({
+        label: "login-flow",
+        data: [ 18 , 12 , 10 , 15 , 10 , 10 , 10 , 9 , 16 , 12 , 9 ,],
+        borderColor: "#7aa5ff",
+        backgroundColor: 'rgba(0,0,0,0)',
+        tension: 0.25,
+        pointRadius: 2,
+        borderWidth: 1.5,
+        spanGaps: false
+      });
+      
+
+      new Chart(document.getElementById('timelineChart'), {
+        type: 'line',
+        data: {
+          labels: tLabels,
+          datasets: tDatasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: {
+                font: { family: 'JetBrains Mono', size: 9 },
+                color: '#767676',
+                maxRotation: 45,
+                autoSkip: true,
+                maxTicksLimit: 12
+              }
+            },
+            y: {
+              beginAtZero: true,
+              grid: { color: 'rgba(255,255,255,0.06)' },
+              ticks: {
+                font: { family: 'JetBrains Mono', size: 9 },
+                color: '#767676',
+                callback: (v) => v + 'ms'
+              }
+            }
+          }
+        }
+      });
+    </script>
+  </section>
+  
+
+  <footer>
+    <span>generated by barrage</span>
+    <span>same-bucket match · absolute threshold</span>
+  </footer>
+
+</div>
+
+<script id="run-data" type="application/json">{
+  "generated_at": "2026-09-07T10:04:03.984787956+01:00",
+  "duration": "10s",
+  "ramp": "0s",
+  "concurrency": 10,
+  "runners": [
+    {
+      "name": "login-flow",
+      "requests": 32989,
+      "success_percent": 99.99090605959562,
+      "p50_ms": 2,
+      "p95_ms": 8,
+      "p99_ms": 11,
+      "max_ms": 35,
+      "mean_ms": 3,
+      "rate": 3298.9,
+      "throughput": 3298.6
+    }
+  ],
+  "spikes": [],
+  "timeline": {
+    "labels": [
+      "10:03:53",
+      "10:03:54",
+      "10:03:55",
+      "10:03:56",
+      "10:03:57",
+      "10:03:58",
+      "10:03:59",
+      "10:04:00",
+      "10:04:01",
+      "10:04:02",
+      "10:04:03"
+    ],
+    "series": [
+      {
+        "name": "login-flow",
+        "p99_ms": [
+          18,
+          12,
+          10,
+          15,
+          10,
+          10,
+          10,
+          9,
+          16,
+          12,
+          9
+        ]
+      }
+    ]
+  }
+}
+</script>
+<script>
+  document.getElementById('exportBtn').addEventListener('click', function () {
+    const raw = document.getElementById('run-data').textContent;
+    const data = JSON.parse(raw);
+    const stamp = new Date(data.generated_at).toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const blob = new Blob([JSON.stringify(data, null, 2) + '\n'], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'barrage-' + stamp + '.json';
+    document.body.appendChild(a);
+    a.click();
+    URL.revokeObjectURL(a.href);
+    a.remove();
+  });
+</script>
+</body>
+</html>
