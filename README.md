@@ -324,6 +324,18 @@ barrage run --no-report --json results.json                 # for CI pipelines
 barrage version                                            # print the version
 ```
 
+### Web UI
+
+`barrage web` starts a localhost server (default `http://localhost:7676`)
+with a config builder, live YAML preview, and inline reports — the same
+runners and validation as the CLI, no auth. Use `--addr` to change the
+listen address.
+
+```sh
+barrage web                 # build configs and run tests from the browser
+barrage web --addr :8081    # listen on a different address
+```
+
 ### Compare runs
 
 `barrage compare` diffs two runs produced by `barrage run --json`, so an earlier
