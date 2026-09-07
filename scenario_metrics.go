@@ -56,7 +56,7 @@ func FireScenario(s Scenario, concurrency int, duration, bucketWidth time.Durati
 	if concurrency <= 0 {
 		concurrency = DefaultConcurrency
 	}
-	if bucketWidth < time.Second {
+	if bucketWidth <= 0 {
 		bucketWidth = time.Second
 	}
 	if s.Name == "" {
@@ -84,7 +84,7 @@ func FireScenarios(scenarios []Scenario, concurrency int, duration, bucketWidth 
 	if concurrency <= 0 {
 		concurrency = DefaultConcurrency
 	}
-	if bucketWidth < time.Second {
+	if bucketWidth <= 0 {
 		bucketWidth = time.Second
 	}
 	for i := range scenarios {
@@ -243,10 +243,10 @@ func buildScenarioBuckets(results []ScenarioResult, bucketWidth time.Duration) [
 	aggs := make(map[int64]*bucketAgg)
 
 	for _, sr := range results {
-		idx := sr.Start.Unix() / int64(bucketWidth.Seconds())
+		idx := sr.Start.UnixNano() / int64(bucketWidth)
 		a, ok := aggs[idx]
 		if !ok {
-			start := time.Unix(idx*int64(bucketWidth.Seconds()), 0)
+			start := time.Unix(0, idx*int64(bucketWidth))
 			a = &bucketAgg{
 				bucket: Bucket{
 					Start: start.Unix(),

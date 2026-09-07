@@ -52,19 +52,16 @@ func TestQueryIsRead(t *testing.T) {
 }
 
 func TestBuildDBBucketsSubSecondWidthDoesNotPanic(t *testing.T) {
-	// A bucketWidth under one second used to truncate to 0 in
-	// int64(bucketWidth.Seconds()) and panic with a divide-by-zero. With the
-	// clamp in place, sub-second and zero widths are treated as no bucketing
-	// rather than crashing.
+	// Bucketing uses UnixNano so sub-second widths bucket normally; zero or
+	// negative widths return nil instead of panicking.
 	samples := []dbQueryResult{
 		{Timestamp: time.Unix(1, 0), Latency: 10 * time.Millisecond, Success: true},
 		{Timestamp: time.Unix(2, 0), Latency: 20 * time.Millisecond, Success: true},
 	}
-	for _, w := range []time.Duration{0, 500 * time.Millisecond, time.Second} {
-		// Must not panic.
-		got := buildDBBuckets(samples, w)
-		if w < time.Second && got != nil {
-			t.Errorf("bucketWidth=%v: expected nil buckets, got %d", w, len(got))
-		}
+	if got := buildDBBuckets(samples, 500*time.Millisecond); len(got) == 0 {
+		t.Errorf("bucketWidth=500ms: expected buckets, got none")
+	}
+	if got := buildDBBuckets(samples, 0); got != nil {
+		t.Errorf("bucketWidth=0: expected nil buckets, got %d", len(got))
 	}
 }
