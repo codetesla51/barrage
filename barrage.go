@@ -15,9 +15,9 @@ type OrchestratorConfig struct {
 	HTTP        *HTTPRunnerConfig  `yaml:"http"`
 	DB          *DBRunnerConfig    `yaml:"db"`
 	Redis       *RedisRunnerConfig `yaml:"redis"`
-	Scenarios   []Scenario         `yaml:"scenarios"`
-	// Deprecated: use Scenarios. Kept to give a helpful error if someone writes 'scenario:'.
-	DeprecatedScenario *Scenario `yaml:"scenario"`
+	Scenario    []Scenario         `yaml:"scenario"`
+	// Deprecated: renamed from Scenarios (yaml "scenarios"). Friendly error only.
+	DeprecatedScenarios []Scenario `yaml:"scenarios"`
 }
 
 type HTTPRunnerConfig struct {

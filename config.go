@@ -64,40 +64,72 @@ func loadConfigBytes(data []byte, path string) (*OrchestratorConfig, error) {
 		}
 		return nil, err
 	}
-	if cfg.DeprecatedScenario != nil {
-		return nil, errors.New("scenario: is removed, use scenarios: with a list (e.g. scenarios:\n  - name: my-flow\n    steps:\n      - method: GET\n        url: http://example.com)")
+	if len(cfg.DeprecatedScenarios) > 0 {
+		return nil, errors.New("scenarios: is renamed to scenario: (singular)")
 	}
-	hasScenario := len(cfg.Scenarios) > 0
+	hasScenario := len(cfg.Scenario) > 0
 	if cfg.HTTP == nil && cfg.DB == nil && cfg.Redis == nil && !hasScenario {
-		return nil, errors.New("config must specify at least one runner: http, db, redis, or scenarios")
+		return nil, errors.New("config must specify at least one runner: http, db, redis, or scenario")
 	}
 	if hasScenario && cfg.HTTP != nil {
-		return nil, errors.New("scenarios mode cannot be combined with http section")
+		return nil, errors.New("scenario mode cannot be combined with http section")
 	}
-	for idx, sc := range cfg.Scenarios {
+	for idx, sc := range cfg.Scenario {
 		if sc.Weight == 0 {
-			cfg.Scenarios[idx].Weight = 1
+			cfg.Scenario[idx].Weight = 1
+		} else if sc.Weight < 0 {
+			return nil, fmt.Errorf("scenario[%d] %q: weight must not be negative", idx, sc.Name)
 		}
 		if len(sc.Steps) == 0 {
-			return nil, fmt.Errorf("scenarios[%d] %q must have at least one step", idx, sc.Name)
+			return nil, fmt.Errorf("scenario[%d] %q must have at least one step", idx, sc.Name)
 		}
 		for i, step := range sc.Steps {
 			if !isValidMethod(step.Method) {
-				return nil, fmt.Errorf("scenarios[%d] step %d: invalid method %q", idx, i, step.Method)
+				return nil, fmt.Errorf("scenario[%d] step %d: invalid method %q", idx, i, step.Method)
 			}
 			if strings.TrimSpace(step.URL) == "" {
-				return nil, fmt.Errorf("scenarios[%d] step %d: url must not be empty", idx, i)
+				return nil, fmt.Errorf("scenario[%d] step %d: url must not be empty", idx, i)
 			}
 		}
 	}
-	if cfg.HTTP != nil && cfg.HTTP.Rate <= 0 {
-		return nil, errors.New("http rate must be greater than zero")
+	if cfg.HTTP != nil {
+		if cfg.HTTP.Rate <= 0 {
+			return nil, errors.New("http rate must be greater than zero")
+		}
+		if !isValidMethod(cfg.HTTP.Target.Method) && strings.TrimSpace(cfg.HTTP.Target.Method) != "" {
+			return nil, fmt.Errorf("http target: invalid method %q", cfg.HTTP.Target.Method)
+		}
+		if strings.TrimSpace(cfg.HTTP.Target.URL) == "" {
+			return nil, errors.New("http target url must not be empty")
+		}
 	}
-	if cfg.DB != nil && cfg.DB.Rate <= 0 {
-		return nil, errors.New("db rate must be greater than zero")
+	if cfg.DB != nil {
+		if cfg.DB.Rate <= 0 {
+			return nil, errors.New("db rate must be greater than zero")
+		}
+		if strings.TrimSpace(cfg.DB.Target.Conn) == "" {
+			return nil, errors.New("db target conn must not be empty")
+		}
+		if strings.TrimSpace(cfg.DB.Target.Driver) == "" {
+			return nil, errors.New("db target driver must not be empty")
+		}
+		if err := checkQueries(cfg.DB.Target.Query, "db"); err != nil {
+			return nil, err
+		}
 	}
-	if cfg.Redis != nil && cfg.Redis.Rate <= 0 {
-		return nil, errors.New("redis rate must be greater than zero")
+	if cfg.Redis != nil {
+		if cfg.Redis.Rate <= 0 {
+			return nil, errors.New("redis rate must be greater than zero")
+		}
+		if strings.TrimSpace(cfg.Redis.Target.Addr) == "" {
+			return nil, errors.New("redis target addr must not be empty")
+		}
+		if err := checkQueries(cfg.Redis.Target.Query, "redis"); err != nil {
+			return nil, err
+		}
+	}
+	if time.Duration(cfg.Duration) <= 0 {
+		return nil, errors.New("duration must be greater than zero")
 	}
 	if cfg.Ramp < 0 {
 		return nil, errors.New("ramp must not be negative")
@@ -106,6 +138,28 @@ func loadConfigBytes(data []byte, path string) (*OrchestratorConfig, error) {
 		return nil, errors.New("concurrency must not be negative")
 	}
 	return cfg, nil
+}
+
+// checkQueries rejects empty query lists, empty query text, and weights that
+// would break weighted picking (negative, or all-zero which panics rand.Intn).
+func checkQueries(queries []QueryWeight, runner string) error {
+	if len(queries) == 0 {
+		return fmt.Errorf("%s target must list at least one query", runner)
+	}
+	total := 0
+	for i, q := range queries {
+		if strings.TrimSpace(q.Query) == "" {
+			return fmt.Errorf("%s queries[%d]: query must not be empty", runner, i)
+		}
+		if q.Weight < 0 {
+			return fmt.Errorf("%s queries[%d]: weight must not be negative", runner, i)
+		}
+		total += q.Weight
+	}
+	if total <= 0 {
+		return fmt.Errorf("%s queries: total weight must be greater than zero", runner)
+	}
+	return nil
 }
 
 // checkKnownKeys rejects mapping keys that are not in the given set, mimicking

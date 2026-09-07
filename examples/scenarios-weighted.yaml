@@ -6,7 +6,7 @@ duration: 10s
 bucket_width: 1s
 concurrency: 20
 
-scenarios:
+scenario:
   - name: browse
     weight: 70
     steps:

@@ -5,7 +5,7 @@ duration: 10s
 bucket_width: 1s
 concurrency: 10
 
-scenarios:
+scenario:
   - name: login-flow
     steps:
       - method: POST

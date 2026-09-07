@@ -173,6 +173,9 @@ db:
   target:
     driver: postgres
     conn: postgres://localhost/db
+    queries:
+      - query: SELECT 1
+        weight: 1
 `)
 	cfg, err := LoadConfig(path)
 	if err != nil {
@@ -200,6 +203,9 @@ redis:
   rate: 5
   target:
     addr: localhost:6379
+    queries:
+      - query: PING
+        weight: 1
 `)
 	cfg, err := LoadConfig(path)
 	if err != nil {

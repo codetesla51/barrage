@@ -34,8 +34,8 @@ type NamedScenarioStats struct {
 
 // effectiveScenarios returns the configured scenarios with defaults.
 func effectiveScenarios(cfg OrchestratorConfig) []Scenario {
-	out := make([]Scenario, 0, len(cfg.Scenarios))
-	for _, s := range cfg.Scenarios {
+	out := make([]Scenario, 0, len(cfg.Scenario))
+	for _, s := range cfg.Scenario {
 		if s.Weight == 0 {
 			s.Weight = 1
 		}

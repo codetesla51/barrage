@@ -89,7 +89,7 @@ Ready-made profiles live in `examples/`. `light.yaml` is a gentle baseline, `hea
 
 ## Notes
 
-> Note: `scenarios:` replaces the `http:` runner. You cannot combine them in one config. To mix plain hits with flows, model the plain hit as a one-step scenario.
+> Note: `scenario:` replaces the `http:` runner. You cannot combine them in one config. To mix plain hits with flows, model the plain hit as a one-step scenario.
 
 > Note: `bucket_width` accepts sub-second values (e.g. `500ms`). Buckets align on wall-clock time so all runners stay comparable.
 

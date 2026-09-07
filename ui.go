@@ -126,7 +126,7 @@ func configuredRunnerNames(cfg *OrchestratorConfig) []string {
 	if cfg.Redis != nil {
 		names = append(names, "redis")
 	}
-	for _, sc := range cfg.Scenarios {
+	for _, sc := range cfg.Scenario {
 		name := sc.Name
 		if name == "" {
 			name = "scenario"

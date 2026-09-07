@@ -140,7 +140,7 @@ function generateYAML() {
 
   if (state.scenarios.some((s) => s.on)) {
     L.push("");
-    L.push("scenarios:");
+    L.push("scenario:");
     for (const sc of state.scenarios) {
       if (!sc.on) continue;
       L.push(`  - name: ${yq(sc.name || "scenario")}`);
@@ -754,7 +754,7 @@ function importIntoState(raw, silent) {
 
   const known = new Set(["duration", "bucket_width", "ramp", "concurrency",
     "http_threshold", "db_threshold", "redis_threshold",
-    "http", "db", "redis", "scenarios"]);
+    "http", "db", "redis", "scenario"]);
   const unknown = Object.keys(doc).filter((k) => !known.has(k));
 
   const next = defaultState();
@@ -791,8 +791,9 @@ function importIntoState(raw, silent) {
       query: String(q.query ?? ""), weight: Number(q.weight ?? 1),
     }));
   }
-  if (Array.isArray(doc.scenarios)) {
-    next.scenarios = doc.scenarios.map((sc) => ({
+  const scenarioDocs = Array.isArray(doc.scenario) ? doc.scenario : doc.scenarios;
+  if (Array.isArray(scenarioDocs)) {
+    next.scenarios = scenarioDocs.map((sc) => ({
       on: true, name: String(sc.name ?? ""), weight: Number(sc.weight ?? 1),
       steps: (sc.steps ?? []).map((st) => ({
         method: String(st.method ?? "GET"), url: String(st.url ?? ""), body: String(st.body ?? ""),
