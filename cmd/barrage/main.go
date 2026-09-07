@@ -13,15 +13,17 @@ import (
 	"text/tabwriter"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/codetesla51/barrage"
 	"github.com/codetesla51/barrage/internal/cliui"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	_ "modernc.org/sqlite"
 )
 
-var version = "v0.3.11"
+var version = "v0.3.12"
 
 const banner = `     ________  ________  ________  ________  ________  ________  _______
     |\   __  \|\   __  \|\   __  \|\   __  \|\   __  \|\   ____\|\  ___ \
@@ -45,6 +47,7 @@ type runOptions struct {
 	dbThreshold    time.Duration
 	redisThreshold time.Duration
 	verbose        bool
+	noProgress     bool
 }
 
 type compareOptions struct {
@@ -117,6 +120,7 @@ func newRunCmd() *cobra.Command {
 	f.DurationVar(&opts.dbThreshold, "db-threshold", 100*time.Millisecond, "DB spike threshold for correlation")
 	f.DurationVar(&opts.redisThreshold, "redis-threshold", 100*time.Millisecond, "Redis spike threshold for correlation")
 	f.BoolVarP(&opts.verbose, "verbose", "v", false, "print per-bucket detail")
+	f.BoolVar(&opts.noProgress, "no-progress", false, "disable the live progress view (plain log lines instead)")
 	return cmd
 }
 
@@ -183,7 +187,25 @@ func runLoadTest(opts *runOptions) error {
 
 	fmt.Println()
 
+	// Live progress: Bubble Tea view on TTY stderr, plain 5s log lines
+	// otherwise (pipes, CI). Stderr keeps piped stdout clean either way.
+	stats := &barrage.RunStats{}
+	cfg.Stats = stats
+	var prog *tea.Program
+	if !opts.noProgress && term.IsTerminal(int(os.Stderr.Fd())) {
+		cfg.Quiet = true
+		prog = tea.NewProgram(
+			barrage.NewProgressModel(stats, time.Duration(cfg.Duration)),
+			tea.WithOutput(os.Stderr),
+		)
+		go func() { _, _ = prog.Run() }()
+	}
+
 	result, err := barrage.Orchestrator(*cfg)
+	if prog != nil {
+		prog.Quit()
+		prog.Wait()
+	}
 	if err != nil {
 		return fmt.Errorf("load test failed: %w", err)
 	}

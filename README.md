@@ -28,7 +28,7 @@ $ barrage run -c config.yaml
        \ \_______\ \__\ \__\ \__\\ _\\ \__\\ _\\ \__\ \__\ \_______\ \_______\
         \|_______|\|__|\|__\|__|\|__|\|__|\|__|\|__|\|__\|_______|\|_______|
 
-barrage v0.3.11
+barrage v0.3.12
 duration 15s · bucket 1s · concurrency 10 · ramp 3s
 rates    http 10/s · db 5/s · redis 20/s
 

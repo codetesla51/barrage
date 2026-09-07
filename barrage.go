@@ -18,6 +18,12 @@ type OrchestratorConfig struct {
 	Scenario    []Scenario         `yaml:"scenario"`
 	// Deprecated: renamed from Scenarios (yaml "scenarios"). Friendly error only.
 	DeprecatedScenarios []Scenario `yaml:"scenarios"`
+	// Stats optionally supplies the live counters (shared with a caller-run
+	// progress view). Nil creates private counters.
+	Stats *RunStats `yaml:"-"`
+	// Quiet skips the built-in stderr progress logger, for callers that
+	// render their own (e.g. the Bubble Tea view). Final tables still print.
+	Quiet bool `yaml:"-"`
 }
 
 type HTTPRunnerConfig struct {
@@ -59,9 +65,14 @@ func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 	if bucketWidth <= 0 {
 		bucketWidth = time.Second
 	}
-	runStats := &RunStats{}
+	runStats := cfg.Stats
+	if runStats == nil {
+		runStats = &RunStats{}
+	}
 	done := make(chan struct{})
-	go runStats.StartLogger(done, duration) // logs to stderr every 5s until the run ends
+	if !cfg.Quiet {
+		go runStats.StartLogger(done, duration) // logs to stderr every 5s until the run ends
+	}
 	if cfg.HTTP != nil {
 		wg.Add(1)
 		go func() {
