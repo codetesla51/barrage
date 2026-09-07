@@ -32,6 +32,7 @@ barrage v0.3.12
 duration 15s · bucket 1s · concurrency 10 · ramp 3s
 rates    http 10/s · db 5/s · redis 20/s
 
+[barrage] done ·  │ http 135 0 err │ db 67 0 err │ redis 269 0 err
 RUNNER  REQUESTS  SUCCESS  RATE    MEAN     P50      P95       P99       MAX      STATUS
 http    135       100.0%   9.5/s   927µs    509µs    2.5ms     4.4ms     6.6ms    200×135
 db      67        100.0%   4.5/s   12.9ms   5.5ms    69.0ms    136.2ms   136.2ms
@@ -40,6 +41,7 @@ redis   269       100.0%   17.9/s  797µs    396µs    2.3ms     3.5ms     10.6m
 correlated spikes
 TIME      RUNNER  HTTP_P99  STORAGE_P99   NOTE
 20:52:22  db      <100ms    136.2ms       db-only
+Report written to report.html
 ```
 
 ![Barrage HTML Report](./docs/todo-api-run-1.png)
@@ -495,6 +497,14 @@ status histograms) — the header still prints, the cells are empty.
 
 ```
 $ barrage run -c examples/scenario-login.yaml
+
+     ________  ________  ________  ________  ________  ________  _______
+    |\   __  \|\   __  \|\   __  \|\   __  \|\   __  \|\  ____\|\  ___ \
+    \ \  \|\ /\ \  \|\  \ \  \|\  \ \  \|\  \ \  \|\  \ \  \___|\ \   __/|
+     \ \   __  \ \   __  \ \   _  _\ \   _  _\ \   __  \ \  \  __\ \  \_|/__
+      \ \  \|\  \ \  \ \  \ \  \\  \\ \  \\  \\ \  \ \  \ \  \|\  \ \  \_|\ \
+       \ \_______\ \__\ \__\ \__\\ _\\ \__\\ _\\ \__\ \__\ \_______\ \_______\
+        \|_______|\|__|\|__\|__|\|__|\|__|\|__|\|__|\|__\|_______|\|_______|
 
 barrage v0.3.12
 duration 10s · bucket 1s · concurrency 10 · ramp 0s
