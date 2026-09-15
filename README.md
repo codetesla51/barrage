@@ -53,7 +53,7 @@ Report written to report.html
 ## Getting started (30 seconds)
 
 ```sh
-go install github.com/codetesla51/barrage/cmd/barrage@latest
+curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash
 barrage run                      # runs config.yaml, writes report.html
 barrage run -o                   # ...and opens the report in your browser
 barrage run --no-report --json results.json   # for CI, no browser needed
@@ -176,17 +176,24 @@ which layer spiked.
 ## Install
 
 ```sh
-go install github.com/codetesla51/barrage/cmd/barrage@latest
+curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash
 ```
 
-Or build from source:
+That grabs a prebuilt binary from GitHub releases — no Go toolchain needed.
+Pin a version or change the target dir with
+`bash -s -- --version v0.3.12 --dir ~/.local/bin`, or build from source with
+`--from-source`. See `./install.sh --help` for all flags.
+
+Or build from source (requires Go 1.25 or later):
 
 ```sh
 git clone https://github.com/codetesla51/barrage && cd barrage
 go build -o barrage ./cmd/barrage
+# fallback without a checkout:
+# go install github.com/codetesla51/barrage/cmd/barrage@latest
 ```
 
-Requires Go 1.25 or later. The DB runner supports **Postgres**, **MySQL**, and
+Requires Go 1.25 or later for source builds only. The DB runner supports **Postgres**, **MySQL**, and
 **SQLite** out of the box; because it sits on `database/sql`, any other driver
 can be linked in by adding a blank import and registering its name. HTTP-only
 runs require no backing services.
