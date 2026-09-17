@@ -496,6 +496,7 @@ server on `:8080`:
 | `heavy.yaml` | stress profile: HTTP + SQLite + Redis at ~4x light, higher concurrency |
 | `scenario-login.yaml` | single journey: login, extract token, interpolate into later steps |
 | `scenarios-weighted.yaml` | multiple journeys with weights (browse vs checkout traffic mix) |
+| `scenario-full.yaml` | full stack: weighted journeys + SQLite (with pool caps) + Redis on one clock |
 
 Run any of them against the demo stack:
 

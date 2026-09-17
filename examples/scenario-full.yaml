@@ -1,0 +1,63 @@
+# full-stack scenario run — user journeys plus storage load on one clock
+# scenario IS the HTTP load here (http: cannot be combined with scenario:).
+# Run: go run ./cmd/demoserver  (in one terminal, :8080)
+# Then: barrage run -c examples/scenario-full.yaml
+# Needs: redis on localhost:6379, sqlite db with an orders table
+# (see cmd/seeddb, or reuse /tmp/barrage-load.db from examples/heavy.yaml)
+duration: 20s
+bucket_width: 1s
+ramp: 3s
+concurrency: 20
+
+scenario:
+  - name: browse
+    weight: 70
+    steps:
+      - method: GET
+        url: http://localhost:8080/api/products
+      - method: GET
+        url: http://localhost:8080/api/orders
+
+  - name: checkout-flow
+    weight: 30
+    steps:
+      - method: POST
+        url: http://localhost:8080/api/login
+        body: '{"user":"alice"}'
+        headers:
+          Content-Type: application/json
+        extract:
+          token: $.token
+      - method: GET
+        url: http://localhost:8080/api/checkout?token={{token}}
+        headers:
+          Authorization: Bearer {{token}}
+
+db:
+  rate: 10
+  target:
+    driver: sqlite
+    conn: /tmp/barrage-load.db
+    max_open_conns: 20 # cap at the pool you want to test, not the default
+    max_idle_conns: 20
+    conn_max_lifetime: 5m
+    conn_max_idle_time: 30s
+    queries:
+      - query: SELECT count(*) FROM orders
+        weight: 3
+        type: read
+      - query: INSERT INTO orders (customer, amount) VALUES ('load', 1)
+        weight: 1
+        type: write
+
+redis:
+  rate: 20
+  target:
+    addr: localhost:6379
+    queries:
+      - query: PING
+        weight: 3
+      - query: SET sess:loadtest ok
+        weight: 1
+      - query: INCR loadtest:hits
+        weight: 2
