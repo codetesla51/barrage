@@ -19,6 +19,12 @@ db:
   target:
     driver: sqlite
     conn: /tmp/barrage-load.db
+    # pool tuning (all optional): unset counts default to concurrency (50
+    # here). Cap max_open_conns at your DB's max_connections.
+    # max_open_conns: 50
+    # max_idle_conns: 50
+    # conn_max_lifetime: 5m
+    # conn_max_idle_time: 30s
     queries:
       - query: SELECT count(*) FROM orders
         weight: 3
