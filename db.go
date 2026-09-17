@@ -162,6 +162,16 @@ func FireDB(target DBTarget, rate, concurrency int, duration, bucketWidth, ramp 
 	}
 	defer db.Close()
 	applyPoolOptions(db, target, concurrency)
+	return fireDB(db, target, rate, concurrency, duration, bucketWidth, ramp, stats)
+}
+
+// fireDB is the shared burst core: the caller owns db (open + pool tuning),
+// so normal runs and auto-ramp levels execute the exact same query path.
+// A future change here fixes both at once.
+func fireDB(db *sql.DB, target DBTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration, stats *RunStats) (*DBResult, error) {
+	if db == nil {
+		return nil, fmt.Errorf("db handle is nil")
+	}
 
 	overall, start := runPaced(rate, concurrency, duration, ramp, func(ctx context.Context) dbQueryResult {
 		pick := pickQuery(cumulativeWeights(target.Query))

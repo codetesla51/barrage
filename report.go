@@ -219,6 +219,7 @@ func RenderHTML(data ReportData, templatePath string, w io.Writer) error {
 		"titleName":         titleName,
 		"storageColor":      storageColor,
 		"percent":           func(f float64) string { return formatPercent(f) },
+		"join":              strings.Join,
 	}).Parse(string(tmplSrc))
 	if err != nil {
 		return fmt.Errorf("parsing template: %w", err)

@@ -351,8 +351,10 @@ func printRampTable(res *barrage.RampResult) {
 	rows := make([][]string, 0, len(res.Steps))
 	for _, s := range res.Steps {
 		verdict := "ok"
+		cause := "-"
 		if s.Broken {
 			verdict = cliui.VerdictColorize("BROKEN")
+			cause = strings.Join(s.BrokenBy, ",")
 		}
 		rows = append(rows, []string{
 			strconv.Itoa(s.Concurrency),
@@ -360,9 +362,10 @@ func printRampTable(res *barrage.RampResult) {
 			s.P99.String(),
 			cliui.SuccessColorize(s.Success * 100),
 			verdict,
+			cause,
 		})
 	}
-	writeTable([]string{"CONCURRENCY", "REQUESTS", "P99", "SUCCESS", "VERDICT"}, rows)
+	writeTable([]string{"CONCURRENCY", "REQUESTS", "P99", "SUCCESS", "VERDICT", "CAUSE"}, rows)
 }
 
 func loadJSONReport(path string) (*barrage.JSONReport, error) {

@@ -1,7 +1,6 @@
 package barrage
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -35,6 +34,7 @@ type RampStep struct {
 	P99         time.Duration // worst P99 across runners that ran
 	Success     float64       // 0-1, worst success across runners that ran
 	Broken      bool
+	BrokenBy    []string // runners that broke the level, e.g. ["db"]
 	HTTPP99     time.Duration
 	DBP99       time.Duration
 	RedisP99    time.Duration
@@ -128,25 +128,25 @@ func scaledRate(baseRate, baseConc, stepConc int) int {
 	return r
 }
 
-// rampStepBroken reports whether a burst counts as broken: any runner's
-// P99 over its threshold, or success below the floor.
-func rampStepBroken(httpP99, dbP99, redisP99, scenP99 time.Duration, httpOK, dbOK, redisOK, scenOK bool, success float64, httpTh, dbTh, redisTh time.Duration) bool {
-	if success < minRampSuccess {
-		return true
+// rampBreakers names the runners that broke a burst: P99 over threshold
+// or success below the floor, checked per runner. Empty means the level
+// held. The scenario runner is judged against the HTTP threshold since it
+// is the app-side load.
+func rampBreakers(httpP99, dbP99, redisP99, scenP99 time.Duration, httpSucc, dbSucc, redisSucc, scenSucc float64, httpOK, dbOK, redisOK, scenOK bool, httpTh, dbTh, redisTh time.Duration) []string {
+	var out []string
+	if httpOK && (httpP99 > httpTh || httpSucc < minRampSuccess) {
+		out = append(out, "http")
 	}
-	if httpOK && httpP99 > httpTh {
-		return true
+	if dbOK && (dbP99 > dbTh || dbSucc < minRampSuccess) {
+		out = append(out, "db")
 	}
-	if dbOK && dbP99 > dbTh {
-		return true
+	if redisOK && (redisP99 > redisTh || redisSucc < minRampSuccess) {
+		out = append(out, "redis")
 	}
-	if redisOK && redisP99 > redisTh {
-		return true
+	if scenOK && (scenP99 > httpTh || scenSucc < minRampSuccess) {
+		out = append(out, "scenario")
 	}
-	if scenOK && scenP99 > httpTh {
-		return true
-	}
-	return false
+	return out
 }
 
 // RunAutoRamp searches concurrency for the first level where latency
@@ -184,6 +184,9 @@ func RunAutoRamp(cfg OrchestratorConfig, ramp AutoRampConfig, httpTh, dbTh, redi
 		applyPoolOptions(db, cfg.DB.Target, max)
 	}
 
+	// Both handles open once and stay alive across levels: the pool
+	// holds warm connections while only the per-burst worker count varies.
+	// fireRedis pings on the first burst, so a bad addr still fails fast.
 	var rdb *redis.Client
 	if cfg.Redis != nil {
 		rdb = redis.NewClient(&redis.Options{
@@ -192,12 +195,6 @@ func RunAutoRamp(cfg OrchestratorConfig, ramp AutoRampConfig, httpTh, dbTh, redi
 			DB:       cfg.Redis.Target.DB,
 		})
 		defer rdb.Close()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if err := rdb.Ping(ctx).Err(); err != nil {
-			cancel()
-			return nil, err
-		}
-		cancel()
 	}
 
 	res := &RampResult{}
@@ -259,67 +256,6 @@ func RunAutoRamp(cfg OrchestratorConfig, ramp AutoRampConfig, httpTh, dbTh, redi
 	return res, nil
 }
 
-// fireDBWithDB is FireDB without open/close: the caller owns db so the
-// pool stays warm across bursts and only the worker count varies.
-func fireDBWithDB(db *sql.DB, target DBTarget, rate, concurrency int, duration, bucketWidth time.Duration, stats *RunStats) (*DBResult, error) {
-	if db == nil {
-		return nil, fmt.Errorf("db handle is nil")
-	}
-	overall, start := runPaced(rate, concurrency, duration, 0, func(ctx context.Context) dbQueryResult {
-		pick := pickQuery(cumulativeWeights(target.Query))
-		queryStart := time.Now()
-		opCtx, opCancel := context.WithTimeout(ctx, 10*time.Second)
-		defer opCancel()
-		var err error
-		if queryIsRead(pick) {
-			var rows *sql.Rows
-			rows, err = db.QueryContext(opCtx, pick.Query, pick.Args...)
-			if err == nil {
-				rows.Close()
-			}
-		} else {
-			_, err = db.ExecContext(opCtx, pick.Query, pick.Args...)
-		}
-		if err != nil && ctx.Err() != nil {
-			return dbQueryResult{Latency: time.Since(queryStart), Success: true}
-		}
-		if stats != nil {
-			stats.DBFired.Add(1)
-			if err != nil {
-				stats.DBErr.Add(1)
-			}
-		}
-		return dbQueryResult{Latency: time.Since(queryStart), Success: err == nil, Err: err}
-	})
-	return buildDBResult(overall, start, bucketWidth, duration), nil
-}
-
-// fireRedisWithClient is FireRedis without open/close: the caller owns
-// the client so connections stay warm across bursts.
-func fireRedisWithClient(client *redis.Client, target RedisTarget, rate, concurrency int, duration, bucketWidth time.Duration, stats *RunStats) (*DBResult, error) {
-	if client == nil {
-		return nil, fmt.Errorf("redis client is nil")
-	}
-	overall, start := runPaced(rate, concurrency, duration, 0, func(opCtx context.Context) dbQueryResult {
-		pick := pickQuery(cumulativeWeights(target.Query))
-		queryStart := time.Now()
-		opCtx, opCancel := context.WithTimeout(opCtx, 10*time.Second)
-		defer opCancel()
-		err := client.Do(opCtx, splitCommand(pick.Query)...).Err()
-		if err != nil && opCtx.Err() != nil {
-			return dbQueryResult{Latency: time.Since(queryStart), Success: true}
-		}
-		if stats != nil {
-			stats.RedisFired.Add(1)
-			if err != nil {
-				stats.RedisErr.Add(1)
-			}
-		}
-		return dbQueryResult{Latency: time.Since(queryStart), Success: err == nil, Err: err}
-	})
-	return buildDBResult(overall, start, bucketWidth, duration), nil
-}
-
 // rampVerdict renders a step outcome for the stderr progress line.
 func rampVerdict(broken bool) string {
 	if broken {
@@ -367,7 +303,7 @@ func runRampBurst(cfg OrchestratorConfig, db *sql.DB, rdb *redis.Client, conc, b
 		go func() {
 			defer wg.Done()
 			rate := scaledRate(cfg.DB.Rate, baseConc, conc)
-			r, err := fireDBWithDB(db, cfg.DB.Target, rate, conc, stepDur, bucketWidth, stats)
+			r, err := fireDB(db, cfg.DB.Target, rate, conc, stepDur, bucketWidth, 0, stats)
 			if err != nil {
 				fail(err)
 				return
@@ -382,7 +318,7 @@ func runRampBurst(cfg OrchestratorConfig, db *sql.DB, rdb *redis.Client, conc, b
 		go func() {
 			defer wg.Done()
 			rate := scaledRate(cfg.Redis.Rate, baseConc, conc)
-			r, err := fireRedisWithClient(rdb, cfg.Redis.Target, rate, conc, stepDur, bucketWidth, stats)
+			r, err := fireRedis(rdb, cfg.Redis.Target, rate, conc, stepDur, bucketWidth, 0, stats)
 			if err != nil {
 				fail(err)
 				return
@@ -473,6 +409,7 @@ func runRampBurst(cfg OrchestratorConfig, db *sql.DB, rdb *redis.Client, conc, b
 	if !any {
 		step.Success = 0
 	}
-	step.Broken = rampStepBroken(httpP99, dbP99, redisP99, scenP99, httpOK, dbOK, redisOK, scenOK, step.Success, httpTh, dbTh, redisTh)
+	step.BrokenBy = rampBreakers(httpP99, dbP99, redisP99, scenP99, httpSucc, dbSucc, redisSucc, scenSucc, httpOK, dbOK, redisOK, scenOK, httpTh, dbTh, redisTh)
+	step.Broken = len(step.BrokenBy) > 0
 	return step, nil
 }

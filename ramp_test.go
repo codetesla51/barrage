@@ -84,24 +84,36 @@ func TestScaledRate(t *testing.T) {
 	}
 }
 
-func TestRampStepBroken(t *testing.T) {
+func TestRampBreakers(t *testing.T) {
 	th := 100 * time.Millisecond
 	cases := []struct {
-		name    string
-		p99     time.Duration
-		success float64
-		broken  bool
+		name             string
+		httpP99, dbP99   time.Duration
+		httpSucc, dbSucc float64
+		httpOK, dbOK     bool
+		wantBroken       bool
+		wantBy           []string
 	}{
-		{"under threshold ok", 50 * time.Millisecond, 1.0, false},
-		{"over threshold broken", 200 * time.Millisecond, 1.0, true},
-		{"low success broken", 10 * time.Millisecond, 0.5, true},
-		{"at threshold ok", 100 * time.Millisecond, 1.0, false},
+		{"all under holds", 50 * time.Millisecond, 50 * time.Millisecond, 1.0, 1.0, true, true, false, nil},
+		{"db over attributes db", 10 * time.Millisecond, 200 * time.Millisecond, 1.0, 1.0, true, true, true, []string{"db"}},
+		{"both over attributes both", 200 * time.Millisecond, 200 * time.Millisecond, 1.0, 1.0, true, true, true, []string{"http", "db"}},
+		{"errors attribute the failing runner", 10 * time.Millisecond, 10 * time.Millisecond, 1.0, 0.5, true, true, true, []string{"db"}},
+		{"at threshold holds", 100 * time.Millisecond, 100 * time.Millisecond, 1.0, 1.0, true, true, false, nil},
+		{"runner that did not run ignored", 500 * time.Millisecond, 0, 1.0, 0, false, false, false, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := rampStepBroken(0, c.p99, 0, 0, false, true, false, false, c.success, th, th, th)
-			if got != c.broken {
-				t.Errorf("got %v, want %v", got, c.broken)
+			got := rampBreakers(c.httpP99, c.dbP99, 0, 0, c.httpSucc, c.dbSucc, 1.0, 1.0, c.httpOK, c.dbOK, false, false, th, th, th)
+			if (len(got) > 0) != c.wantBroken {
+				t.Fatalf("broken = %v, want %v (by=%v)", len(got) > 0, c.wantBroken, got)
+			}
+			if len(got) != len(c.wantBy) {
+				t.Fatalf("got %v, want %v", got, c.wantBy)
+			}
+			for i := range got {
+				if got[i] != c.wantBy[i] {
+					t.Fatalf("got %v, want %v", got, c.wantBy)
+				}
 			}
 		})
 	}

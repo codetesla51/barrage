@@ -454,6 +454,7 @@
                 <th>P99</th>
                 <th>Success</th>
                 <th>Verdict</th>
+                <th>Cause</th>
               </tr>
             </thead>
             <tbody>
@@ -464,6 +465,7 @@
                 <td class="mono">{{formatDuration .P99}}</td>
                 <td class="mono">{{percent .Success}}%</td>
                 <td>{{if .Broken}}<span class="bottleneck-chip redis">broken</span>{{else}}<span class="bottleneck-chip db">ok</span>{{end}}</td>
+                <td class="mono">{{if .BrokenBy}}{{join .BrokenBy ", "}}{{else}}—{{end}}</td>
               </tr>
               {{end}}
             </tbody>

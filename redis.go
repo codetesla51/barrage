@@ -2,6 +2,7 @@ package barrage
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -31,6 +32,16 @@ func FireRedis(target RedisTarget, rate, concurrency int, duration, bucketWidth,
 		DB:       target.DB,
 	})
 	defer client.Close()
+	return fireRedis(client, target, rate, concurrency, duration, bucketWidth, ramp, stats)
+}
+
+// fireRedis is the shared burst core: the caller owns client, so normal
+// runs and auto-ramp levels execute the exact same command path.
+// A future change here fixes both at once.
+func fireRedis(client *redis.Client, target RedisTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration, stats *RunStats) (*DBResult, error) {
+	if client == nil {
+		return nil, fmt.Errorf("redis client is nil")
+	}
 	// cancellable: runPaced cancels this at the deadline so in-flight commands
 	// abort instead of blocking shutdown on a wedged redis
 	ctx, cancel := context.WithCancel(context.Background())

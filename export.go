@@ -24,11 +24,12 @@ type JSONReport struct {
 
 // JSONRampStep is one auto-ramp level in the JSON export.
 type JSONRampStep struct {
-	Concurrency int     `json:"concurrency"`
-	Requests    uint64  `json:"requests"`
-	P99MS       int64   `json:"p99_ms"`
-	Success     float64 `json:"success_percent"`
-	Broken      bool    `json:"broken"`
+	Concurrency int      `json:"concurrency"`
+	Requests    uint64   `json:"requests"`
+	P99MS       int64    `json:"p99_ms"`
+	Success     float64  `json:"success_percent"`
+	Broken      bool     `json:"broken"`
+	BrokenBy    []string `json:"broken_by,omitempty"`
 }
 
 // JSONRamp is the auto-ramp curve in the JSON export.
@@ -140,6 +141,7 @@ func BuildJSON(data ReportData) ([]byte, error) {
 				P99MS:       s.P99.Milliseconds(),
 				Success:     float64(s.Success) * 100,
 				Broken:      s.Broken,
+				BrokenBy:    s.BrokenBy,
 			})
 		}
 		report.RampSearch = jr
