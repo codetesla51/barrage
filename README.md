@@ -301,6 +301,12 @@ scenario:
   the list of compiled-in drivers. Each driver expects its own connection DSN:
   Postgres `postgres://...`, MySQL `user:pass@tcp(host:3306)/db`, SQLite a file
   path such as `/tmp/test.db`.
+- `max_open_conns`, `max_idle_conns`, `conn_max_lifetime`, `conn_max_idle_time`
+  (all optional, under `db.target`) tune the `database/sql` connection pool.
+  Unset counts default to the run's `concurrency` so the tool never holds more
+  connections than it has workers; unset lifetimes leave the driver default.
+  Negative values are rejected. Set `max_open_conns` at or below the database's
+  `max_connections` or the errors you measure are the tool's, not the target's.
 - `scenarios` runs sequential HTTP steps per virtual user. Each VU picks one
   scenario once at launch (weighted by `weight`), then loops it until
   `duration` expires. `extract` maps a var name to a JSON path (`$.token`,

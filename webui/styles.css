@@ -226,6 +226,7 @@ body.simple-mode .adv { display: none !important; }
 .fields-http  { display: grid; grid-template-columns: 110px 140px minmax(0,1fr); gap: 14px; }
 .fields-db    { display: grid; grid-template-columns: 110px 150px minmax(0,1fr); gap: 14px; }
 .fields-redis { display: grid; grid-template-columns: 110px minmax(0,1fr) 230px 90px; gap: 14px; }
+.fields-pool  { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; margin-top: 2px; }
 .w-narrow { max-width: 110px; }
 .thresholds { padding-top: 14px; border-top: 1px dashed var(--line); }
 .conn-wrap { position: relative; display: flex; }
@@ -526,6 +527,7 @@ small { font-weight: 400; line-height: 1.3; }
   .preview-panel { min-height: 340px; }
   .grid-4, .grid-3 { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .fields-http, .fields-db, .fields-redis { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .fields-pool { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .friendly-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
 }
 @media (max-width: 560px) {
@@ -533,6 +535,7 @@ small { font-weight: 400; line-height: 1.3; }
   .btn span { display: none; }
   .navbar .btn-primary span, .recent-panel .btn span, .fullview-head .btn span { display: inline; }
   .grid-4, .grid-3, .fields-http, .fields-db, .fields-redis { grid-template-columns: 1fr; }
+  .fields-pool { grid-template-columns: 1fr; }
   .w-narrow { max-width: none; }
 }
 

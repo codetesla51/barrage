@@ -327,6 +327,12 @@ db:
     conn: postgres://user:pass@localhost:5432/mydb?sslmode=disable
     # mysql: user:pass@tcp(localhost:3306)/mydb
     # sqlite: /tmp/test.db
+    # pool (all optional): unset counts default to concurrency so the tool
+    # never holds more conns than workers; unset lifetimes = driver default
+    # max_open_conns: 20
+    # max_idle_conns: 20
+    # conn_max_lifetime: 5m
+    # conn_max_idle_time: 30s
     queries:           # at least 1; one picked per request by weight
       - query: SELECT customer, amount FROM orders LIMIT 10
         weight: 70    # 0 = never picked; omit → 0, so always set it
@@ -340,7 +346,9 @@ db:
 Copy the slow endpoint's real queries here with prod-like weights
 (70% reads / 30% writes). `type` is authoritative — always set it;
 the fallback sniffs `SELECT/SHOW/EXPLAIN/WITH → read`, anything with
-`RETURNING` → write.
+`RETURNING` → write. Keep `max_open_conns` at or below the database's
+`max_connections` — above that, the errors you measure are the tool's,
+not the target's.
 
 ### `redis:` — weighted command mix
 

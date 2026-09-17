@@ -26,6 +26,13 @@ db:
   target:
     driver: postgres
     conn: postgres://us:2@localhost:5432/testDB?sslmode=disable
+    # pool tuning (all optional): unset counts default to concurrency,
+    # unset lifetimes leave the driver default. Keep max_open_conns at or
+    # below the database's max_connections.
+    # max_open_conns: 10
+    # max_idle_conns: 10
+    # conn_max_lifetime: 5m
+    # conn_max_idle_time: 30s
     queries:
       - query: SELECT count(*) FROM orders
         weight: 20

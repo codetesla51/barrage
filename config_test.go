@@ -334,6 +334,67 @@ func TestOrchestratorHTTPOnly(t *testing.T) {
 	}
 }
 
+func TestLoadConfigDBPoolOptions(t *testing.T) {
+	path := writeConfig(t, `
+duration: 2s
+db:
+  rate: 5
+  target:
+    driver: sqlite
+    conn: /tmp/test.db
+    max_open_conns: 8
+    max_idle_conns: 4
+    conn_max_lifetime: 5m
+    conn_max_idle_time: 30s
+    queries:
+      - query: SELECT 1
+        weight: 1
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig returned error: %v", err)
+	}
+	got := cfg.DB.Target
+	if got.MaxOpenConns != 8 {
+		t.Errorf("max_open_conns = %d, want 8", got.MaxOpenConns)
+	}
+	if got.MaxIdleConns != 4 {
+		t.Errorf("max_idle_conns = %d, want 4", got.MaxIdleConns)
+	}
+	if time.Duration(got.ConnMaxLifetime) != 5*time.Minute {
+		t.Errorf("conn_max_lifetime = %v, want 5m", time.Duration(got.ConnMaxLifetime))
+	}
+	if time.Duration(got.ConnMaxIdleTime) != 30*time.Second {
+		t.Errorf("conn_max_idle_time = %v, want 30s", time.Duration(got.ConnMaxIdleTime))
+	}
+}
+
+func TestLoadConfigDBPoolOptionsNegative(t *testing.T) {
+	bodies := map[string]string{
+		"max_open_conns":     "max_open_conns: -1",
+		"max_idle_conns":     "max_idle_conns: -1",
+		"conn_max_lifetime":  "conn_max_lifetime: -1s",
+		"conn_max_idle_time": "conn_max_idle_time: -1s",
+	}
+	for name, field := range bodies {
+		path := writeConfig(t, `
+duration: 2s
+db:
+  rate: 5
+  target:
+    driver: sqlite
+    conn: /tmp/test.db
+    `+field+`
+    queries:
+      - query: SELECT 1
+        weight: 1
+`)
+		if _, err := LoadConfig(path); err == nil {
+			t.Errorf("expected error for negative db %s", name)
+		}
+	}
+}
+
 func TestLoadConfigExampleFile(t *testing.T) {
 	cfg, err := LoadConfig("config.yaml")
 	if err != nil {

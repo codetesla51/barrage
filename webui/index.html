@@ -165,6 +165,12 @@
               <small class="opacity-60">required · often contains credentials</small>
             </label>
           </div>
+          <div class="fields-pool">
+            <label>max open<input class="input input-sm mono w-full" name="db-max-open-conns" type="number" min="0" placeholder="= concurrency"><small class="opacity-60">pool cap · blank = concurrency</small></label>
+            <label>max idle<input class="input input-sm mono w-full" name="db-max-idle-conns" type="number" min="0" placeholder="= max open"><small class="opacity-60">warm conns · blank = max open</small></label>
+            <label>max lifetime<input class="input input-sm mono w-full" name="db-conn-max-lifetime" placeholder="5m" autocomplete="off"><small class="opacity-60">blank = unlimited</small></label>
+            <label>max idle time<input class="input input-sm mono w-full" name="db-conn-max-idle-time" placeholder="30s" autocomplete="off"><small class="opacity-60">blank = unlimited</small></label>
+          </div>
           <div class="repeatable">
             <span class="eyebrow">queries <span class="opacity-60">(weighted mix)</span></span>
             <div id="db-queries" class="rows"></div>

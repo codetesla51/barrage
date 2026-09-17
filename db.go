@@ -11,10 +11,18 @@ import (
 )
 
 // DBTarget represents a database target for load testing.
+//
+// The pool options tune the database/sql connection pool the runner opens.
+// Zero values select run-aware defaults (see effectivePoolOptions);
+// negative values are rejected at config load.
 type DBTarget struct {
-	Conn   string        `yaml:"conn"`
-	Driver string        `yaml:"driver"`
-	Query  []QueryWeight `yaml:"queries"`
+	Conn            string        `yaml:"conn"`
+	Driver          string        `yaml:"driver"`
+	Query           []QueryWeight `yaml:"queries"`
+	MaxOpenConns    int           `yaml:"max_open_conns"`
+	MaxIdleConns    int           `yaml:"max_idle_conns"`
+	ConnMaxLifetime Duration      `yaml:"conn_max_lifetime"`
+	ConnMaxIdleTime Duration      `yaml:"conn_max_idle_time"`
 }
 
 // QueryWeight is one weighted entry in a runner's query list. Type and Args
@@ -109,6 +117,41 @@ func OpenConnection(conn string, driver string) (*sql.DB, error) {
 	return db, nil
 }
 
+// effectivePoolOptions resolves the database/sql pool settings for a run.
+// Explicit target values win; unset (<=0) counts fall back to the run's
+// worker count so the tool never holds more connections than it has workers
+// submitting queries, and keeps that many warm between bursts. Lifetimes
+// pass through untouched: zero means the driver default (no limit).
+func effectivePoolOptions(target DBTarget, concurrency int) (maxOpen, maxIdle int, maxLifetime, maxIdleTime time.Duration) {
+	if concurrency < 1 {
+		concurrency = DefaultConcurrency
+	}
+	maxOpen = target.MaxOpenConns
+	if maxOpen < 1 {
+		maxOpen = concurrency
+	}
+	maxIdle = target.MaxIdleConns
+	if maxIdle < 1 {
+		maxIdle = maxOpen
+	}
+	return maxOpen, maxIdle, time.Duration(target.ConnMaxLifetime), time.Duration(target.ConnMaxIdleTime)
+}
+
+// applyPoolOptions tunes db's connection pool from the target config.
+// Counts always resolve to at least one connection; zero lifetimes leave
+// the driver default in place.
+func applyPoolOptions(db *sql.DB, target DBTarget, concurrency int) {
+	maxOpen, maxIdle, maxLifetime, maxIdleTime := effectivePoolOptions(target, concurrency)
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxIdle)
+	if maxLifetime > 0 {
+		db.SetConnMaxLifetime(maxLifetime)
+	}
+	if maxIdleTime > 0 {
+		db.SetConnMaxIdleTime(maxIdleTime)
+	}
+}
+
 // FireDB executes database queries according to the specified target and
 // parameters. Queries are fired at rate per second (ramping up over ramp if
 // set) and run concurrently on a worker pool with up to concurrency workers.
@@ -118,6 +161,7 @@ func FireDB(target DBTarget, rate, concurrency int, duration, bucketWidth, ramp 
 		return nil, err
 	}
 	defer db.Close()
+	applyPoolOptions(db, target, concurrency)
 
 	overall, start := runPaced(rate, concurrency, duration, ramp, func(ctx context.Context) dbQueryResult {
 		pick := pickQuery(cumulativeWeights(target.Query))

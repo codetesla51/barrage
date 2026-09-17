@@ -14,7 +14,7 @@ const defaultState = () => ({
   db_threshold: "100ms",
   redis_threshold: "100ms",
   http: { on: false, rate: 10, method: "GET", url: "", body: "", headers: [] },
-  db: { on: false, rate: 5, driver: "postgres", conn: "", queries: [] },
+  db: { on: false, rate: 5, driver: "postgres", conn: "", max_open_conns: "", max_idle_conns: "", conn_max_lifetime: "", conn_max_idle_time: "", queries: [] },
   redis: { on: false, rate: 20, addr: "", password: "", dbnum: 0, queries: [] },
   scenarios: [], // {on, name, weight, steps:[{method,url,body,headers:[],extract:[]}]}
 });
@@ -109,6 +109,15 @@ function generateYAML() {
     L.push("  target:");
     L.push(`    driver: ${state.db.driver}`);
     L.push(`    conn: ${yq(state.db.conn)}`);
+    // pool tuning is optional: blank/0 falls back to run-aware defaults server-side
+    if (state.db.max_open_conns !== "" && state.db.max_open_conns != null && Number(state.db.max_open_conns) > 0) {
+      L.push(`    max_open_conns: ${ynum(state.db.max_open_conns)}`);
+    }
+    if (state.db.max_idle_conns !== "" && state.db.max_idle_conns != null && Number(state.db.max_idle_conns) > 0) {
+      L.push(`    max_idle_conns: ${ynum(state.db.max_idle_conns)}`);
+    }
+    if (String(state.db.conn_max_lifetime ?? "").trim() !== "") L.push(`    conn_max_lifetime: ${String(state.db.conn_max_lifetime).trim()}`);
+    if (String(state.db.conn_max_idle_time ?? "").trim() !== "") L.push(`    conn_max_idle_time: ${String(state.db.conn_max_idle_time).trim()}`);
     const qs = state.db.queries.filter((q) => q.query.trim() !== "");
     if (qs.length > 0) {
       L.push("    queries:");
@@ -286,6 +295,10 @@ function validateState() {
     need(Number(state.db.rate) > 0, "db-rate", "db rate must be > 0");
     need(["postgres", "mysql", "sqlite"].includes(state.db.driver), "db-driver", "unknown driver");
     need(state.db.conn.trim() !== "", "db-conn", "db conn string is required");
+    if (String(state.db.max_open_conns ?? "").trim() !== "") need(Number(state.db.max_open_conns) >= 0, "db-max-open-conns", "max open conns must be ≥ 0");
+    if (String(state.db.max_idle_conns ?? "").trim() !== "") need(Number(state.db.max_idle_conns) >= 0, "db-max-idle-conns", "max idle conns must be ≥ 0");
+    if (String(state.db.conn_max_lifetime ?? "").trim() !== "") need(isDuration(state.db.conn_max_lifetime), "db-conn-max-lifetime", "lifetime must be like 5m / 30s");
+    if (String(state.db.conn_max_idle_time ?? "").trim() !== "") need(isDuration(state.db.conn_max_idle_time), "db-conn-max-idle-time", "idle time must be like 5m / 30s");
     const qs = state.db.queries.filter((q) => q.query.trim() !== "");
     need(qs.length > 0, "db-queries", "db needs at least one query");
   }
@@ -590,6 +603,10 @@ function bindStaticFields() {
     "db-rate": (v) => (state.db.rate = v),
     "db-driver": (v) => (state.db.driver = v),
     "db-conn": (v) => (state.db.conn = v),
+    "db-max-open-conns": (v) => (state.db.max_open_conns = v),
+    "db-max-idle-conns": (v) => (state.db.max_idle_conns = v),
+    "db-conn-max-lifetime": (v) => (state.db.conn_max_lifetime = v),
+    "db-conn-max-idle-time": (v) => (state.db.conn_max_idle_time = v),
     "redis-rate": (v) => (state.redis.rate = v),
     "redis-addr": (v) => (state.redis.addr = v),
     "redis-password": (v) => (state.redis.password = v),
@@ -707,6 +724,8 @@ function hydrateFormFromState() {
 
   $("#en-db").checked = state.db.on;
   put("db-rate", state.db.rate); put("db-driver", state.db.driver); put("db-conn", state.db.conn);
+  put("db-max-open-conns", state.db.max_open_conns); put("db-max-idle-conns", state.db.max_idle_conns);
+  put("db-conn-max-lifetime", state.db.conn_max_lifetime); put("db-conn-max-idle-time", state.db.conn_max_idle_time);
   $("#db-queries").innerHTML = "";
   state.db.queries.forEach((q) => appendDbQueryRow($("#db-queries"), q));
   flashIf(state.db.on, "#sec-db");
@@ -777,6 +796,10 @@ function importIntoState(raw, silent) {
     next.db.rate = Number(doc.db.rate ?? 5);
     next.db.driver = doc.db.target?.driver ?? "postgres";
     next.db.conn = doc.db.target?.conn ?? "";
+    next.db.max_open_conns = doc.db.target?.max_open_conns ?? "";
+    next.db.max_idle_conns = doc.db.target?.max_idle_conns ?? "";
+    next.db.conn_max_lifetime = doc.db.target?.conn_max_lifetime ?? "";
+    next.db.conn_max_idle_time = doc.db.target?.conn_max_idle_time ?? "";
     next.db.queries = (doc.db.target?.queries ?? []).map((q) => ({
       query: String(q.query ?? ""), weight: Number(q.weight ?? 1), type: String(q.type ?? ""),
     }));

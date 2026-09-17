@@ -116,6 +116,18 @@ func loadConfigBytes(data []byte, path string) (*OrchestratorConfig, error) {
 		if err := checkQueries(cfg.DB.Target.Query, "db"); err != nil {
 			return nil, err
 		}
+		if cfg.DB.Target.MaxOpenConns < 0 {
+			return nil, errors.New("db target max_open_conns must not be negative")
+		}
+		if cfg.DB.Target.MaxIdleConns < 0 {
+			return nil, errors.New("db target max_idle_conns must not be negative")
+		}
+		if cfg.DB.Target.ConnMaxLifetime < 0 {
+			return nil, errors.New("db target conn_max_lifetime must not be negative")
+		}
+		if cfg.DB.Target.ConnMaxIdleTime < 0 {
+			return nil, errors.New("db target conn_max_idle_time must not be negative")
+		}
 	}
 	if cfg.Redis != nil {
 		if cfg.Redis.Rate <= 0 {
