@@ -19,6 +19,23 @@ type JSONReport struct {
 	Runners     []JSONRunner `json:"runners"`
 	Spikes      []JSONSpike  `json:"spikes"`
 	Timeline    JSONTimeline `json:"timeline"`
+	RampSearch  *JSONRamp    `json:"ramp_search,omitempty"`
+}
+
+// JSONRampStep is one auto-ramp level in the JSON export.
+type JSONRampStep struct {
+	Concurrency int     `json:"concurrency"`
+	Requests    uint64  `json:"requests"`
+	P99MS       int64   `json:"p99_ms"`
+	Success     float64 `json:"success_percent"`
+	Broken      bool    `json:"broken"`
+}
+
+// JSONRamp is the auto-ramp curve in the JSON export.
+type JSONRamp struct {
+	Steps   []JSONRampStep `json:"steps"`
+	BreakAt int            `json:"break_at"`
+	LastOK  int            `json:"last_ok"`
 }
 
 // JSONRunner is one runner's aggregate summary in the JSON export.
@@ -113,6 +130,19 @@ func BuildJSON(data ReportData) ([]byte, error) {
 			Throughput:  r.Throughput,
 			StatusCodes: r.StatusCodes,
 		})
+	}
+	if data.RampSearch != nil {
+		jr := &JSONRamp{BreakAt: data.RampSearch.BreakAt, LastOK: data.RampSearch.LastOK}
+		for _, s := range data.RampSearch.Steps {
+			jr.Steps = append(jr.Steps, JSONRampStep{
+				Concurrency: s.Concurrency,
+				Requests:    s.Requests,
+				P99MS:       s.P99.Milliseconds(),
+				Success:     float64(s.Success) * 100,
+				Broken:      s.Broken,
+			})
+		}
+		report.RampSearch = jr
 	}
 
 	buf, err := json.MarshalIndent(report, "", "  ")

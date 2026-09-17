@@ -425,6 +425,93 @@
     </div>
   </section>
 
+  {{if .RampSearch}}
+  <section>
+    <h2 class="section-title">capacity ramp — concurrency vs p99</h2>
+    <div class="panel-grid">
+      <div class="panel">
+        <div class="panel-header">
+          <h2>p99 by concurrency</h2>
+          <span class="meta">ms · {{if .RampSearch.BreakAt}}broke at {{.RampSearch.BreakAt}}{{else}}held to {{.RampSearch.LastOK}}{{end}}</span>
+        </div>
+        <div class="chart-body">
+          <div class="chart-container">
+            <canvas id="rampChart"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h2>ramp steps</h2>
+          <span class="meta">coarse double, then fine fill</span>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Concurrency</th>
+                <th>Requests</th>
+                <th>P99</th>
+                <th>Success</th>
+                <th>Verdict</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .RampSearch.Steps}}
+              <tr>
+                <td class="mono">{{.Concurrency}}</td>
+                <td class="mono">{{.Requests}}</td>
+                <td class="mono">{{formatDuration .P99}}</td>
+                <td class="mono">{{percent .Success}}%</td>
+                <td>{{if .Broken}}<span class="bottleneck-chip redis">broken</span>{{else}}<span class="bottleneck-chip db">ok</span>{{end}}</td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <script>
+      new Chart(document.getElementById('rampChart'), {
+        type: 'line',
+        data: {
+          labels: [{{range .RampSearch.Steps}}"{{.Concurrency}}",{{end}}],
+          datasets: [{
+            label: 'P99 (ms)',
+            data: [{{range .RampSearch.Steps}}{{.P99.Milliseconds}},{{end}}],
+            borderColor: '#fafafa',
+            backgroundColor: 'rgba(0,0,0,0)',
+            tension: 0.25,
+            pointRadius: 3,
+            borderWidth: 1.5
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: {
+              title: { display: true, text: 'concurrency', font: { family: 'JetBrains Mono', size: 9 }, color: '#767676' },
+              grid: { display: false },
+              ticks: { font: { family: 'JetBrains Mono', size: 9 }, color: '#767676' }
+            },
+            y: {
+              beginAtZero: true,
+              grid: { color: 'rgba(255,255,255,0.06)' },
+              ticks: {
+                font: { family: 'JetBrains Mono', size: 9 },
+                color: '#767676',
+                callback: (v) => v + 'ms'
+              }
+            }
+          }
+        }
+      });
+    </script>
+  </section>
+  {{end}}
+
   {{if .Spikes}}
 
     <div class="metric-grid" id="metricGrid">

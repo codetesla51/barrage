@@ -34,20 +34,23 @@ const banner = `     ________  ________  ________  ________  ________  ________ 
         \|_______|\|__|\|__|\|__|\|__|\|__|\|__|\|__|\|__|\|_______|\|_______|`
 
 type runOptions struct {
-	config         string
-	report         string
-	noReport       bool
-	open           bool
-	duration       time.Duration
-	bucketWidth    time.Duration
-	ramp           time.Duration
-	concurrency    int
-	jsonPath       string
-	httpThreshold  time.Duration
-	dbThreshold    time.Duration
-	redisThreshold time.Duration
-	verbose        bool
-	noProgress     bool
+	config             string
+	report             string
+	noReport           bool
+	open               bool
+	duration           time.Duration
+	bucketWidth        time.Duration
+	ramp               time.Duration
+	concurrency        int
+	jsonPath           string
+	httpThreshold      time.Duration
+	dbThreshold        time.Duration
+	redisThreshold     time.Duration
+	verbose            bool
+	noProgress         bool
+	autoRamp           bool
+	rampMaxConcurrency int
+	rampStepDuration   time.Duration
 }
 
 type compareOptions struct {
@@ -121,6 +124,9 @@ func newRunCmd() *cobra.Command {
 	f.DurationVar(&opts.redisThreshold, "redis-threshold", 100*time.Millisecond, "Redis spike threshold for correlation")
 	f.BoolVarP(&opts.verbose, "verbose", "v", false, "print per-bucket detail")
 	f.BoolVar(&opts.noProgress, "no-progress", false, "disable the live progress view (plain log lines instead)")
+	f.BoolVar(&opts.autoRamp, "auto-ramp", false, "ramp concurrency (double, then fine fill) to find the break point")
+	f.IntVar(&opts.rampMaxConcurrency, "ramp-max-concurrency", 0, "cap for auto-ramp concurrency search")
+	f.DurationVar(&opts.rampStepDuration, "ramp-step-duration", 0, "per-level burst time for auto-ramp (default 10s)")
 	return cmd
 }
 
@@ -176,16 +182,45 @@ func runLoadTest(opts *runOptions) error {
 		cfg.Concurrency = opts.concurrency
 	}
 
+	if opts.autoRamp && cfg.AutoRamp == nil {
+		cfg.AutoRamp = &barrage.AutoRampConfig{}
+	}
+	if opts.rampMaxConcurrency > 0 {
+		if cfg.AutoRamp == nil {
+			cfg.AutoRamp = &barrage.AutoRampConfig{}
+		}
+		cfg.AutoRamp.MaxConcurrency = opts.rampMaxConcurrency
+	}
+	if opts.rampStepDuration > 0 {
+		if cfg.AutoRamp == nil {
+			cfg.AutoRamp = &barrage.AutoRampConfig{}
+		}
+		cfg.AutoRamp.StepDuration = barrage.Duration(opts.rampStepDuration)
+	}
+
 	fmt.Println(banner)
 	fmt.Println()
 	fmt.Printf("barrage %s\n", version)
-	fmt.Println(cliui.Dim(fmt.Sprintf("duration %s · bucket %s · concurrency %d · ramp %s",
-		time.Duration(cfg.Duration), time.Duration(cfg.BucketWidth), effectiveConcurrency(cfg), time.Duration(cfg.Ramp))))
+	if cfg.AutoRamp != nil {
+		stepDur := time.Duration(cfg.AutoRamp.StepDuration)
+		if stepDur <= 0 {
+			stepDur = 10 * time.Second
+		}
+		fmt.Println(cliui.Dim(fmt.Sprintf("auto-ramp %d → %d · step %s · bucket %s",
+			effectiveConcurrency(cfg), cfg.AutoRamp.MaxConcurrency, stepDur, time.Duration(cfg.BucketWidth))))
+	} else {
+		fmt.Println(cliui.Dim(fmt.Sprintf("duration %s · bucket %s · concurrency %d · ramp %s",
+			time.Duration(cfg.Duration), time.Duration(cfg.BucketWidth), effectiveConcurrency(cfg), time.Duration(cfg.Ramp))))
+	}
 	if rates := configuredRates(cfg); len(rates) > 0 {
 		fmt.Println(cliui.Dim("rates    " + strings.Join(rates, " · ")))
 	}
 
 	fmt.Println()
+
+	if cfg.AutoRamp != nil {
+		return runAutoRamp(opts, cfg)
+	}
 
 	// Live progress: Bubble Tea view on TTY stderr, plain 5s log lines
 	// otherwise (pipes, CI). Stderr keeps piped stdout clean either way.
@@ -242,6 +277,92 @@ func runLoadTest(opts *runOptions) error {
 		fmt.Printf("JSON written to %s\n", opts.jsonPath)
 	}
 	return nil
+}
+
+func runAutoRamp(opts *runOptions, cfg *barrage.OrchestratorConfig) error {
+	stats := &barrage.RunStats{}
+	cfg.Stats = stats
+	cfg.Quiet = true
+
+	rampCfg := *cfg.AutoRamp
+	res, err := barrage.RunAutoRamp(*cfg, rampCfg, opts.httpThreshold, opts.dbThreshold, opts.redisThreshold)
+	if err != nil {
+		return fmt.Errorf("auto-ramp failed: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "[barrage] ramp done · %s\n", stats.Summary())
+	printRampTable(res)
+	if res.BreakAt != 0 {
+		fmt.Printf("\nbroke at concurrency %d (last ok %d)\n", res.BreakAt, res.LastOK)
+	} else {
+		fmt.Printf("\nheld to concurrency %d — no break found\n", res.LastOK)
+	}
+
+	if !opts.noReport {
+		data := barrage.ReportData{RampSearch: res}
+		stepDur := time.Duration(cfg.AutoRamp.StepDuration)
+		if stepDur <= 0 {
+			stepDur = 10 * time.Second
+		}
+		total := stepDur * time.Duration(len(res.Steps))
+		data.Duration = total.String()
+		data.Ramp = time.Duration(cfg.Ramp).String()
+		data.Concurrency = cfg.AutoRamp.MaxConcurrency
+		file, err := os.Create(opts.report)
+		if err != nil {
+			return fmt.Errorf("creating report %q: %w", opts.report, err)
+		}
+		if err := barrage.RenderHTML(data, "templates/report.html", file); err != nil {
+			file.Close()
+			return fmt.Errorf("rendering report: %w", err)
+		}
+		file.Close()
+		fmt.Printf("Report written to %s\n", opts.report)
+		if opts.open {
+			if err := openReport(opts.report); err != nil {
+				return fmt.Errorf("opening report: %w", err)
+			}
+		}
+	} else {
+		fmt.Println("Report skipped (--no-report)")
+	}
+
+	if opts.jsonPath != "" {
+		data := barrage.ReportData{RampSearch: res}
+		stepDur := time.Duration(cfg.AutoRamp.StepDuration)
+		if stepDur <= 0 {
+			stepDur = 10 * time.Second
+		}
+		data.Duration = (stepDur * time.Duration(len(res.Steps))).String()
+		data.Ramp = time.Duration(cfg.Ramp).String()
+		data.Concurrency = cfg.AutoRamp.MaxConcurrency
+		if err := barrage.ExportJSON(data, opts.jsonPath); err != nil {
+			return fmt.Errorf("writing JSON: %w", err)
+		}
+		fmt.Printf("JSON written to %s\n", opts.jsonPath)
+	}
+	return nil
+}
+
+func printRampTable(res *barrage.RampResult) {
+	if res == nil {
+		return
+	}
+	rows := make([][]string, 0, len(res.Steps))
+	for _, s := range res.Steps {
+		verdict := "ok"
+		if s.Broken {
+			verdict = cliui.VerdictColorize("BROKEN")
+		}
+		rows = append(rows, []string{
+			strconv.Itoa(s.Concurrency),
+			strconv.Itoa(int(s.Requests)),
+			s.P99.String(),
+			cliui.SuccessColorize(s.Success * 100),
+			verdict,
+		})
+	}
+	writeTable([]string{"CONCURRENCY", "REQUESTS", "P99", "SUCCESS", "VERDICT"}, rows)
 }
 
 func loadJSONReport(path string) (*barrage.JSONReport, error) {

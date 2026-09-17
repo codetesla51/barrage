@@ -55,6 +55,9 @@ type ReportData struct {
 	Duration    string
 	Ramp        string
 	Concurrency int
+	// RampSearch carries the auto-ramp curve when that mode ran: one
+	// point per concurrency level, for the concurrency-vs-P99 chart.
+	RampSearch *RampResult
 	// Error carries a fatal run error (e.g. a runner could not start or dial
 	// its target). When set the run produced no usable metrics.
 	Error string
@@ -215,6 +218,7 @@ func RenderHTML(data ReportData, templatePath string, w io.Writer) error {
 		"reportJSON":        reportJSON,
 		"titleName":         titleName,
 		"storageColor":      storageColor,
+		"percent":           func(f float64) string { return formatPercent(f) },
 	}).Parse(string(tmplSrc))
 	if err != nil {
 		return fmt.Errorf("parsing template: %w", err)
@@ -236,6 +240,18 @@ func reportJSON(data ReportData) template.JS {
 // formatDuration renders a time.Duration human-readably, e.g. "142ms".
 func formatDuration(d time.Duration) string {
 	return d.String()
+}
+
+// formatPercent renders a 0-1 success fraction as percent, e.g. 0.95 -> "95.0".
+func formatPercent(f float64) string {
+	return formatFloat(f*100, 1)
+}
+
+func formatFloat(f float64, prec int) string {
+	if prec == 1 {
+		return fmt.Sprintf("%.1f", f)
+	}
+	return fmt.Sprintf("%v", f)
 }
 
 // formatBucketTime renders a bucket index (a unix timestamp) as a clock time,

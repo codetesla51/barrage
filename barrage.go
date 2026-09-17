@@ -16,6 +16,7 @@ type OrchestratorConfig struct {
 	DB          *DBRunnerConfig    `yaml:"db"`
 	Redis       *RedisRunnerConfig `yaml:"redis"`
 	Scenario    []Scenario         `yaml:"scenario"`
+	AutoRamp    *AutoRampConfig    `yaml:"auto_ramp"`
 	// Deprecated: renamed from Scenarios (yaml "scenarios"). Friendly error only.
 	DeprecatedScenarios []Scenario `yaml:"scenarios"`
 	// Stats optionally supplies the live counters (shared with a caller-run

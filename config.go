@@ -140,6 +140,24 @@ func loadConfigBytes(data []byte, path string) (*OrchestratorConfig, error) {
 			return nil, err
 		}
 	}
+	if cfg.AutoRamp != nil {
+		start := cfg.Concurrency
+		if start <= 0 {
+			start = DefaultConcurrency
+		}
+		if cfg.AutoRamp.MaxConcurrency <= 0 {
+			return nil, errors.New("auto_ramp max_concurrency must be greater than zero")
+		}
+		if cfg.AutoRamp.MaxConcurrency < start {
+			return nil, fmt.Errorf("auto_ramp max_concurrency %d below concurrency %d", cfg.AutoRamp.MaxConcurrency, start)
+		}
+		if cfg.AutoRamp.StepDuration < 0 {
+			return nil, errors.New("auto_ramp step_duration must not be negative")
+		}
+		if cfg.AutoRamp.StepDuration > 0 && time.Duration(cfg.AutoRamp.StepDuration) < time.Duration(cfg.BucketWidth) {
+			return nil, errors.New("auto_ramp step_duration must cover at least one bucket")
+		}
+	}
 	if time.Duration(cfg.Duration) <= 0 {
 		return nil, errors.New("duration must be greater than zero")
 	}
