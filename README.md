@@ -307,14 +307,22 @@ scenario:
   connections than it has workers; unset lifetimes leave the driver default.
   Negative values are rejected. Set `max_open_conns` at or below the database's
   `max_connections` or the errors you measure are the tool's, not the target's.
-- `scenarios` runs sequential HTTP steps per virtual user. Each VU picks one
-  scenario once at launch (weighted by `weight`), then loops it until
-  `duration` expires. `extract` maps a var name to a JSON path (`$.token`,
+- `scenario:` runs sequential HTTP steps per virtual user — it *is* your HTTP
+  load, in journey form instead of single shots. Each VU picks one scenario
+  once at launch (weighted by `weight`), then loops it until `duration`
+  expires. `extract` maps a var name to a JSON path (`$.token`,
   `$.user.id` via gjson); the value is stored per VU and `{{var}}` is
   interpolated into later step `url`, `body`, and `headers`. Missing vars stay
   as `{{var}}` so misconfig is visible; non-JSON or missing paths leave the
-  var unset. Scenarios cannot be combined with `http:` (use one or the other)
-  but can run alongside `db`/`redis` — buckets use the same
+  var unset.
+- `scenario:` cannot be combined with `http:` — and that is deliberate, not a
+  limitation. Correlation needs exactly one app-side reference timeline per
+  bucket: either the `http` runner's P99, or the worst journey P99 synthesized
+  from scenarios. Two app curves would double-count rates, progress, and every
+  verdict. To mix plain hits with flows, model the plain hit as a one-step
+  scenario. Note `rate` also means different things per runner (`http`/`db`/
+  `redis` are paced per-second targets; scenario throughput emerges from VUs
+  looping). Scenarios can run alongside `db`/`redis` — buckets use the same
   `Start.Unix()/bucket_width` scheme so timelines align.
 
 ## CLI
