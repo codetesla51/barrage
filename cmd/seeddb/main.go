@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -13,8 +15,18 @@ import (
 
 // Seeds the demo `orders` table with a large number of rows so read/write
 // queries during a load test have real work to do. Uses COPY for bulk insert.
+func defaultConn() string {
+	if dsn := strings.TrimSpace(os.Getenv("POSTGRES_DSN")); dsn != "" {
+		return dsn
+	}
+	if dsn := strings.TrimSpace(os.Getenv("DATABASE_URL")); dsn != "" {
+		return dsn
+	}
+	return "postgres://us:2@localhost:5432/testDB?sslmode=disable"
+}
+
 func main() {
-	conn := flag.String("conn", "postgres://us:2@localhost:5432/testDB?sslmode=disable", "postgres DSN")
+	conn := flag.String("conn", defaultConn(), "postgres DSN (or POSTGRES_DSN env)")
 	rows := flag.Int("n", 1_000_000, "number of rows to insert")
 	reset := flag.Bool("reset", true, "drop and recreate the orders table first")
 	flag.Parse()
