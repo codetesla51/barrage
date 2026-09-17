@@ -536,3 +536,10 @@ JSON export. `report.html` is a build artifact and is intentionally not
 committed. The report template (`templates/report.html`) is embedded in the
 binary via `go:embed`, so reports render from any working directory; a template
 file at `templates/report.html` alongside the binary overrides the embedded one.
+
+## Agents
+
+AI agents: read [SKILL.md](SKILL.md) first — bottleneck-hunting workflow
+(inspect project, ask user, never assume), YAML construction, result
+interpretation, and repo house rules. It is the single skill for barrage;
+the landing page (`../barrage-landing`) points back here too.

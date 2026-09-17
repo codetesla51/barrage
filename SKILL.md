@@ -1,6 +1,6 @@
 ---
 name: barrage
-description: Load-test with barrage — run HTTP/DB/Redis/scenario load, correlate spikes, compare runs, use the web UI. Use when working in the barrage repo or load-testing a target with it.
+description: Diagnose app slowness with barrage — run HTTP/DB/Redis/scenario load, correlate spikes to find bottlenecks, compare runs for regressions, estimate capacity. Use when a project is slow, when asked where latency comes from, or when working in the barrage repo itself.
 ---
 
 # Barrage skill
@@ -10,6 +10,15 @@ the app, or the database / cache underneath it?** It fires HTTP, DB, and Redis
 load on one clock, buckets every layer's latencies onto the same timeline, and
 flags exactly which bucket a storage layer spiked in — and whether the app
 felt it.
+
+Use this skill whenever:
+
+- someone says "the API is slow", "p99 is high", "it works locally but not
+  under load", "find the bottleneck"
+- you need to check a project for perf problems (N+1, missing index,
+  pool exhaustion, cache miss, rate limiter, slow journey step)
+- you need a before/after proof for a migration, tuning pass, or release
+- you are editing the barrage repo itself
 
 ## Install / build
 
@@ -47,13 +56,191 @@ Seed a real Postgres for DB profiles:
 go run ./cmd/seeddb -conn "postgres://user:pass@localhost:5432/mydb?sslmode=disable" -n 1000000
 ```
 
+## Bottleneck-hunting workflow (follow this order)
+
+Do not jump straight to a heavy run. Inspect first, ask second, isolate
+third, then stress. **Never assume URLs, ports, DB conns, query text,
+rates, or thresholds — derive them from the project or ask.**
+
+### 0. Inspect the CURRENT project first (mandatory, before any YAML)
+
+The target is the user's current working directory, not the barrage
+repo and not the demo server. Before writing any config:
+
+- List cwd: README, routes/handlers, DB migrations/schema, Redis usage,
+  `docker-compose*.yml`, `.env*`, `config.yaml`, existing barrage
+  YAMLs, `package.json`/`go.mod`/`requirements.txt`.
+- Extract real values only: actual route paths + methods, actual ports
+  from code/compose (not 8080 by default), actual DB driver + DSN shape
+  (never real passwords — use placeholders and ask), actual Redis addr,
+  limiter/proxy settings, pool sizes.
+- If the cwd IS the barrage repo itself, say so and use the demo stack
+  (`cmd/demoserver`, `examples/`) only after confirming with the user.
+
+Do not copy `examples/light.yaml` URLs blindly. Every URL, DSN, query,
+and rate in your YAML must trace to a file you read or an answer the
+user gave. Cite the source (`path:line`) in your plan.
+
+### 1. Ask the user what to test (mandatory question gate)
+
+After inspecting, ask via the question tool and wait. Do not run
+barrage until the user confirms at minimum the target + scope. Ask:
+
+1. Which endpoint(s) or journey(s) feel slow? (exact paths or flow)
+2. Which environment may I hit? (local / staging — never prod without
+   explicit OK) and what base URL / port?
+3. What does "slow" mean here? (SLO: e.g. P99 < 200ms; current symptom)
+4. What traffic shape? (expected req/s, how many users, read vs write mix)
+5. Which layers are in scope? (HTTP/app, DB with which queries, Redis
+   with which commands) — and may I read your query files to copy
+   exact SQL?
+6. Any recent change to prove? (migration, index, tuning, release —
+   determines baseline vs current compare)
+
+If the user skips a question, mark it UNKNOWN and pick the safest
+default (local, light rate, short duration) — never silently invent
+production values. Re-ask rather than assume.
+
+### 2. Recon the target project (2 min, no load yet)
+
+Before running anything, answer:
+
+- Stack: what framework, what DB driver/ORM, is Redis in the request
+  path or side-cache, is there a rate limiter / reverse proxy?
+- Request path: which endpoint or journey is reported slow? What DB
+  tables/queries does it touch? Any `SELECT` in a loop (N+1)?
+- Pools/limits: DB `max_connections` / pool size, Redis `maxclients`,
+  app `concurrency`, limiter req/s. Note them — you will compare
+  barrage `concurrency` and `rate` against these.
+- Data volume: empty local DB lies. Seed (`cmd/seeddb`) or point at a
+  staging-sized dataset before trusting any DB verdict.
+
+### 3. Baseline: light run, all layers
+
+```sh
+barrage run -c examples/light.yaml --json baseline.json
+```
+
+Goal is a clean reference, not a failure. Expect `SUCCESS ~100%`,
+`RATE` near configured `rate`, `correlated spikes: none`.
+
+### 4. Isolate: one runner at a time
+
+Copy the config and comment out runners so each layer is tested alone:
+
+- `http:` only → measures app + full stack through the endpoint.
+- `db:` only → measures raw query mix (bypasses HTTP). Use the exact
+  queries the slow endpoint runs, weighted like production.
+- `redis:` only → measures raw commands.
+- `scenario:` only → measures real user journeys (login → me →
+  checkout). Prefer this over `http:` when auth/token or multi-step
+  flows matter.
+
+If DB-only is slow but HTTP-only is fast at low rate, the app is
+currently masking a storage problem (see verdicts below).
+
+### 5. Stress: raise rate + concurrency, add ramp
+
+```sh
+barrage run -c examples/heavy.yaml --json stressed.json
+# or override inline:
+barrage run -c config.yaml --duration 1m --ramp 10s --concurrency 50 --json stressed.json
+```
+
+Keep `bucket_width: 1s`, `duration >= 20s` so buckets are meaningful.
+Use `ramp` (e.g. `10s`) to separate cold-start noise from real
+saturation — spikes only inside the ramp window usually mean warm-up,
+not a bottleneck.
+
+### 6. Read the output in this order
+
+1. **Runner table** (`RUNNER REQUESTS SUCCESS RATE MEAN P50 P95 P99 MAX`).
+2. **Correlated spikes table** (`TIME RUNNER HTTP_P99 STORAGE_P99 NOTE`).
+3. **Latency timeline** in `report.html` — which curve bent first?
+4. **Capacity story** in the report — strain point in users.
+5. **`results.json`** for exact numbers / CI diffing.
+
+### 7. Report a verdict, not raw numbers
+
+Every diagnosis must end with this block:
+
+```text
+Bottleneck: DB | Redis | HTTP/app | EVEN | None (masked only / clean)
+Evidence: <which runner, which bucket time, HTTP P99 xms vs storage P99 yms, timeline direction>
+Impact: correlated (users feel it) | masked (ticking bomb) | none yet
+Next fix: <one concrete change: add index on X, raise pool N→M, cache Y, raise/fix limiter, split journey step Z>
+Re-test: <exact barrage command + config change to prove the fix>
+```
+
+If you cannot fill `Evidence`, you have not run enough isolation —
+say so and run the missing profile instead of guessing.
+
+## How to interpret results
+
+### The four verdicts
+
+| Signal | Meaning | What to say |
+|---|---|---|
+| `correlated` (HTTP + DB/Redis both over threshold, same bucket) | Storage spike dragged the app with it | Bottleneck is that storage runner. Fix the query/cache, not the handler. |
+| `masked` / `db-only` / `redis-only` (storage over, HTTP under) | Storage is spiking but app still absorbs it | Ticking bomb. Report it as "masked DB/Redis bottleneck at HH:MM:SS, app unaffected yet". Common with small rates or big app pools. |
+| HTTP-only slow (HTTP P99 high, no storage spike) | App problem | Do NOT blame the DB. Look at handler code, serialization, middleware, limiter, GC, downstream HTTP. |
+| No spikes, but P99 climbs with rate | Saturation without a sharp spike | Check `RATE` vs target (see below) + capacity knee. Usually pool/connection/limiter ceiling. |
+
+Scenario mode: the "HTTP" reference is synthesized as the worst
+per-bucket journey P99 across scenarios, so the same table applies —
+`login-flow P99 12ms vs db P99 136ms masked` still means DB is hot but
+journeys absorbed it.
+
+### Fields agents misread
+
+- `SUCCESS` < 100% + `STATUS 429×N` → rate limiter absorbed the burst,
+  not the backend. The README TodoAPI example is exactly this: flat
+  ~5ms p50 with all 429s means the limiter did its job; boost the
+  limiter to test the real backend.
+- `STATUS 5xx×N` → app errors under load. Treat as HTTP/app verdict
+  even if DB also spikes (app is falling over first).
+- `RATE` well below configured `rate` → `concurrency` starved. The pool
+  backed up; throughput settled below target **by design**. Raise
+  `concurrency` and re-run before calling anything a bottleneck.
+- `MEAN` << `P99` → tail problem (a few buckets/queries explode).
+  Look at per-bucket `-v` output and the timeline, not the mean.
+- `P50` fine, `P95/P99` bad → classic storage tail (missing index,
+  lock contention, big SCAN). Check which weighted query dominates the
+  slow buckets with `-v`.
+- Timeline `-1` → no request in that bucket (gap before ramp produced
+  hits). Never read it as 0ms latency.
+- First-bucket spike only → cold start / connection warm-up, not a
+  bottleneck. Require 3+ sustained buckets (same rule as the capacity
+  knee: worst journey P99 > 2× median for 3+ buckets).
+
+### Thresholds
+
+Defaults are 100ms per runner (`--http-threshold`, `--db-threshold`,
+`--redis-threshold`). Tune to the SLO, not to make spikes disappear:
+
+```sh
+barrage run --http-threshold 150ms --db-threshold 250ms --redis-threshold 80ms
+```
+
+- API SLO 200ms → set `--http-threshold` near it so `correlated`
+  means "users breach SLO".
+- Cache should be single-digit ms → `--redis-threshold 20ms` surfaces
+  cache regressions early.
+- Never set storage thresholds far above HTTP's to hide `masked`
+  spikes — masked is the early warning.
+
 ## Config rules (where agents get bitten)
 
 - Default file is `config.yaml`. At least one of `http`, `db`, `redis`,
   `scenario` is required. **Unknown keys are rejected** — a typo fails loudly.
+- **Never invent values.** Every `url`, `conn`, `addr`, `query`, `rate`,
+  and threshold must come from Step 0 inspection or Step 1 user answers.
+  No guessing ports (not always 8080), no fake tables, no placeholder
+  queries presented as results.
 - Durations are Go format: `15s`, `1m30s`, `500ms`.
 - `scenario:` (singular) **cannot** combine with `http:` — a scenario *is* your
-  HTTP load. `scenarios:` (plural) is rejected with a rename hint.
+  HTTP load. `scenarios:` (plural) is rejected with a rename hint. To mix
+  plain hits with flows, model the plain hit as a one-step scenario.
 - `rate` is a *target*. If `concurrency` is too small to keep up, throughput
   settles below target — that is intentional, not a bug.
 - `concurrency`: HTTP → vegeta MaxWorkers (0 = autoscale); DB/Redis → pool
@@ -63,10 +250,316 @@ go run ./cmd/seeddb -conn "postgres://user:pass@localhost:5432/mydb?sslmode=disa
   Prefer explicit `type`. `args` is per-query, not global.
 - `driver`: `postgres` | `mysql` | `sqlite` (pure-Go, no CGO). Aliases like
   `postgresql`/`sqlite3` are normalized; anything else fails with the valid list.
+  DSN per driver: Postgres `postgres://...`, MySQL
+  `user:pass@tcp(host:3306)/db`, SQLite file path `/tmp/test.db`.
 - Scenario vars: `extract: {token: $.token}` (gjson path) then
   `{{token}}` in later step `url`/`body`/`headers`. Missing vars stay literal
   `{{var}}` so misconfig is visible. Each VU picks one scenario once
-  (weighted), then loops it until `duration` expires.
+  (weighted by `weight`), then loops it until `duration` expires.
+- Every `--flag` overrides its config counterpart. `--open` cannot combine
+  with `--no-report`. Use `-v` for per-bucket tables when a tail needs
+  explaining.
+
+## How to construct the YAML (full reference)
+
+Start from a minimal file, then add runners. Validate with
+`barrage run -c file.yaml --json out.json` or `POST /api/validate {yaml}` —
+same strict loader, unknown keys fail.
+
+Top-level skeleton (every run needs this + at least one runner):
+
+```yaml
+duration: 30s       # required, Go format: 15s, 1m30s, 500ms
+bucket_width: 1s    # correlation bucket; keep 1s unless run > 5min
+ramp: 5s            # 0 = full rate from first request; 5-10s for stress runs
+concurrency: 20     # 0 = HTTP autoscale, DB/Redis pool defaults to 10
+
+http: {}    # OR db: {} OR redis: {} OR scenario: []
+```
+
+Minimal valid configs:
+
+```yaml
+# http-only (simplest smoke test)
+duration: 15s
+concurrency: 10
+http:
+  rate: 10
+  target:
+    method: GET
+    url: http://localhost:8080/api/products
+```
+
+```yaml
+# scenario-only (auth flow, no http: section allowed alongside)
+duration: 15s
+concurrency: 10
+scenario:
+  - name: login-flow
+    steps:
+      - method: POST
+        url: http://localhost:8080/api/login
+        body: '{"user":"alice"}'
+        headers: {Content-Type: application/json}
+```
+
+### `http:` — plain endpoint load
+
+```yaml
+http:
+  rate: 50   # req/s target; if RATE in output is far lower, raise concurrency
+  target:
+    method: GET                    # GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS (empty = GET)
+    url: http://localhost:8080/api/todos
+    body: '{"customer": 42}'       # optional, plain string
+    header:                        # optional; string OR list both work
+      content-type: [application/json]
+      authorization: Bearer some-token   # single string also OK
+```
+
+### `db:` — weighted query mix
+
+```yaml
+db:
+  rate: 80   # total q/s across the weighted list, not per query
+  target:
+    driver: postgres   # postgres|mysql|sqlite (postgresql/pg/sqlite3 normalized)
+    conn: postgres://user:pass@localhost:5432/mydb?sslmode=disable
+    # mysql: user:pass@tcp(localhost:3306)/mydb
+    # sqlite: /tmp/test.db
+    queries:           # at least 1; one picked per request by weight
+      - query: SELECT customer, amount FROM orders LIMIT 10
+        weight: 70    # 0 = never picked; omit → 0, so always set it
+        type: read    # read → Query, write → Exec; omit = sniff SQL text
+        # args: [42]  # optional, per-query bind params only
+      - query: INSERT INTO orders (customer, amount) VALUES ('load', 1)
+        weight: 30
+        type: write
+```
+
+Copy the slow endpoint's real queries here with prod-like weights
+(70% reads / 30% writes). `type` is authoritative — always set it;
+the fallback sniffs `SELECT/SHOW/EXPLAIN/WITH → read`, anything with
+`RETURNING` → write.
+
+### `redis:` — weighted command mix
+
+```yaml
+redis:
+  rate: 300
+  target:
+    addr: localhost:6379
+    password: ""   # optional
+    db: 0
+    queries:
+      - {query: PING, weight: 1}
+      - {query: GET sess:loadtest, weight: 5}   # splitCommand on spaces
+      - {query: SET sess:loadtest ok, weight: 1}
+```
+
+### `scenario:` — user journeys (the part agents get wrong)
+
+A scenario is a list of named flows. Each virtual user picks **one**
+flow once at launch (weighted), then loops it until `duration` expires.
+It **replaces** `http:` — never put both in one file (`scenarios:`
+plural is also rejected).
+
+```yaml
+scenario:
+  - name: browse          # defaults to "scenario" if empty
+    weight: 70            # default 1 if omitted; negative = error
+    steps:                # at least 1 step, run in order
+      - method: GET
+        url: http://localhost:8080/api/products
+      - method: GET
+        url: http://localhost:8080/api/orders
+
+  - name: checkout-flow
+    weight: 30
+    steps:
+      - method: POST
+        url: http://localhost:8080/api/login
+        body: '{"user":"alice"}'
+        headers:
+          Content-Type: application/json
+        extract:
+          token: $.token        # gjson path on JSON response → Vars[token]
+          uid: $.user.id        # nested paths OK; missing/non-JSON = var unset
+      - method: GET
+        url: http://localhost:8080/api/checkout?token={{token}}
+        headers:
+          Authorization: Bearer {{token}}   # {{var}} in url/body/headers
+```
+
+Rules that bite:
+
+- `method` + `url` are required per step. `headers` is
+  `map[string]string` (unlike `http.header` which allows lists).
+- `{{var}}` interpolates from that VU's own Vars only — no sharing
+  between users. Missing var stays literal `{{var}}` so you see the
+  misconfig in logs; check `extract` path and that the prior step
+  returned JSON + 2xx.
+- Success = every step 2xx with no error. One 429/500 poisons the
+  whole iteration — that is intentional, check per-step status.
+- To mix plain hits with flows, write the plain hit as a one-step
+  scenario. To test one slow step, split it into its own scenario and
+  load it alone.
+- Scenario **can** run alongside `db:`/`redis:` (buckets share the
+  same unix-second scheme) — that is how you prove a journey is
+  DB-bound.
+
+### Full combined example (journey + storage on one clock)
+
+```yaml
+duration: 30s
+bucket_width: 1s
+ramp: 5s
+concurrency: 20
+scenario:
+  - name: checkout-flow
+    weight: 1
+    steps:
+      - method: POST
+        url: http://localhost:8080/api/login
+        body: '{"user":"alice"}'
+        headers: {Content-Type: application/json}
+        extract: {token: $.token}
+      - method: GET
+        url: http://localhost:8080/api/me
+        headers: {Authorization: Bearer {{token}}}
+db:
+  rate: 80
+  target:
+    driver: postgres
+    conn: postgres://user:pass@localhost:5432/mydb?sslmode=disable
+    queries:
+      - {query: SELECT amount FROM orders WHERE id = 1, weight: 1, type: read}
+redis:
+  rate: 100
+  target:
+    addr: localhost:6379
+    queries:
+      - {query: PING, weight: 1}
+```
+
+### Validation errors you will hit
+
+| Error | Fix |
+|---|---|
+| `unknown field "X"` | typo — check key spelling against this doc |
+| `must specify at least one runner` | empty file or all runners commented out |
+| `scenario mode cannot be combined with http` | delete one; scenario *is* HTTP load |
+| `scenarios: is renamed to scenario:` | singular |
+| `weight must not be negative` / `total weight must be > 0` | set positive weights |
+| `url must not be empty` / `invalid method` | fill per-step `method`+`url` |
+| `unsupported driver` | use postgres\|mysql\|sqlite (+ aliases) |
+
+## Diagnosis recipes (copy/paste)
+
+**Slow endpoint, unknown cause:**
+
+```yaml
+# step 1: http-only against the real endpoint
+duration: 30s
+bucket_width: 1s
+ramp: 5s
+concurrency: 20
+http:
+  rate: 50
+  target: {method: GET, url: http://localhost:8080/api/todos}
+```
+
+```yaml
+# step 2: db-only with the endpoint's real queries, weighted like prod
+duration: 30s
+bucket_width: 1s
+ramp: 5s
+concurrency: 20
+db:
+  rate: 80
+  target:
+    driver: postgres
+    conn: postgres://user:pass@localhost:5432/mydb?sslmode=disable
+    queries:
+      - {query: SELECT customer, amount FROM orders LIMIT 10, weight: 70, type: read}
+      - {query: INSERT INTO orders (customer, amount) VALUES ('load', 1), weight: 30, type: write}
+```
+
+Run both with `--json`, then run combined and read `correlated spikes`.
+DB spikes alone in step 2 + correlated in combined = DB bottleneck proven.
+
+**Suspected N+1 / slow journey:**
+
+```yaml
+duration: 30s
+bucket_width: 1s
+concurrency: 20
+scenario:
+  - name: checkout-flow
+    weight: 30
+    steps:
+      - method: POST
+        url: http://localhost:8080/api/login
+        body: '{"user":"alice"}'
+        headers: {Content-Type: application/json}
+        extract: {token: $.token}
+      - method: GET
+        url: http://localhost:8080/api/checkout?token={{token}}
+        headers: {Authorization: Bearer {{token}}}
+```
+
+If one step's latency dominates, split the scenario and load that step
+alone to confirm.
+
+**Cache not helping:**
+
+```yaml
+redis:
+  rate: 300
+  target:
+    addr: localhost:6379
+    queries:
+      - {query: PING, weight: 1}
+      - {query: GET sess:loadtest, weight: 5}
+```
+
+Redis P99 > threshold while HTTP stays flat = masked Redis issue
+(evictions, big values, single-thread saturation). Redis P99 flat while
+HTTP climbs = cache miss path hitting DB — check DB buckets next.
+
+## Compare / CI gate (prove a fix or catch a regression)
+
+```sh
+barrage run --no-report --json baseline.json   # before the change
+# ... apply fix / ship release ...
+barrage run --no-report --json current.json    # after
+barrage compare --baseline baseline.json --current current.json --fail-on 100ms
+# exit non-zero on REGRESSION: current P99 over budget while baseline was under
+```
+
+- A runner already slow in baseline is *not* re-flagged — only budget
+  crossings fail. Brand-new runners show `NEW`, never `REGRESSION`.
+- Spike diff matches by ordinal per runner (1st DB spike vs 1st DB
+  spike) because two runs never share a clock: `new` / `fixed` /
+  `worsened` / `improved` / `unchanged`.
+- Overlaid timeline (baseline dashed, current solid) shows *where* in
+  the run latency drifted — use it to distinguish ramp noise from
+  sustained regression.
+
+## False bottlenecks checklist (check before blaming code)
+
+- [ ] Limiter/proxy returning 429/503 — check `STATUS` column first.
+- [ ] `concurrency` too low — `RATE` below target means starved pool,
+      not slow backend.
+- [ ] Empty/unseeded DB — fast queries on 100 rows prove nothing.
+      Seed with `cmd/seeddb` (COPY, 100k-row chunks).
+- [ ] Ramp window only — ignore single early-bucket spikes.
+- [ ] Wrong `type:` on DB queries — writes routed through `Query`
+      (or vice versa) distort latency; set explicit `read`/`write`.
+- [ ] `{{var}}` left literal in scenario URLs — extract path wrong or
+      non-JSON response; var stays `{{var}}` deliberately so you see it.
+- [ ] miniredis/httptest vs real service — unit-test backends don't
+      saturate like prod; confirm against staging before verdicting.
 
 ## CLI reference
 
@@ -79,9 +572,6 @@ barrage compare --baseline base.json --current new.json --fail-on 100ms
 barrage web --addr :8081                      # localhost:7676 by default
 barrage version
 ```
-
-Every `--flag` overrides its config counterpart. `--open` cannot combine with
-`--no-report`.
 
 ## How it works (read code in this order)
 
@@ -115,17 +605,6 @@ Runs, story + technical report views, and file-or-run compare. API:
 
 `webui/` is vanilla JS, no build step. Open it with `barrage web` — don't
 `python3 -m http.server` it and expect runs to work (API won't exist).
-
-## Compare / CI gate
-
-```sh
-barrage run --no-report --json baseline.json   # before the change
-barrage run --no-report --json current.json    # after
-barrage compare --baseline baseline.json --current current.json --fail-on 100ms
-# exit non-zero on REGRESSION: current P99 over budget while baseline was under
-```
-
-A runner already slow in baseline is *not* re-flagged — only crossings fail.
 
 ## Tests
 
