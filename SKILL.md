@@ -246,9 +246,9 @@ barrage run --http-threshold 150ms --db-threshold 250ms --redis-threshold 80ms
   the gap. Start = run's `concurrency`; `ramp:`/`duration:` are ignored while
   it runs. A level breaks on any runner's P99 over its threshold or success
   < 95%, attributed per runner (`CAUSE` column, `broken_by` JSON). Paced rates
-  scale with the level; scenario load comes from VUs. Same mode lives in the
-  web UI run-settings toggle and `--auto-ramp` / `--ramp-max-concurrency` /
-  `--ramp-step-duration` flags. See `examples/auto-ramp-pg.yaml`.
+  scale with the level; scenario load comes from VUs. Same mode via
+  `--auto-ramp` / `--ramp-max-concurrency` / `--ramp-step-duration` flags.
+  See `examples/auto-ramp-pg.yaml`.
 - `rate` is a *target*. If `concurrency` is too small to keep up, throughput
   settles below target — that is intentional, not a bug.
 - `concurrency`: HTTP → vegeta MaxWorkers (0 = autoscale); DB/Redis → pool
@@ -271,7 +271,7 @@ barrage run --http-threshold 150ms --db-threshold 250ms --redis-threshold 80ms
 ## How to construct the YAML (full reference)
 
 Start from a minimal file, then add runners. Validate with
-`barrage run -c file.yaml --json out.json` or `POST /api/validate {yaml}` —
+`barrage run -c file.yaml --json out.json` —
 same strict loader, unknown keys fail.
 
 Top-level skeleton (every run needs this + at least one runner):
@@ -586,7 +586,6 @@ barrage run --no-report --json results.json   # CI mode
 barrage run -v                                # per-bucket tables
 barrage run -c config.yaml --auto-ramp --ramp-max-concurrency 160 --ramp-step-duration 10s
 barrage compare --baseline base.json --current new.json --fail-on 100ms
-barrage web --addr :8081                      # localhost:7676 by default
 barrage version
 ```
 
@@ -595,34 +594,16 @@ barrage version
 | Piece | File | Note |
 |---|---|---|
 | Fan-out | `barrage.go` → `Orchestrator()` | one goroutine per runner, `Stats` shared for live progress |
-| Config | `config.go` → `LoadConfigBytes()` | single loader; the web UI validates through this too — never fork validation |
+| Config | `config.go` → `LoadConfigBytes()` | single loader for everything — never fork validation |
 | Runners | `http.go`, `db.go`, `redis.go`, `scenario_run.go` | DB/Redis pace at `rate`/s into a pond pool; buckets key on submission time |
 | Auto-ramp | `ramp.go` → `RunAutoRamp()` | coarse double + fine fill over concurrency; `fireDB`/`fireRedis` shared with normal runs; pools stay warm across levels |
 | Correlation | `correlation.go` → `Correlate()` | storage P99 > threshold ⇒ **correlated** (HTTP also over) or **masked** (HTTP under, `masked: true`, CLI shows `db-only`/`redis-only`) |
-| Capacity knee | `webui/app.js` → `buildCapacity()` | strain = worst journey P99 > 2× median for 3+ buckets; mirrored in report copy |
+| Capacity knee | `story.go` → `capacityLine()` | strain = worst journey P99 > 2× median for 3+ buckets |
 | Report | `report.go` + `templates/report.html` | template is `go:embed`ded; a `templates/report.html` next to the binary overrides it |
 | Compare | `compare.go` | P99 diff per runner + spike diff by ordinal (runs never share a clock); NEW runners never regress |
-| Web UI | `ui.go` + `webui/` | `NewUIServer(addr)`; static assets embedded, runs under `~/.barrage/ui/runs/` |
-
 Timeline detail: per-bucket `p99_ms` uses `-1` for "no request in bucket"
 (rendered as a chart gap, never as latency). Buckets align on unix start time
 across runners — that alignment is the whole product, don't break it.
-
-## Web UI
-
-`barrage web` serves the config builder (simple/advanced modes, presets, live
-YAML preview, import), one-at-a-time run execution (`409` if busy), Recent
-Runs, story + technical report views, and file-or-run compare. API:
-
-- `POST /api/validate` `{yaml}` → `{ok, runners}` (same loader as CLI)
-- `POST /api/runs` `{yaml, *_threshold_ms}` → `{id, duration_s}`
-- `GET /api/runs`, `GET /api/runs/{id}/status|report|json`
-- `POST /api/compare` `{baseline_id, current_id, fail_on_ms}`
-- `POST /api/compare-upload` `{baseline, current, fail_on_ms}`
-- `GET /api/version` → `{version}` (baked in via ldflags at release)
-
-`webui/` is vanilla JS, no build step. Open it with `barrage web` — don't
-`python3 -m http.server` it and expect runs to work (API won't exist).
 
 ## Tests
 
@@ -639,8 +620,7 @@ commit them.
 
 ## Making it better (house rules)
 
-- **One loader.** All config parsing goes through `LoadConfigBytes`. The UI's
-  import path and `/api/validate` already use it — keep it that way.
+- **One loader.** All config parsing goes through `LoadConfigBytes` — keep it that way.
 - **Boring Go, stdlib first.** Match existing style: short funcs, explicit
   errors (`fmt.Errorf("...: %w", err)`), no new frameworks for solved problems.
 - **Thresholds are per-runner** (`--http-threshold`, `--db-threshold`,

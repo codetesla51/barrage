@@ -78,30 +78,8 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	// NOTE: web UI is parked, not removed (ui.go + webui/ stay in tree).
-	// It kept breaking mid-run and cost double implementation per feature.
-	// Re-enable by registering newUICmd() below once it earns its keep.
 	root.AddCommand(newRunCmd(), newCompareCmd(), newVersionCmd())
 	return root
-}
-
-// PARKED: web UI disabled (see root command). Kept for a possible return;
-// delete ui.go + webui/ if it stays parked.
-func newUICmd() *cobra.Command {
-	var addr string
-	cmd := &cobra.Command{
-		Use:     "web",
-		Aliases: []string{"ui"},
-		Short:   "Start the local web UI for building configs and running tests",
-		Long:    banner + "\n\nStarts a localhost web server with a config builder, live YAML preview,\nand inline reports. No auth — same trust model as the CLI.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			srv := barrage.NewUIServer(addr)
-			fmt.Printf("barrage web listening on http://%s\n", addr)
-			return srv.ListenAndServe()
-		},
-	}
-	cmd.Flags().StringVar(&addr, "addr", "localhost:7676", "listen address")
-	return cmd
 }
 
 func newRunCmd() *cobra.Command {

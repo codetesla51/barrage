@@ -114,8 +114,8 @@ P99 crosses its threshold or success drops under 95% — the verdict names the
 culprit (`CAUSE db`, `http,redis`, …), and the report charts concurrency vs
 P99 so you see a cliff or a slope, not just one number. `ramp:` and
 `duration:` are ignored while auto-ramp runs (set them `0s`/anything; the
-loader still requires the keys). The web UI exposes the same mode as an
-auto-ramp toggle in run settings.
+loader still requires the keys). The same mode is available as
+`--auto-ramp` / `--ramp-max-concurrency` / `--ramp-step-duration` flags.
 
 Same-machine caveat: running the generator on the same box as the app,
 database, or Redis means all of them fight for the same CPU — the break
@@ -398,18 +398,6 @@ barrage run -c staging.yaml --duration 1m --ramp 10s --concurrency 50
 barrage run --http-threshold 150ms --db-threshold 250ms --redis-threshold 80ms  # adjust spike thresholds
 barrage run --no-report --json results.json                 # for CI pipelines
 barrage version                                            # print the version
-```
-
-### Web UI
-
-`barrage web` starts a localhost server (default `http://localhost:7676`)
-with a config builder, live YAML preview, and inline reports — the same
-runners and validation as the CLI, no auth. Use `--addr` to change the
-listen address.
-
-```sh
-barrage web                 # build configs and run tests from the browser
-barrage web --addr :8081    # listen on a different address
 ```
 
 ### Compare runs
