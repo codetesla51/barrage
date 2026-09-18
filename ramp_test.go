@@ -40,6 +40,7 @@ func TestPlanFineLevels(t *testing.T) {
 		want       []int
 	}{
 		{"wide gap quarters", 80, 160, []int{100, 120, 140}},
+		{"shrunk bracket closes in", 10, 12, []int{11}},
 		{"adjacent none", 80, 81, nil},
 		{"same none", 80, 80, nil},
 		{"small gap ones", 80, 83, []int{81, 82}},

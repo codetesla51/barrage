@@ -232,11 +232,23 @@ func RunAutoRamp(cfg OrchestratorConfig, ramp AutoRampConfig, httpTh, dbTh, redi
 			break
 		}
 	}
-	if firstBroken != 0 && firstBroken-lastOK > 1 {
+	// Keep filling the shrinking bracket until ok and broken are adjacent.
+	// One pass can straddle the knee (step 2 probes 12,14,16,18 but never
+	// 11); each new level sits strictly inside the bracket, so one bound
+	// moves inward every round and this always terminates.
+	for firstBroken != 0 && firstBroken-lastOK > 1 {
+		progress := false
 		for _, conc := range planFineLevels(lastOK, firstBroken) {
-			if _, err := runLevel(conc); err != nil {
+			step, err := runLevel(conc)
+			if err != nil {
 				return nil, err
 			}
+			if step != nil {
+				progress = true
+			}
+		}
+		if !progress {
+			break
 		}
 	}
 
