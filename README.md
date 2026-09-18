@@ -48,7 +48,7 @@ Report written to report.html
 
 ![Barrage HTML Report — latency timeline](./docs/todo-api-run-2.png)
 
-*A 3-minute heavy run against the TodoAPI stack (Gin + Postgres + Redis): `GET /api/todos` over HTTP at 120/s, a weighted read/write query mix against Postgres at 80/s, and Redis commands at 300/s, with a 60s ramp and concurrency 50. With the app's rate limiter left at production settings it absorbed nearly the whole HTTP burst as 429s — the API stayed flat at ~5ms p50 while the real load landed on the data stores. With the limiter boosted, every request reached the backend and latency dropped straight through to the database: Postgres saturates and drags HTTP P99 to multi-second territory, while Redis stays under 100ms P99. One bottleneck, three correlated curves.*
+*A 3-minute heavy run against the TodoAPI stack (Gin + Postgres + Redis): `GET /api/todos` over HTTP at 120/s, a weighted read/write query mix against Postgres at 80/s, and Redis commands at 300/s, with a 60s ramp and concurrency 50 — generator, app, Postgres, and Redis all on the same machine, so treat the absolute numbers as relative, not as production capacity. With the app's rate limiter left at production settings it absorbed nearly the whole HTTP burst as 429s — the API stayed flat at ~5ms p50 while the real load landed on the data stores. With the limiter boosted, every request reached the backend and latency dropped straight through to the database: Postgres saturates and drags HTTP P99 to multi-second territory, while Redis stays under 100ms P99. One bottleneck, three correlated curves.*
 
 ## Getting started (30 seconds)
 
@@ -116,6 +116,12 @@ P99 so you see a cliff or a slope, not just one number. `ramp:` and
 `duration:` are ignored while auto-ramp runs (set them `0s`/anything; the
 loader still requires the keys). The web UI exposes the same mode as an
 auto-ramp toggle in run settings.
+
+Same-machine caveat: running the generator on the same box as the app,
+database, or Redis means all of them fight for the same CPU — the break
+point you find is the machine's, not the system's. Good enough for
+comparing configs and finding the culprit layer; not a production capacity
+number. For a real one, generate load from a separate machine.
 
 ### Capacity finder
 
