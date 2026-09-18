@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -505,14 +505,46 @@ func printResults(result *barrage.OrchestratorResult, verbose bool) {
 	}
 }
 
-// writeTable prints a header and rows as an aligned column table.
+// ansiEscape matches color codes so column widths measure visible text.
+// text/tabwriter counts those bytes as width and blows out alignment.
+var ansiEscape = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+func visibleLen(s string) int {
+	return len(ansiEscape.ReplaceAllString(s, ""))
+}
+
+// writeTable prints a header and rows as an aligned column table,
+// padding on visible width so colored cells align with plain ones.
 func writeTable(header []string, rows [][]string) {
-	table := tabwriter.NewWriter(os.Stdout, 2, 0, 2, ' ', 0)
-	fmt.Fprintln(table, strings.Join(header, "\t"))
-	for _, r := range rows {
-		fmt.Fprintln(table, strings.Join(r, "\t"))
+	widths := make([]int, len(header))
+	for i, h := range header {
+		widths[i] = visibleLen(h)
 	}
-	table.Flush()
+	for _, r := range rows {
+		for i := range header {
+			if i < len(r) && visibleLen(r[i]) > widths[i] {
+				widths[i] = visibleLen(r[i])
+			}
+		}
+	}
+	printRow := func(cols []string) {
+		var b strings.Builder
+		for i := range header {
+			cell := ""
+			if i < len(cols) {
+				cell = cols[i]
+			}
+			b.WriteString(cell)
+			if i < len(header)-1 {
+				b.WriteString(strings.Repeat(" ", widths[i]-visibleLen(cell)+2))
+			}
+		}
+		fmt.Println(b.String())
+	}
+	printRow(header)
+	for _, r := range rows {
+		printRow(r)
+	}
 }
 
 // printBucketTable renders one storage runner's per-bucket stats as a table.

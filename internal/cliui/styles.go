@@ -34,10 +34,10 @@ func Ok(s string) string { return okStyle.Render(s) }
 // Accent renders amber accent text (bottlenecks, correlated notes).
 func Accent(s string) string { return accentStyle.Render(s) }
 
-// VerdictColorize colors a compare verdict: REGRESSION red, ok dim.
+// VerdictColorize colors a verdict: REGRESSION/BROKEN red, ok dim.
 func VerdictColorize(v string) string {
 	switch v {
-	case "REGRESSION":
+	case "REGRESSION", "BROKEN":
 		return errStyle.Render(v)
 	case "ok":
 		return dimStyle.Render(v)
