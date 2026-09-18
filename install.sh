@@ -4,7 +4,7 @@
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash
-#   curl -fsSL .../install.sh | bash -s -- --version v0.5.0 --dir ~/.local/bin
+#   curl -fsSL .../install.sh | bash -s -- --version v0.6.0 --dir ~/.local/bin
 #   ./install.sh --from-source --version latest
 #
 # Flags:
