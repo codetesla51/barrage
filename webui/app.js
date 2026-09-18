@@ -10,6 +10,7 @@ const defaultState = () => ({
   bucket_width: "1s",
   ramp: "3s",
   concurrency: 10,
+  auto_ramp: { on: false, max_concurrency: 40, step_duration: "10s" },
   http_threshold: "100ms",
   db_threshold: "100ms",
   redis_threshold: "100ms",
@@ -86,6 +87,13 @@ function generateYAML() {
   L.push(`bucket_width: ${ydur(state.bucket_width, "1s")}`);
   if (String(state.ramp).trim() !== "" && state.ramp !== "0s") L.push(`ramp: ${state.ramp}`);
   L.push(`concurrency: ${ynum(state.concurrency)}`);
+
+  if (state.auto_ramp && state.auto_ramp.on) {
+    L.push("");
+    L.push("auto_ramp:");
+    L.push(`  max_concurrency: ${ynum(state.auto_ramp.max_concurrency)}`);
+    L.push(`  step_duration: ${ydur(state.auto_ramp.step_duration, "10s")}`);
+  }
 
   if (state.http.on) {
     L.push("");
@@ -283,6 +291,12 @@ function validateState() {
 
   const c = Number(state.concurrency);
   need(Number.isInteger(c) && c >= 0, "concurrency", "concurrency must be an integer ≥ 0");
+
+  if (state.auto_ramp && state.auto_ramp.on) {
+    const m = Number(state.auto_ramp.max_concurrency);
+    need(Number.isInteger(m) && m > c, "ramp-max-concurrency", "max concurrency must be an integer above concurrency");
+    need(isDuration(state.auto_ramp.step_duration), "ramp-step-duration", "step duration must be like 10s");
+  }
 
   if (state.http.on) {
     need(Number(state.http.rate) > 0, "http-rate", "http rate must be > 0");
@@ -593,6 +607,8 @@ function bindStaticFields() {
     bucket_width: (v) => (state.bucket_width = v),
     ramp: (v) => (state.ramp = v),
     concurrency: (v) => (state.concurrency = v),
+    "ramp-max-concurrency": (v) => (state.auto_ramp.max_concurrency = v),
+    "ramp-step-duration": (v) => (state.auto_ramp.step_duration = v),
     http_threshold: (v) => (state.http_threshold = v),
     db_threshold: (v) => (state.db_threshold = v),
     redis_threshold: (v) => (state.redis_threshold = v),
@@ -616,6 +632,7 @@ function bindStaticFields() {
     $$(`[name="${name}"]`).forEach((input) =>
       input.addEventListener("input", () => { set(input.value); changed(); }));
   }
+  $("#en-auto-ramp").addEventListener("change", (e) => { state.auto_ramp.on = e.target.checked; changed(); });
   $("#en-http").addEventListener("change", (e) => { state.http.on = e.target.checked; changed(); });
   $("#en-db").addEventListener("change", (e) => { state.db.on = e.target.checked; changed(); });
   $("#en-redis").addEventListener("change", (e) => { state.redis.on = e.target.checked; changed(); });
@@ -711,6 +728,9 @@ function hydrateFormFromState() {
 
   put("duration", state.duration); put("bucket_width", state.bucket_width);
   put("ramp", state.ramp); put("concurrency", state.concurrency);
+  $("#en-auto-ramp").checked = !!(state.auto_ramp && state.auto_ramp.on);
+  put("ramp-max-concurrency", state.auto_ramp ? state.auto_ramp.max_concurrency : "");
+  put("ramp-step-duration", state.auto_ramp ? state.auto_ramp.step_duration : "");
   put("http_threshold", state.http_threshold); put("db_threshold", state.db_threshold);
   put("redis_threshold", state.redis_threshold);
 
@@ -772,6 +792,7 @@ function importIntoState(raw, silent) {
   }
 
   const known = new Set(["duration", "bucket_width", "ramp", "concurrency",
+    "auto_ramp",
     "http_threshold", "db_threshold", "redis_threshold",
     "http", "db", "redis", "scenario"]);
   const unknown = Object.keys(doc).filter((k) => !known.has(k));
@@ -781,6 +802,11 @@ function importIntoState(raw, silent) {
   next.bucket_width = String(doc.bucket_width ?? next.bucket_width);
   next.ramp = doc.ramp == null ? "" : String(doc.ramp);
   next.concurrency = Number(doc.concurrency ?? next.concurrency);
+  if (doc.auto_ramp && typeof doc.auto_ramp === "object") {
+    next.auto_ramp.on = true;
+    next.auto_ramp.max_concurrency = Number(doc.auto_ramp.max_concurrency ?? next.auto_ramp.max_concurrency);
+    next.auto_ramp.step_duration = String(doc.auto_ramp.step_duration ?? next.auto_ramp.step_duration);
+  }
 
   if (doc.http) {
     next.http.on = true;
@@ -868,7 +894,11 @@ function buildPrerunSummary() {
   let text = `This will send ${parts.join(", ")} over ${state.duration}`;
   const ramp = parseDurSec(state.ramp);
   if (ramp > 0 && String(state.ramp).trim() !== "") text += `, ramping up over the first ${state.ramp}`;
-  text += ".";
+  if (state.auto_ramp && state.auto_ramp.on) {
+    text = `This will ramp concurrency ${state.concurrency || 10} → ${state.auto_ramp.max_concurrency} in ${state.auto_ramp.step_duration} bursts to find the break point (${parts.join(", ")}).`;
+  } else {
+    text += ".";
+  }
   $("#prerun-summary").textContent = text;
 
   const targets = $("#prerun-targets");
@@ -975,6 +1005,7 @@ function beginPolling(id, durationS) {
 
 function liveRunnersText() {
   const parts = [];
+  if (state.auto_ramp && state.auto_ramp.on) parts.push(`ramp → ${state.auto_ramp.max_concurrency}`);
   if (state.http.on) parts.push(`http · ${state.http.rate}/s`);
   if (state.db.on) parts.push(`db · ${state.db.rate}/s`);
   if (state.redis.on) parts.push(`redis · ${state.redis.rate}/s`);
@@ -1420,7 +1451,12 @@ function renderRunItems(list) {
     return;
   }
   for (const run of recentCache) {
-    const stats = (run.runners || []).map((r) => `${r.name} p99 ${r.p99_ms}ms`).join(" · ");
+    let stats = (run.runners || []).map((r) => `${r.name} p99 ${r.p99_ms}ms`).join(" · ");
+    if (!stats && run.ramp) {
+      stats = run.ramp.break_at
+        ? `ramp broke at ${run.ramp.break_at}`
+        : `ramp held to ${run.ramp.last_ok}`;
+    }
     const li = el("li", { class: "recent-row" });
     const cb = el("input", { type: "checkbox", class: "checkbox checkbox-sm", "data-run-id": run.id, "aria-label": `select run ${run.id} for compare` });
     cb.addEventListener("change", updateCompareButton);

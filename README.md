@@ -86,6 +86,37 @@ Two outcomes:
 HTTP-only buckets are deliberately not flagged: a slow endpoint that leaves the
 data stores idle is an application problem, not a storage problem.
 
+### Auto-ramp
+
+The capacity question, answered by experiment instead of guessing. Auto-ramp
+searches concurrency for the first level where latency breaks:
+
+```yaml
+concurrency: 5 # search start
+auto_ramp:
+  max_concurrency: 160 # search cap
+  step_duration: 10s # burst per level, not the full duration
+```
+
+```sh
+barrage run -c examples/auto-ramp-pg.yaml
+barrage run -c config.yaml --auto-ramp --ramp-max-concurrency 160 --ramp-step-duration 10s
+```
+
+How it works: coarse doubling finds the rough zone fast (5→10→20→40…),
+then a fine linear fill pins it down between the last ok level and the first
+broken one (80→160 becomes 100, 120, 140). Each level runs a short burst;
+DB and Redis connections open once and stay warm across levels so early
+buckets measure strain, not reconnect cost. Paced runners (`http`/`db`/
+`redis`) scale their rate with concurrency so bigger crowds push more load;
+scenario load comes from the VUs themselves. A level breaks when any runner's
+P99 crosses its threshold or success drops under 95% — the verdict names the
+culprit (`CAUSE db`, `http,redis`, …), and the report charts concurrency vs
+P99 so you see a cliff or a slope, not just one number. `ramp:` and
+`duration:` are ignored while auto-ramp runs (set them `0s`/anything; the
+loader still requires the keys). The web UI exposes the same mode as an
+auto-ramp toggle in run settings.
+
 ### Capacity finder
 
 The story-style report answers "at how many users does my app struggle?" It
@@ -324,6 +355,10 @@ scenario:
   `redis` are paced per-second targets; scenario throughput emerges from VUs
   looping). Scenarios can run alongside `db`/`redis` — buckets use the same
   `Start.Unix()/bucket_width` scheme so timelines align.
+- `auto_ramp:` replaces a single run with a search: `max_concurrency` caps it,
+  `step_duration` (default 10s) sizes each level's burst. Start is the run's
+  `concurrency`. While it runs, `ramp:` and `duration:` are ignored — bursts
+  force the inner ramp off and use `step_duration` instead.
 
 ## CLI
 
@@ -331,19 +366,23 @@ scenario:
 $ barrage run --help
 
 Flags:
-  -b, --bucket-width duration     override the bucket width from the config
-      --concurrency int           worker count for the db/redis pools and http attackers
-  -c, --config string             path to the config file (default "config.yaml")
-      --db-threshold duration     DB spike threshold for correlation (default 100ms)
-  -d, --duration duration         override the run duration from the config
-      --http-threshold duration   HTTP spike threshold for correlation (default 100ms)
-      --json string               also write a JSON summary of the run to this path
-      --no-report                 skip writing the HTML report
-  -o, --open                      open the report in a browser after the run
-      --ramp duration             ramp the rate from 0 up to full over this duration
-      --redis-threshold duration  Redis spike threshold for correlation (default 100ms)
-      --report string             path for the HTML report (default "report.html")
-  -v, --verbose                   print per-bucket detail
+      --auto-ramp                     ramp concurrency (double, then fine fill) to find the break point
+  -b, --bucket-width duration         override the bucket width from the config
+      --concurrency int               worker count for the db/redis pools and http attackers
+  -c, --config string                 path to the config file (default "config.yaml")
+      --db-threshold duration         DB spike threshold for correlation (default 100ms)
+  -d, --duration duration             override the run duration from the config
+      --http-threshold duration       HTTP spike threshold for correlation (default 100ms)
+      --json string                   also write a JSON summary of the run to this path
+      --no-progress                   disable the live progress view (plain log lines instead)
+      --no-report                     skip writing the HTML report
+  -o, --open                          open the report in a browser after the run
+      --ramp duration                 ramp the rate from 0 up to full over this duration
+      --ramp-max-concurrency int      cap for auto-ramp concurrency search
+      --ramp-step-duration duration   per-level burst time for auto-ramp (default 10s)
+      --redis-threshold duration      Redis spike threshold for correlation (default 100ms)
+      --report string                 path for the HTML report (default "report.html")
+  -v, --verbose                       print per-bucket detail
 ```
 
 Examples:

@@ -105,6 +105,11 @@
             <label class="adv">ramp <span class="label-friendly">— warm-up</span><input class="input input-sm mono w-full" name="ramp" value="3s" autocomplete="off"><small class="opacity-60">0 = off</small></label>
             <label>concurrency <span class="label-friendly">— parallel users</span><input class="input input-sm mono w-full" name="concurrency" type="number" min="0" value="10" autocomplete="off"><small class="opacity-60">parallel users</small></label>
           </div>
+          <div class="grid-3 adv">
+            <label class="flex gap-2 items-center"><input type="checkbox" class="toggle toggle-sm" id="en-auto-ramp" aria-label="Enable auto-ramp">auto-ramp <span class="label-friendly">— find the break point</span></label>
+            <label>max concurrency<input class="input input-sm mono w-full" name="ramp-max-concurrency" type="number" min="1" value="40" autocomplete="off"><small class="opacity-60">search cap</small></label>
+            <label>step duration<input class="input input-sm mono w-full" name="ramp-step-duration" value="10s" autocomplete="off"><small class="opacity-60">burst per level</small></label>
+          </div>
           <div class="grid-3 thresholds adv">
             <label title="Flag HTTP as a spike if its P99 crosses this value">http_threshold<input class="input input-sm mono w-full" name="http_threshold" value="100ms"><small class="opacity-60">spike budget</small></label>
             <label title="Flag DB as a spike if its P99 crosses this value">db_threshold<input class="input input-sm mono w-full" name="db_threshold" value="100ms"><small class="opacity-60">spike budget</small></label>

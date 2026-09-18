@@ -170,7 +170,7 @@ func (s *UIServer) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	run := &uiRun{
 		ID:        id,
 		CreatedAt: time.Now(),
-		Duration:  time.Duration(cfg.Duration),
+		Duration:  uiRunDuration(cfg),
 		state:     "running",
 		started:   time.Now(),
 		config:    cfg,
@@ -180,6 +180,20 @@ func (s *UIServer) handleStartRun(w http.ResponseWriter, r *http.Request) {
 
 	go s.executeRun(run, req)
 	writeJSON(w, map[string]any{"id": id, "duration_s": run.Duration.Seconds()})
+}
+
+// uiRunDuration estimates the wall-clock run time for progress display.
+// Auto-ramp searches level by level, so the estimate is step time times the
+// coarse grid plus headroom for the fine fill (at most ~4 extra levels).
+func uiRunDuration(cfg *OrchestratorConfig) time.Duration {
+	if cfg == nil {
+		return 0
+	}
+	if cfg.AutoRamp == nil {
+		return time.Duration(cfg.Duration)
+	}
+	start, max, stepDur, _ := effectiveRamp(*cfg, *cfg.AutoRamp)
+	return stepDur * time.Duration(len(planCoarseLevels(start, max))+4)
 }
 
 // executeRun runs the orchestrator synchronously, then persists the JSON
@@ -193,29 +207,41 @@ func (s *UIServer) executeRun(run *uiRun, req startRunRequest) {
 		run.mu.Unlock()
 	}
 
-	result, err := Orchestrator(*run.config)
-	if err != nil {
-		result = &OrchestratorResult{}
-	}
+	httpTh := time.Duration(req.HTTPThresholdMS) * time.Millisecond
+	dbTh := time.Duration(req.DBThresholdMS) * time.Millisecond
+	redisTh := time.Duration(req.RedisThresholdMS) * time.Millisecond
 
-	spikes := Correlate(result,
-		time.Duration(req.HTTPThresholdMS)*time.Millisecond,
-		time.Duration(req.DBThresholdMS)*time.Millisecond,
-		time.Duration(req.RedisThresholdMS)*time.Millisecond,
-	)
+	var data ReportData
+	var err error
+	if run.config.AutoRamp != nil {
+		var res *RampResult
+		res, err = RunAutoRamp(*run.config, *run.config.AutoRamp, httpTh, dbTh, redisTh)
+		if err != nil {
+			res = &RampResult{}
+		}
+		data = ReportData{RampSearch: res}
+		data.Duration = uiRunDuration(run.config).String()
+		data.Concurrency = run.config.AutoRamp.MaxConcurrency
+	} else {
+		var result *OrchestratorResult
+		result, err = Orchestrator(*run.config)
+		if err != nil {
+			result = &OrchestratorResult{}
+		}
+		spikes := Correlate(result, httpTh, dbTh, redisTh)
+		data = NewReportData(result, spikes)
+		data.Duration = time.Duration(run.config.Duration).String()
+		data.Concurrency = run.config.Concurrency
+	}
+	data.Ramp = time.Duration(run.config.Ramp).String()
+	if err != nil {
+		data.Error = err.Error()
+	}
 
 	dir := filepath.Join(s.runsDir, run.ID)
 	if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
 		fail(mkErr)
 		return
-	}
-
-	data := NewReportData(result, spikes)
-	data.Duration = time.Duration(run.config.Duration).String()
-	data.Ramp = time.Duration(run.config.Ramp).String()
-	data.Concurrency = run.config.Concurrency
-	if err != nil {
-		data.Error = err.Error()
 	}
 
 	jsonPath := filepath.Join(dir, "results.json")
@@ -250,6 +276,7 @@ type uiRunSummary struct {
 	CreatedAt time.Time        `json:"created_at"`
 	Duration  string           `json:"duration"`
 	Runners   []map[string]any `json:"runners"`
+	Ramp      *JSONRamp        `json:"ramp,omitempty"`
 	State     string           `json:"state"`
 	Error     string           `json:"error,omitempty"`
 }
@@ -347,6 +374,7 @@ func (s *UIServer) readRunSummary(id string) (uiRunSummary, error) {
 		CreatedAt: created,
 		Duration:  jr.Duration,
 		Runners:   runners,
+		Ramp:      jr.RampSearch,
 		State:     "done",
 	}, nil
 }
