@@ -78,10 +78,15 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newRunCmd(), newCompareCmd(), newVersionCmd(), newUICmd())
+	// NOTE: web UI is parked, not removed (ui.go + webui/ stay in tree).
+	// It kept breaking mid-run and cost double implementation per feature.
+	// Re-enable by registering newUICmd() below once it earns its keep.
+	root.AddCommand(newRunCmd(), newCompareCmd(), newVersionCmd())
 	return root
 }
 
+// PARKED: web UI disabled (see root command). Kept for a possible return;
+// delete ui.go + webui/ if it stays parked.
 func newUICmd() *cobra.Command {
 	var addr string
 	cmd := &cobra.Command{
