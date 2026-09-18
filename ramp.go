@@ -214,10 +214,13 @@ func RunAutoRamp(cfg OrchestratorConfig, ramp AutoRampConfig, httpTh, dbTh, redi
 		}
 		fmt.Fprintf(os.Stderr, "[ramp]   → p99 %s success %.1f%% %s\n", step.P99, step.Success*100, rampVerdict(step.Broken))
 		res.Steps = append(res.Steps, *step)
-		if step.Broken && firstBroken == 0 {
+		// Track the tightest bracket: lowest broken, highest ok. The == 0
+		// guard would freeze firstBroken at the coarse break and the loop
+		// would re-probe seen levels forever instead of converging.
+		if step.Broken && (firstBroken == 0 || conc < firstBroken) {
 			firstBroken = conc
 		}
-		if !step.Broken {
+		if !step.Broken && conc > lastOK {
 			lastOK = conc
 		}
 		return step, nil
@@ -252,18 +255,17 @@ func RunAutoRamp(cfg OrchestratorConfig, ramp AutoRampConfig, httpTh, dbTh, redi
 		}
 	}
 
-	res.BreakAt = firstBroken
-	// Fine levels may have broken earlier than the coarse bracket.
+	// Verdict from all steps: lowest broken level, and highest ok level
+	// strictly below it (a flaky ok above the break is noise, not safety).
 	for _, s := range res.Steps {
 		if s.Broken && (res.BreakAt == 0 || s.Concurrency < res.BreakAt) {
 			res.BreakAt = s.Concurrency
 		}
-		if !s.Broken && s.Concurrency > res.LastOK {
+	}
+	for _, s := range res.Steps {
+		if !s.Broken && (res.BreakAt == 0 || s.Concurrency < res.BreakAt) && s.Concurrency > res.LastOK {
 			res.LastOK = s.Concurrency
 		}
-	}
-	if res.LastOK == 0 {
-		res.LastOK = lastOK
 	}
 	return res, nil
 }
