@@ -58,6 +58,9 @@ type ReportData struct {
 	// RampSearch carries the auto-ramp curve when that mode ran: one
 	// point per concurrency level, for the concurrency-vs-P99 chart.
 	RampSearch *RampResult
+	// Story is the plain-words verdict. It is derived, not set by callers:
+	// RenderHTML and BuildJSON compute it so every output tells the story.
+	Story StoryData
 	// Error carries a fatal run error (e.g. a runner could not start or dial
 	// its target). When set the run produced no usable metrics.
 	Error string
@@ -206,6 +209,7 @@ func buildTimeline(result *OrchestratorResult) TimelineChart {
 // directory; if a template file exists at templatePath it is used instead,
 // allowing the report to be restyled without rebuilding.
 func RenderHTML(data ReportData, templatePath string, w io.Writer) error {
+	data.Story = BuildStory(data)
 	tmplSrc, err := os.ReadFile(templatePath)
 	if err != nil {
 		tmplSrc = []byte(reportTemplate)

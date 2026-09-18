@@ -399,6 +399,36 @@
     </div>
   </div>
 
+  {{if .Story.Title}}
+  <section class="run-summary">
+    <h2 class="section-title">verdict</h2>
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="summary-header">
+          <span class="summary-name">{{.Story.Title}}</span>
+          <span class="summary-status {{if eq .Story.Tone "ok"}}ok{{else}}bad{{end}}">{{.Story.Tone}}</span>
+        </div>
+        <div class="summary-metrics">
+          <div class="sm"><span class="sm-label">detail</span><span class="sm-value">{{.Story.Detail}}</span></div>
+          {{if .Story.Bottleneck}}
+          <div class="sm"><span class="sm-label">bottleneck</span><span class="sm-value">{{.Story.Bottleneck}}</span></div>
+          {{end}}
+          {{if .Story.Capacity}}
+          <div class="sm"><span class="sm-label">capacity</span><span class="sm-value">{{.Story.Capacity}}</span></div>
+          {{end}}
+        </div>
+        {{if .Story.NextSteps}}
+        <div class="summary-metrics" style="margin-top:8px;">
+          {{range .Story.NextSteps}}
+          <div class="sm"><span class="sm-label">next</span><span class="sm-value">{{.}}</span></div>
+          {{end}}
+        </div>
+        {{end}}
+      </div>
+    </div>
+  </section>
+  {{end}}
+
   <section class="run-summary">
     <h2 class="section-title">run summary</h2>
     <div class="summary-grid">

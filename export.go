@@ -20,6 +20,7 @@ type JSONReport struct {
 	Spikes      []JSONSpike  `json:"spikes"`
 	Timeline    JSONTimeline `json:"timeline"`
 	RampSearch  *JSONRamp    `json:"ramp_search,omitempty"`
+	Story       JSONStory    `json:"story"`
 }
 
 // JSONRampStep is one auto-ramp level in the JSON export.
@@ -89,10 +90,21 @@ func ExportJSON(data ReportData, path string) error {
 	return nil
 }
 
+// JSONStory is the plain-words verdict in the JSON export.
+type JSONStory struct {
+	Title      string   `json:"title"`
+	Tone       string   `json:"tone"`
+	Detail     string   `json:"detail"`
+	Bottleneck string   `json:"bottleneck,omitempty"`
+	Capacity   string   `json:"capacity,omitempty"`
+	NextSteps  []string `json:"next_steps,omitempty"`
+}
+
 // BuildJSON renders a ReportData as the machine-readable JSON report. It is
 // shared by ExportJSON and the report template's in-page export button so both
 // produce identical output.
 func BuildJSON(data ReportData) ([]byte, error) {
+	data.Story = BuildStory(data)
 	report := JSONReport{
 		GeneratedAt: time.Now(),
 		Duration:    data.Duration,
@@ -103,6 +115,14 @@ func BuildJSON(data ReportData) ([]byte, error) {
 		Timeline: JSONTimeline{
 			Labels: data.Timeline.Labels,
 			Series: make([]JSONTimelineSeries, 0, len(data.Timeline.Series)),
+		},
+		Story: JSONStory{
+			Title:      data.Story.Title,
+			Tone:       data.Story.Tone,
+			Detail:     data.Story.Detail,
+			Bottleneck: data.Story.Bottleneck,
+			Capacity:   data.Story.Capacity,
+			NextSteps:  data.Story.NextSteps,
 		},
 	}
 	for _, s := range data.Spikes {
