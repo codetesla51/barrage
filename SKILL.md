@@ -27,7 +27,7 @@ Use this skill whenever:
 curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash
 
 # pin a version, change the install dir, or build from source instead:
-curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash -s -- --version v0.4.0 --dir ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash -s -- --version v0.5.5 --dir ~/.local/bin
 curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash -s -- --from-source
 
 # from a checkout (requires Go 1.25+):
@@ -50,11 +50,16 @@ ls report.html results.json   # --report PATH, --json PATH, --no-report to skip
 ./barrage run -c config.yaml -o   # ...and open the report in a browser
 ```
 
-Seed a real Postgres for DB profiles:
+Seed a real Postgres for DB profiles (`POSTGRES_DSN` env works too):
 
 ```sh
 go run ./cmd/seeddb -conn "postgres://user:pass@localhost:5432/mydb?sslmode=disable" -n 1000000
 ```
+
+The demo server reads the same env (`POSTGRES_DSN`, `DATABASE_URL`, or
+`PGUSER`/`PGPASSWORD`/`PGHOST`/`PGPORT`/`PGDATABASE`): with it set,
+products/orders hit real tables; without it, stub responses. Never hardcode
+auth — env only.
 
 ## Bottleneck-hunting workflow (follow this order)
 
@@ -154,11 +159,15 @@ not a bottleneck.
 
 ### 6. Read the output in this order
 
-1. **Runner table** (`RUNNER REQUESTS SUCCESS RATE MEAN P50 P95 P99 MAX`).
-2. **Correlated spikes table** (`TIME RUNNER HTTP_P99 STORAGE_P99 NOTE`).
-3. **Latency timeline** in `report.html` — which curve bent first?
-4. **Capacity story** in the report — strain point in users.
-5. **`results.json`** for exact numbers / CI diffing.
+1. **Verdict hero** in `report.html` (or `story` in JSON) — title, bottleneck,
+   capacity line, next steps. Normal runs and ramp searches both get one.
+2. **Runner table** (`RUNNER REQUESTS SUCCESS RATE MEAN P50 P95 P99 MAX`).
+   Ramp mode prints `CONCURRENCY REQUESTS P99 SUCCESS VERDICT CAUSE` instead —
+   one row per level, cause names the breaker.
+3. **Correlated spikes table** (`TIME RUNNER HTTP_P99 STORAGE_P99 NOTE`).
+4. **Latency timeline** in `report.html` — which curve bent first?
+5. **Capacity story** in the report — strain point in users.
+6. **`results.json`** for exact numbers / CI diffing.
 
 ### 7. Report a verdict, not raw numbers
 
@@ -242,12 +251,14 @@ barrage run --http-threshold 150ms --db-threshold 250ms --redis-threshold 80ms
   HTTP load. `scenarios:` (plural) is rejected with a rename hint. To mix
   plain hits with flows, model the plain hit as a one-step scenario.
 - `auto_ramp:` (`max_concurrency`, `step_duration`, default 10s) swaps one run
-  for a break-point search: double from `concurrency` to max, then fine-fill
-  the gap. Start = run's `concurrency`; `ramp:`/`duration:` are ignored while
-  it runs. A level breaks on any runner's P99 over its threshold or success
-  < 95%, attributed per runner (`CAUSE` column, `broken_by` JSON). Paced rates
-  scale with the level; scenario load comes from VUs. Same mode via
-  `--auto-ramp` / `--ramp-max-concurrency` / `--ramp-step-duration` flags.
+  for a break-point search: double from `concurrency` to max, then loop the
+  fine fill until ok and broken are adjacent (exact knee, not bracket).
+  Start = run's `concurrency`; `ramp:`/`duration:` are ignored while it runs.
+  Verdict = lowest broken level + highest ok strictly below it. A level breaks
+  on any runner's P99 over its threshold or success < 95%, attributed per
+  runner (`CAUSE` column, `broken_by` JSON). Paced rates scale with the level;
+  scenario load comes from VUs. Same mode via `--auto-ramp` /
+  `--ramp-max-concurrency` / `--ramp-step-duration` flags.
   See `examples/auto-ramp-pg.yaml`.
 - `rate` is a *target*. If `concurrency` is too small to keep up, throughput
   settles below target — that is intentional, not a bug.
@@ -469,6 +480,7 @@ redis:
 | `weight must not be negative` / `total weight must be > 0` | set positive weights |
 | `url must not be empty` / `invalid method` | fill per-step `method`+`url` |
 | `unsupported driver` | use postgres\|mysql\|sqlite (+ aliases) |
+| `auto_ramp max_concurrency ...` | max must exceed start `concurrency`; step must cover ≥ 1 bucket |
 
 ## Diagnosis recipes (copy/paste)
 
@@ -599,6 +611,7 @@ barrage version
 | Auto-ramp | `ramp.go` → `RunAutoRamp()` | coarse double + fine fill over concurrency; `fireDB`/`fireRedis` shared with normal runs; pools stay warm across levels |
 | Correlation | `correlation.go` → `Correlate()` | storage P99 > threshold ⇒ **correlated** (HTTP also over) or **masked** (HTTP under, `masked: true`, CLI shows `db-only`/`redis-only`) |
 | Capacity knee | `story.go` → `capacityLine()` | strain = worst journey P99 > 2× median for 3+ buckets |
+| Story verdict | `story.go` → `BuildStory()` | title/detail/bottleneck/next-steps for normal + ramp runs; rendered in `report.html`, exported as `story` JSON |
 | Report | `report.go` + `templates/report.html` | template is `go:embed`ded; a `templates/report.html` next to the binary overrides it |
 | Compare | `compare.go` | P99 diff per runner + spike diff by ordinal (runs never share a clock); NEW runners never regress |
 Timeline detail: per-bucket `p99_ms` uses `-1` for "no request in bucket"
@@ -625,8 +638,8 @@ commit them.
   errors (`fmt.Errorf("...: %w", err)`), no new frameworks for solved problems.
 - **Thresholds are per-runner** (`--http-threshold`, `--db-threshold`,
   `--redis-threshold`, default 100ms). New spike logic must stay per-runner.
-- **Report data contract.** `NewReportData` / `ExportJSON` feed CLI, HTML, UI,
-  and compare — changing the JSON shape breaks all four. Update them together.
+- **Report data contract.** `NewReportData` / `ExportJSON` feed CLI, HTML,
+  and compare — changing the JSON shape breaks all three. Update them together.
 - **Version bump = tag.** `cmd/barrage/main.go: version` is stamped by
   `-ldflags -X ...main.version=` in `.github/workflows/build.yml`; pushing a
   `v*` tag builds all platforms and publishes the release `install.sh` pulls.
