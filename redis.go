@@ -2,6 +2,7 @@ package barrage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -50,15 +51,21 @@ func fireRedis(client *redis.Client, target RedisTarget, rate, concurrency int, 
 		return nil, err
 	}
 
-	overall, start := runPaced(rate, concurrency, duration, ramp, func(opCtx context.Context) dbQueryResult {
+	// runPaced cancels its context at the deadline before draining the pool,
+	// so in-flight commands abort instead of blocking shutdown. The closure
+	// names that context `runCtx` (the client-level ctx at the top is separate
+	// and stays live until fireRedis returns — checking it would never fire).
+	overall, start := runPaced(rate, concurrency, duration, ramp, func(runCtx context.Context) dbQueryResult {
 		pick := pickQuery(cumulativeWeights(target.Query))
 		queryStart := time.Now()
 		// per-op timeout so a stalled connection can't hang past the deadline
-		opCtx, opCancel := context.WithTimeout(opCtx, 10*time.Second)
+		opCtx, opCancel := context.WithTimeout(runCtx, 10*time.Second)
 		defer opCancel()
 		err := client.Do(opCtx, splitCommand(pick.Query)...).Err()
-		if err != nil && opCtx.Err() != nil && ctx.Err() != nil {
-			// canceled by run shutdown, not a target failure
+		if err != nil && errors.Is(err, context.Canceled) {
+			// aborted by run shutdown before the server answered: the op
+			// never ran, so it is not a target failure. Any other error means
+			// the server responded and surfaces as before.
 			return dbQueryResult{Latency: time.Since(queryStart), Success: true}
 		}
 		if stats != nil {

@@ -329,7 +329,9 @@ scenario:
   through `Query`, `write` through `Exec`. If omitted, routing falls back to
   detecting the SQL text (SELECT / SHOW / EXPLAIN / WITH → read; any query
   containing a `RETURNING` clause → write). Prefer an explicit `type`; detection
-  is a heuristic.
+  is a heuristic. The distinction also shapes shutdown accounting: when the run
+  ends mid-query, a cancelled read counts as cleanly aborted (no side effects),
+  while a write's error is surfaced — it may already have executed server-side.
 - `args` (optional) is scoped per query, not global: it binds parameters for
   that query only. Omit it entirely when the query has no placeholders.
 - `driver` selects the database backend: `postgres`, `mysql`, or `sqlite`
@@ -342,7 +344,11 @@ scenario:
   (all optional, under `db.target`) tune the `database/sql` connection pool.
   Unset counts default to the run's `concurrency` so the tool never holds more
   connections than it has workers; unset lifetimes leave the driver default.
-  Negative values are rejected. Set `max_open_conns` at or below the database's
+  `max_open_conns: -1` removes the open-connection cap entirely
+  (`database/sql` treats 0 as unlimited); with an unlimited cap an unset
+  `max_idle_conns` defaults to `concurrency`, because `SetMaxIdleConns(0)`
+  means *zero* idle connections, not unlimited. Values below `-1` are
+  rejected. Otherwise, set `max_open_conns` at or below the database's
   `max_connections` or the errors you measure are the tool's, not the target's.
 - `scenario:` runs sequential HTTP steps per virtual user — it *is* your HTTP
   load, in journey form instead of single shots. Each VU picks one scenario
@@ -465,6 +471,13 @@ Every `--` flag overrides its config counterpart.
 The DB and Redis runners pace requests at `rate` per second, submitting each to
 a pool capped at `concurrency` workers. Results carry the submission timestamp,
 so buckets reflect when load was generated, not when responses completed.
+
+A command still in flight when the run ends is aborted rather than counted
+against the target: DB reads abort cleanly (no side effects) and are not
+failures, while DB **write** errors still surface since the write may have
+executed server-side. Redis commands aborted at shutdown before the server
+answers (`context canceled`) are likewise not failures; any other Redis error
+is a real failure.
 
 ### Spike correlation
 

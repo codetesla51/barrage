@@ -347,7 +347,10 @@ db:
     # mysql: user:pass@tcp(localhost:3306)/mydb
     # sqlite: /tmp/test.db
     # pool (all optional): unset counts default to concurrency so the tool
-    # never holds more conns than workers; unset lifetimes = driver default
+    # never holds more conns than workers; unset lifetimes = driver default.
+    # max_open_conns: -1 means unlimited connections (0 in database/sql);
+    # with -1, an unset max_idle_conns defaults to concurrency (SetMaxIdleConns(0)
+    # means zero idle, not unlimited). Values below -1 are rejected.
     # max_open_conns: 20
     # max_idle_conns: 20
     # conn_max_lifetime: 5m
@@ -365,9 +368,12 @@ db:
 Copy the slow endpoint's real queries here with prod-like weights
 (70% reads / 30% writes). `type` is authoritative — always set it;
 the fallback sniffs `SELECT/SHOW/EXPLAIN/WITH → read`, anything with
-`RETURNING` → write. Keep `max_open_conns` at or below the database's
-`max_connections` — above that, the errors you measure are the tool's,
-not the target's.
+`RETURNING` → write. `type` also drives shutdown accounting: a read
+cancelled when the run ends counts as a clean abort, while a write's
+error is surfaced (it may have executed server-side). Keep
+`max_open_conns` at or below the database's `max_connections` (use `-1`
+only when you truly want no cap) — above that, the errors you measure
+are the tool's, not the target's.
 
 ### `redis:` — weighted command mix
 
