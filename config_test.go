@@ -371,7 +371,7 @@ db:
 
 func TestLoadConfigDBPoolOptionsNegative(t *testing.T) {
 	bodies := map[string]string{
-		"max_open_conns":     "max_open_conns: -1",
+		"max_open_conns":     "max_open_conns: -2",
 		"max_idle_conns":     "max_idle_conns: -1",
 		"conn_max_lifetime":  "conn_max_lifetime: -1s",
 		"conn_max_idle_time": "conn_max_idle_time: -1s",
@@ -392,6 +392,34 @@ db:
 		if _, err := LoadConfig(path); err == nil {
 			t.Errorf("expected error for negative db %s", name)
 		}
+	}
+}
+
+func TestLoadConfigDBPoolUnlimited(t *testing.T) {
+	// max_open_conns: -1 is the explicit "unlimited connections" sentinel.
+	path := writeConfig(t, `
+duration: 2s
+db:
+  rate: 5
+  target:
+    driver: sqlite
+    conn: /tmp/test.db
+    max_open_conns: -1
+    queries:
+      - query: SELECT 1
+        weight: 1
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig returned error: %v", err)
+	}
+	if got := cfg.DB.Target.MaxOpenConns; got != -1 {
+		t.Errorf("max_open_conns = %d, want -1", got)
+	}
+
+	// and it resolves to 0 (unlimited) when the pool is applied
+	if open, _, _, _ := effectivePoolOptions(cfg.DB.Target, 7); open != 0 {
+		t.Errorf("effectivePoolOptions maxOpen = %d, want 0 (unlimited)", open)
 	}
 }
 

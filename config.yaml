@@ -27,8 +27,9 @@ db:
     driver: postgres
     conn: postgres://us:2@localhost:5432/testDB?sslmode=disable
     # pool tuning (all optional): unset counts default to concurrency,
-    # unset lifetimes leave the driver default. Keep max_open_conns at or
-    # below the database's max_connections.
+    # unset lifetimes leave the driver default. max_open_conns: -1 removes
+    # the cap entirely (unlimited). Keep max_open_conns at or below the
+    # database's max_connections unless you really want no cap.
     # max_open_conns: 10
     # max_idle_conns: 10
     # conn_max_lifetime: 5m

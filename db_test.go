@@ -1,6 +1,7 @@
 package barrage
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 	"time"
@@ -102,6 +103,18 @@ func TestEffectivePoolOptions(t *testing.T) {
 			concurrency: 20,
 			wantOpen:    3, wantIdle: 3,
 		},
+		{
+			name:        "-1 open means unlimited, idle defaults to concurrency",
+			target:      DBTarget{MaxOpenConns: -1},
+			concurrency: 20,
+			wantOpen:    0, wantIdle: 20,
+		},
+		{
+			name:        "-1 open keeps explicit idle",
+			target:      DBTarget{MaxOpenConns: -1, MaxIdleConns: 4},
+			concurrency: 20,
+			wantOpen:    0, wantIdle: 4,
+		},
 	}
 	for _, c := range cases {
 		gotOpen, gotIdle, gotLifetime, gotIdleTime := effectivePoolOptions(c.target, c.concurrency)
@@ -133,5 +146,48 @@ func TestApplyPoolOptionsSqlite(t *testing.T) {
 	applyPoolOptions(db2, DBTarget{}, 7)
 	if got := db2.Stats().MaxOpenConnections; got != 7 {
 		t.Errorf("default MaxOpenConnections = %d, want 7", got)
+	}
+}
+
+func TestApplyPoolOptionsUnlimited(t *testing.T) {
+	// max_open_conns: -1 maps to SetMaxOpenConns(0), sql's unlimited sentinel.
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	applyPoolOptions(db, DBTarget{MaxOpenConns: -1}, 7)
+	if got := db.Stats().MaxOpenConnections; got != 0 {
+		t.Errorf("unlimited MaxOpenConnections = %d, want 0", got)
+	}
+}
+
+func TestShutdownOutcome(t *testing.T) {
+	start := time.Now()
+
+	// a cancelled read is a clean abort, not a failure
+	r := shutdownOutcome(QueryWeight{Query: "SELECT 1", Type: "read"}, context.Canceled, start)
+	if !r.Success {
+		t.Error("read at shutdown: expected success (clean abort)")
+	}
+	if r.Err != nil {
+		t.Errorf("read at shutdown: expected no error, got %v", r.Err)
+	}
+
+	// a cancelled write may have executed server-side: the error surfaces
+	w := shutdownOutcome(QueryWeight{Query: "UPDATE orders SET x = 1", Type: "write"}, context.Canceled, start)
+	if w.Success {
+		t.Error("write at shutdown: expected failure")
+	}
+	if w.Err == nil {
+		t.Error("write at shutdown: expected error to be recorded")
+	}
+
+	// latency is still measured for both outcomes
+	for _, got := range []dbQueryResult{r, w} {
+		d := got.Latency
+		if d < 0 || d > time.Minute {
+			t.Errorf("latency %v not within sane range", d)
+		}
 	}
 }

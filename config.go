@@ -116,8 +116,8 @@ func loadConfigBytes(data []byte, path string) (*OrchestratorConfig, error) {
 		if err := checkQueries(cfg.DB.Target.Query, "db"); err != nil {
 			return nil, err
 		}
-		if cfg.DB.Target.MaxOpenConns < 0 {
-			return nil, errors.New("db target max_open_conns must not be negative")
+		if cfg.DB.Target.MaxOpenConns < -1 {
+			return nil, errors.New("db target max_open_conns must be -1 (unlimited) or greater")
 		}
 		if cfg.DB.Target.MaxIdleConns < 0 {
 			return nil, errors.New("db target max_idle_conns must not be negative")

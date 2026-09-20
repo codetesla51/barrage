@@ -14,7 +14,8 @@ import (
 //
 // The pool options tune the database/sql connection pool the runner opens.
 // Zero values select run-aware defaults (see effectivePoolOptions);
-// negative values are rejected at config load.
+// MaxOpenConns = -1 removes the open-connection cap entirely. Values below -1
+// are rejected at config load.
 type DBTarget struct {
 	Conn            string        `yaml:"conn"`
 	Driver          string        `yaml:"driver"`
@@ -120,19 +121,32 @@ func OpenConnection(conn string, driver string) (*sql.DB, error) {
 // effectivePoolOptions resolves the database/sql pool settings for a run.
 // Explicit target values win; unset (<=0) counts fall back to the run's
 // worker count so the tool never holds more connections than it has workers
-// submitting queries, and keeps that many warm between bursts. Lifetimes
-// pass through untouched: zero means the driver default (no limit).
+// submitting queries, and keeps that many warm between bursts. An explicit -1
+// removes the open-connection cap: maxOpen becomes 0, database/sql's unlimited
+// sentinel, and an unset idle count falls back to concurrency — SetMaxIdleConns
+// treats 0 as *zero* idle connections, not unlimited, and a load test wants
+// warm pools. Lifetimes pass through untouched: zero means the driver default
+// (no limit).
 func effectivePoolOptions(target DBTarget, concurrency int) (maxOpen, maxIdle int, maxLifetime, maxIdleTime time.Duration) {
 	if concurrency < 1 {
 		concurrency = DefaultConcurrency
 	}
 	maxOpen = target.MaxOpenConns
-	if maxOpen < 1 {
+	if maxOpen == -1 {
+		// explicit "no cap": database/sql interprets 0 as unlimited open
+		maxOpen = 0
+	} else if maxOpen < 1 {
 		maxOpen = concurrency
 	}
 	maxIdle = target.MaxIdleConns
 	if maxIdle < 1 {
-		maxIdle = maxOpen
+		if maxOpen > 0 {
+			maxIdle = maxOpen
+		} else {
+			// unlimited open: keep up to the worker count warm instead of
+			// SetMaxIdleConns(0), which means zero idle, not unlimited.
+			maxIdle = concurrency
+		}
 	}
 	return maxOpen, maxIdle, time.Duration(target.ConnMaxLifetime), time.Duration(target.ConnMaxIdleTime)
 }
@@ -191,7 +205,7 @@ func fireDB(db *sql.DB, target DBTarget, rate, concurrency int, duration, bucket
 		}
 		if err != nil && ctx.Err() != nil {
 			// canceled by run shutdown, not a target failure
-			return dbQueryResult{Latency: time.Since(queryStart), Success: true}
+			return shutdownOutcome(pick, err, queryStart)
 		}
 		if stats != nil {
 			stats.DBFired.Add(1)
@@ -203,6 +217,18 @@ func fireDB(db *sql.DB, target DBTarget, rate, concurrency int, duration, bucket
 	})
 
 	return buildDBResult(overall, start, bucketWidth, duration), nil
+}
+
+// shutdownOutcome classifies a query that failed while the run was shutting
+// down (the pacing context cancelled at the deadline). Reads abort cleanly
+// with no side effects, so they are not counted as failures; writes may
+// already have executed server-side, so their errors surface instead of being
+// hidden behind the shutdown.
+func shutdownOutcome(pick QueryWeight, err error, start time.Time) dbQueryResult {
+	if queryIsRead(pick) {
+		return dbQueryResult{Latency: time.Since(start), Success: true}
+	}
+	return dbQueryResult{Latency: time.Since(start), Success: false, Err: err}
 }
 
 // split results into buckets based on the specified bucket width and calculate statistics for each bucket.
