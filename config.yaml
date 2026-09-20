@@ -11,6 +11,14 @@ bucket_width: 1s
 ramp: 3s # linearly ramp the rate from 0 to full over this long
 concurrency: 10 # worker count for the db/redis pools and http attackers
 
+# Swap the single run for a capacity sweep (find where latency breaks) by
+# uncommenting capacity: — concurrency becomes the search start, and the
+# sweep doubles upward until max_concurrency, probing each level for
+# step_duration. See README "Capacity sweep" for how the verdict works.
+# capacity:
+#   max_concurrency: 160 # search cap; the sweep stops here
+#   step_duration: 10s   # burst time per concurrency level
+
 http:
   rate: 10 # requests per second
   target:
