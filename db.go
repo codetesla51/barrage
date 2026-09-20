@@ -180,18 +180,21 @@ func FireDB(target DBTarget, rate, concurrency int, duration, bucketWidth, ramp 
 }
 
 // fireDB is the shared burst core: the caller owns db (open + pool tuning),
-// so normal runs and auto-ramp levels execute the exact same query path.
+// so normal runs and capacity-sweep levels execute the exact same query path.
 // A future change here fixes both at once.
+// The pacing closure receives the shutdown context as `runCtx` (cancelled at
+// the deadline before the pool drains); keep that name — fireRedis relies on
+// the same convention and a shadowed `ctx` resurrects the flaky shutdown bug.
 func fireDB(db *sql.DB, target DBTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration, stats *RunStats) (*DBResult, error) {
 	if db == nil {
 		return nil, fmt.Errorf("db handle is nil")
 	}
 
-	overall, start := runPaced(rate, concurrency, duration, ramp, func(ctx context.Context) dbQueryResult {
+	overall, start := runPaced(rate, concurrency, duration, ramp, func(runCtx context.Context) dbQueryResult {
 		pick := pickQuery(cumulativeWeights(target.Query))
 		queryStart := time.Now()
 		// per-op timeout so a wedged database can't stall shutdown
-		opCtx, opCancel := context.WithTimeout(ctx, 10*time.Second)
+		opCtx, opCancel := context.WithTimeout(runCtx, 10*time.Second)
 		defer opCancel()
 		var err error
 		if queryIsRead(pick) {
@@ -203,7 +206,7 @@ func fireDB(db *sql.DB, target DBTarget, rate, concurrency int, duration, bucket
 		} else {
 			_, err = db.ExecContext(opCtx, pick.Query, pick.Args...)
 		}
-		if err != nil && ctx.Err() != nil {
+		if err != nil && runCtx.Err() != nil {
 			// canceled by run shutdown, not a target failure
 			return shutdownOutcome(pick, err, queryStart)
 		}

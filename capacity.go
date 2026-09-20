@@ -10,25 +10,25 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// DefaultRampStepDuration is how long each concurrency level runs.
+// DefaultCapacityStepDuration is how long each concurrency level runs.
 // Shorter than a normal run duration on purpose: just enough buckets
 // to see if latency holds, without paying a full run per level.
-const DefaultRampStepDuration = 10 * time.Second
+const DefaultCapacityStepDuration = 10 * time.Second
 
-// minRampSuccess marks a burst as broken when success drops below it,
+// minLevelSuccess marks a burst as broken when success drops below it,
 // even if P99 stayed under threshold (e.g. errors instead of slowness).
-const minRampSuccess = 0.95
+const minLevelSuccess = 0.95
 
-// AutoRampConfig ramps concurrency to find where latency breaks.
-// Start comes from the run's concurrency; Max caps the search.
-// StepDuration is per-level burst time (default 10s).
-type AutoRampConfig struct {
+// CapacityConfig configures the capacity sweep: it raises concurrency to
+// find where latency breaks. Start comes from the run's concurrency; Max
+// caps the search. StepDuration is per-level burst time (default 10s).
+type CapacityConfig struct {
 	MaxConcurrency int      `yaml:"max_concurrency"`
 	StepDuration   Duration `yaml:"step_duration"`
 }
 
-// RampStep is one concurrency level that ran.
-type RampStep struct {
+// CapacityStep is one concurrency level that ran.
+type CapacityStep struct {
 	Concurrency int
 	Requests    uint64
 	P99         time.Duration // worst P99 across runners that ran
@@ -41,26 +41,26 @@ type RampStep struct {
 	ScenarioP99 time.Duration
 }
 
-// RampResult is the whole search: one point per level plus the verdict.
-type RampResult struct {
-	Steps   []RampStep
+// CapacityResult is the whole sweep: one point per level plus the verdict.
+type CapacityResult struct {
+	Steps   []CapacityStep
 	BreakAt int // first broken concurrency, 0 = held to max
 	LastOK  int // highest concurrency that held
 }
 
-// effectiveRamp resolves defaults for a ramp search.
-func effectiveRamp(cfg OrchestratorConfig, ramp AutoRampConfig) (start, max int, stepDur, bucketWidth time.Duration) {
+// effectiveCapacity resolves defaults for a capacity sweep.
+func effectiveCapacity(cfg OrchestratorConfig, sweep CapacityConfig) (start, max int, stepDur, bucketWidth time.Duration) {
 	start = cfg.Concurrency
 	if start <= 0 {
 		start = DefaultConcurrency
 	}
-	max = ramp.MaxConcurrency
+	max = sweep.MaxConcurrency
 	if max <= 0 {
 		max = start * 4
 	}
-	stepDur = time.Duration(ramp.StepDuration)
+	stepDur = time.Duration(sweep.StepDuration)
 	if stepDur <= 0 {
-		stepDur = DefaultRampStepDuration
+		stepDur = DefaultCapacityStepDuration
 	}
 	bucketWidth = time.Duration(cfg.BucketWidth)
 	if bucketWidth <= 0 {
@@ -128,35 +128,35 @@ func scaledRate(baseRate, baseConc, stepConc int) int {
 	return r
 }
 
-// rampBreakers names the runners that broke a burst: P99 over threshold
+// capacityBreakers names the runners that broke a level: P99 over threshold
 // or success below the floor, checked per runner. Empty means the level
 // held. The scenario runner is judged against the HTTP threshold since it
 // is the app-side load.
-func rampBreakers(httpP99, dbP99, redisP99, scenP99 time.Duration, httpSucc, dbSucc, redisSucc, scenSucc float64, httpOK, dbOK, redisOK, scenOK bool, httpTh, dbTh, redisTh time.Duration) []string {
+func capacityBreakers(httpP99, dbP99, redisP99, scenP99 time.Duration, httpSucc, dbSucc, redisSucc, scenSucc float64, httpOK, dbOK, redisOK, scenOK bool, httpTh, dbTh, redisTh time.Duration) []string {
 	var out []string
-	if httpOK && (httpP99 > httpTh || httpSucc < minRampSuccess) {
+	if httpOK && (httpP99 > httpTh || httpSucc < minLevelSuccess) {
 		out = append(out, "http")
 	}
-	if dbOK && (dbP99 > dbTh || dbSucc < minRampSuccess) {
+	if dbOK && (dbP99 > dbTh || dbSucc < minLevelSuccess) {
 		out = append(out, "db")
 	}
-	if redisOK && (redisP99 > redisTh || redisSucc < minRampSuccess) {
+	if redisOK && (redisP99 > redisTh || redisSucc < minLevelSuccess) {
 		out = append(out, "redis")
 	}
-	if scenOK && (scenP99 > httpTh || scenSucc < minRampSuccess) {
+	if scenOK && (scenP99 > httpTh || scenSucc < minLevelSuccess) {
 		out = append(out, "scenario")
 	}
 	return out
 }
 
-// RunAutoRamp searches concurrency for the first level where latency
-// breaks. DB and Redis connections open once up front (sized to max)
-// and stay alive across levels — only the worker count changes per
-// burst, so early-bucket slowness is real strain, not reconnect cost.
-func RunAutoRamp(cfg OrchestratorConfig, ramp AutoRampConfig, httpTh, dbTh, redisTh time.Duration) (*RampResult, error) {
-	start, max, stepDur, bucketWidth := effectiveRamp(cfg, ramp)
+// RunCapacitySweep raises concurrency level by level until latency breaks.
+// DB and Redis connections open once up front (sized to max) and stay alive
+// across levels — only the worker count changes per burst, so early-bucket
+// slowness is real strain, not reconnect cost.
+func RunCapacitySweep(cfg OrchestratorConfig, sweep CapacityConfig, httpTh, dbTh, redisTh time.Duration) (*CapacityResult, error) {
+	start, max, stepDur, bucketWidth := effectiveCapacity(cfg, sweep)
 	if max < start {
-		return nil, fmt.Errorf("auto_ramp max_concurrency %d below start %d", max, start)
+		return nil, fmt.Errorf("capacity max_concurrency %d below start concurrency %d", max, start)
 	}
 	if httpTh <= 0 {
 		httpTh = 100 * time.Millisecond
@@ -197,22 +197,22 @@ func RunAutoRamp(cfg OrchestratorConfig, ramp AutoRampConfig, httpTh, dbTh, redi
 		defer rdb.Close()
 	}
 
-	res := &RampResult{}
+	res := &CapacityResult{}
 	seen := make(map[int]bool)
 	lastOK := 0
 	var firstBroken int
 
-	runLevel := func(conc int) (*RampStep, error) {
+	runLevel := func(conc int) (*CapacityStep, error) {
 		if seen[conc] {
 			return nil, nil
 		}
 		seen[conc] = true
-		fmt.Fprintf(os.Stderr, "[ramp] concurrency %d · step %s\n", conc, stepDur)
-		step, err := runRampBurst(cfg, db, rdb, conc, start, stepDur, bucketWidth, stats, httpTh, dbTh, redisTh)
+		fmt.Fprintf(os.Stderr, "[capacity] concurrency %d · step %s\n", conc, stepDur)
+		step, err := runCapacityStep(cfg, db, rdb, conc, start, stepDur, bucketWidth, stats, httpTh, dbTh, redisTh)
 		if err != nil {
 			return nil, err
 		}
-		fmt.Fprintf(os.Stderr, "[ramp]   → p99 %s success %.1f%% %s\n", step.P99, step.Success*100, rampVerdict(step.Broken))
+		fmt.Fprintf(os.Stderr, "[capacity]   → p99 %s success %.1f%% %s\n", step.P99, step.Success*100, levelVerdict(step.Broken))
 		res.Steps = append(res.Steps, *step)
 		// Track the tightest bracket: lowest broken, highest ok. The == 0
 		// guard would freeze firstBroken at the coarse break and the loop
@@ -270,18 +270,18 @@ func RunAutoRamp(cfg OrchestratorConfig, ramp AutoRampConfig, httpTh, dbTh, redi
 	return res, nil
 }
 
-// rampVerdict renders a step outcome for the stderr progress line.
-func rampVerdict(broken bool) string {
+// levelVerdict renders a step outcome for the stderr progress line.
+func levelVerdict(broken bool) string {
 	if broken {
 		return "broken"
 	}
 	return "ok"
 }
 
-// runRampBurst runs every configured runner once at conc for stepDur.
+// runCapacityStep runs every configured runner once at conc for stepDur.
 // Rates scale with conc so the paced runners push more total load;
-// the inner ramp is off (0) since the burst itself is already short.
-func runRampBurst(cfg OrchestratorConfig, db *sql.DB, rdb *redis.Client, conc, baseConc int, stepDur, bucketWidth time.Duration, stats *RunStats, httpTh, dbTh, redisTh time.Duration) (*RampStep, error) {
+// the inner rate ramp is off (0) since the burst itself is already short.
+func runCapacityStep(cfg OrchestratorConfig, db *sql.DB, rdb *redis.Client, conc, baseConc int, stepDur, bucketWidth time.Duration, stats *RunStats, httpTh, dbTh, redisTh time.Duration) (*CapacityStep, error) {
 	var wg sync.WaitGroup
 	var httpP99, dbP99, redisP99, scenP99 time.Duration
 	var httpReq, dbReq, redisReq, scenReq uint64
@@ -389,7 +389,7 @@ func runRampBurst(cfg OrchestratorConfig, db *sql.DB, rdb *redis.Client, conc, b
 		return nil, firstErr
 	}
 
-	step := &RampStep{
+	step := &CapacityStep{
 		Concurrency: conc,
 		HTTPP99:     httpP99,
 		DBP99:       dbP99,
@@ -423,7 +423,7 @@ func runRampBurst(cfg OrchestratorConfig, db *sql.DB, rdb *redis.Client, conc, b
 	if !any {
 		step.Success = 0
 	}
-	step.BrokenBy = rampBreakers(httpP99, dbP99, redisP99, scenP99, httpSucc, dbSucc, redisSucc, scenSucc, httpOK, dbOK, redisOK, scenOK, httpTh, dbTh, redisTh)
+	step.BrokenBy = capacityBreakers(httpP99, dbP99, redisP99, scenP99, httpSucc, dbSucc, redisSucc, scenSucc, httpOK, dbOK, redisOK, scenOK, httpTh, dbTh, redisTh)
 	step.Broken = len(step.BrokenBy) > 0
 	return step, nil
 }

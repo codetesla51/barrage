@@ -1,21 +1,21 @@
-# auto-ramp against the postgres-backed demo stack — finds the concurrency
-# where latency breaks instead of guessing it.
+# capacity sweep against the postgres-backed demo stack — finds the
+# concurrency where latency breaks instead of guessing it.
 #
 # Needs:
 #   1. postgres with the barrage_demo db (tables: products, orders)
 #   2. POSTGRES_DSN=postgres://barrage_app:<pass>@localhost:5432/barrage_demo?sslmode=disable
 #      go run ./cmd/demoserver   (in one terminal, :8080, db: connected)
 # Then:
-#   barrage run -c examples/auto-ramp-pg.yaml
+#   barrage run -c examples/capacity-pg.yaml
 #
 # Put your real password in `conn` below (it is yours, not committed).
 # scenario IS the HTTP load here (http: cannot be combined with scenario:).
-duration: 20s # kept for normal runs; auto-ramp uses step_duration per level
+duration: 20s # kept for normal runs; a capacity sweep uses step_duration per level
 bucket_width: 1s
 ramp: 0s
-concurrency: 5 # ramp start: first crowd level tried
+concurrency: 5 # sweep start: first crowd level tried
 
-auto_ramp:
+capacity:
   max_concurrency: 40 # doubling 5, 10, 20, 40, then fine fill inside the break
   step_duration: 10s # short burst per level, not the full duration
 

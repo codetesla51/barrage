@@ -16,7 +16,17 @@ type OrchestratorConfig struct {
 	DB          *DBRunnerConfig    `yaml:"db"`
 	Redis       *RedisRunnerConfig `yaml:"redis"`
 	Scenario    []Scenario         `yaml:"scenario"`
-	AutoRamp    *AutoRampConfig    `yaml:"auto_ramp"`
+	// Capacity configures a capacity sweep: raise concurrency level by level
+	// until latency breaks. See capacity.go. Start comes from Concurrency.
+	Capacity *CapacityConfig `yaml:"capacity"`
+	// DeprecatedAutoRamp accepts the pre-0.6 name auto_ramp: for Capacity.
+	// LoadConfig merges it in (and sets UsedDeprecatedAutoRamp) so existing
+	// configs keep working while the new name takes over.
+	DeprecatedAutoRamp *CapacityConfig `yaml:"auto_ramp"`
+	// UsedDeprecatedAutoRamp is set by LoadConfig when the swept config came
+	// in through the deprecated auto_ramp: key, so callers can print a rename
+	// warning.
+	UsedDeprecatedAutoRamp bool `yaml:"-"`
 	// Deprecated: renamed from Scenarios (yaml "scenarios"). Friendly error only.
 	DeprecatedScenarios []Scenario `yaml:"scenarios"`
 	// Stats optionally supplies the live counters (shared with a caller-run

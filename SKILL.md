@@ -250,16 +250,18 @@ barrage run --http-threshold 150ms --db-threshold 250ms --redis-threshold 80ms
 - `scenario:` (singular) **cannot** combine with `http:` — a scenario *is* your
   HTTP load. `scenarios:` (plural) is rejected with a rename hint. To mix
   plain hits with flows, model the plain hit as a one-step scenario.
-- `auto_ramp:` (`max_concurrency`, `step_duration`, default 10s) swaps one run
-  for a break-point search: double from `concurrency` to max, then loop the
+- `capacity:` (`max_concurrency`, `step_duration`, default 10s) swaps one run
+  for a capacity sweep: double from `concurrency` to max, then loop the
   fine fill until ok and broken are adjacent (exact knee, not bracket).
   Start = run's `concurrency`; `ramp:`/`duration:` are ignored while it runs.
   Verdict = lowest broken level + highest ok strictly below it. A level breaks
   on any runner's P99 over its threshold or success < 95%, attributed per
   runner (`CAUSE` column, `broken_by` JSON). Paced rates scale with the level;
-  scenario load comes from VUs. Same mode via `--auto-ramp` /
-  `--ramp-max-concurrency` / `--ramp-step-duration` flags.
-  See `examples/auto-ramp-pg.yaml`.
+  scenario load comes from VUs. Same mode via `--capacity` /
+  `--capacity-max-concurrency` / `--capacity-step-duration` flags.
+  The pre-0.6 name `auto_ramp:` (and `--auto-ramp`/`--ramp-max-concurrency`/
+  `--ramp-step-duration`) still loads with a rename warning.
+  See `examples/capacity-pg.yaml`.
 - `rate` is a *target*. If `concurrency` is too small to keep up, throughput
   settles below target — that is intentional, not a bug.
 - `concurrency`: HTTP → vegeta MaxWorkers (0 = autoscale); DB/Redis → pool
@@ -486,7 +488,7 @@ redis:
 | `weight must not be negative` / `total weight must be > 0` | set positive weights |
 | `url must not be empty` / `invalid method` | fill per-step `method`+`url` |
 | `unsupported driver` | use postgres\|mysql\|sqlite (+ aliases) |
-| `auto_ramp max_concurrency ...` | max must exceed start `concurrency`; step must cover ≥ 1 bucket |
+| `capacity max_concurrency ...` | max must exceed start `concurrency`; step must cover ≥ 1 bucket |
 
 ## Diagnosis recipes (copy/paste)
 
@@ -602,7 +604,7 @@ barrage run -c config.yaml --duration 1m --ramp 10s --concurrency 50
 barrage run --http-threshold 150ms --db-threshold 250ms --redis-threshold 80ms
 barrage run --no-report --json results.json   # CI mode
 barrage run -v                                # per-bucket tables
-barrage run -c config.yaml --auto-ramp --ramp-max-concurrency 160 --ramp-step-duration 10s
+barrage run -c config.yaml --capacity --capacity-max-concurrency 160 --capacity-step-duration 10s
 barrage compare --baseline base.json --current new.json --fail-on 100ms
 barrage version
 ```
@@ -614,7 +616,7 @@ barrage version
 | Fan-out | `barrage.go` → `Orchestrator()` | one goroutine per runner, `Stats` shared for live progress |
 | Config | `config.go` → `LoadConfigBytes()` | single loader for everything — never fork validation |
 | Runners | `http.go`, `db.go`, `redis.go`, `scenario_run.go` | DB/Redis pace at `rate`/s into a pond pool; buckets key on submission time |
-| Auto-ramp | `ramp.go` → `RunAutoRamp()` | coarse double + fine fill over concurrency; `fireDB`/`fireRedis` shared with normal runs; pools stay warm across levels |
+| Capacity sweep | `capacity.go` → `RunCapacitySweep()` | coarse double + fine fill over concurrency; `fireDB`/`fireRedis` shared with normal runs; pools stay warm across levels |
 | Correlation | `correlation.go` → `Correlate()` | storage P99 > threshold ⇒ **correlated** (HTTP also over) or **masked** (HTTP under, `masked: true`, CLI shows `db-only`/`redis-only`) |
 | Capacity knee | `story.go` → `capacityLine()` | strain = worst journey P99 > 2× median for 3+ buckets |
 | Story verdict | `story.go` → `BuildStory()` | title/detail/bottleneck/next-steps for normal + ramp runs; rendered in `report.html`, exported as `story` JSON |

@@ -55,9 +55,9 @@ type ReportData struct {
 	Duration    string
 	Ramp        string
 	Concurrency int
-	// RampSearch carries the auto-ramp curve when that mode ran: one
+	// CapacitySearch carries the capacity-sweep curve when that mode ran: one
 	// point per concurrency level, for the concurrency-vs-P99 chart.
-	RampSearch *RampResult
+	CapacitySearch *CapacityResult
 	// Story is the plain-words verdict. It is derived, not set by callers:
 	// RenderHTML and BuildJSON compute it so every output tells the story.
 	Story StoryData

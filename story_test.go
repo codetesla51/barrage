@@ -71,17 +71,17 @@ func TestBuildStoryVerdicts(t *testing.T) {
 			"Bottleneck: DB was the slowest", "err",
 		},
 		{
-			"ramp broke",
-			ReportData{RampSearch: &RampResult{
-				Steps:   []RampStep{{Concurrency: 10, P99: 50 * time.Millisecond, Success: 1}, {Concurrency: 20, P99: 200 * time.Millisecond, Success: 1, Broken: true, BrokenBy: []string{"db"}}},
+			"capacity broke",
+			ReportData{CapacitySearch: &CapacityResult{
+				Steps:   []CapacityStep{{Concurrency: 10, P99: 50 * time.Millisecond, Success: 1}, {Concurrency: 20, P99: 200 * time.Millisecond, Success: 1, Broken: true, BrokenBy: []string{"db"}}},
 				BreakAt: 20, LastOK: 10,
 			}},
 			"Broke at 20 concurrent users", "err",
 		},
 		{
-			"ramp held",
-			ReportData{RampSearch: &RampResult{
-				Steps:  []RampStep{{Concurrency: 10, P99: 50 * time.Millisecond, Success: 1}},
+			"capacity held",
+			ReportData{CapacitySearch: &CapacityResult{
+				Steps:  []CapacityStep{{Concurrency: 10, P99: 50 * time.Millisecond, Success: 1}},
 				LastOK: 10,
 			}},
 			"Held to 10 concurrent users", "ok",

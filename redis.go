@@ -37,7 +37,7 @@ func FireRedis(target RedisTarget, rate, concurrency int, duration, bucketWidth,
 }
 
 // fireRedis is the shared burst core: the caller owns client, so normal
-// runs and auto-ramp levels execute the exact same command path.
+// runs and capacity-sweep levels execute the exact same command path.
 // A future change here fixes both at once.
 func fireRedis(client *redis.Client, target RedisTarget, rate, concurrency int, duration, bucketWidth, ramp time.Duration, stats *RunStats) (*DBResult, error) {
 	if client == nil {

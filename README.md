@@ -86,21 +86,22 @@ Two outcomes:
 HTTP-only buckets are deliberately not flagged: a slow endpoint that leaves the
 data stores idle is an application problem, not a storage problem.
 
-### Auto-ramp
+### Capacity sweep
 
-The capacity question, answered by experiment instead of guessing. Auto-ramp
-searches concurrency for the first level where latency breaks:
+The capacity question, answered by experiment instead of guessing. A capacity
+sweep raises concurrency level by level, running a short burst at each, until
+latency breaks:
 
 ```yaml
-concurrency: 5 # search start
-auto_ramp:
+concurrency: 5 # sweep start
+capacity:
   max_concurrency: 160 # search cap
   step_duration: 10s # burst per level, not the full duration
 ```
 
 ```sh
-barrage run -c examples/auto-ramp-pg.yaml
-barrage run -c config.yaml --auto-ramp --ramp-max-concurrency 160 --ramp-step-duration 10s
+barrage run -c examples/capacity-pg.yaml
+barrage run -c config.yaml --capacity --capacity-max-concurrency 160 --capacity-step-duration 10s
 ```
 
 How it works: coarse doubling finds the rough zone fast (5→10→20→40…),
@@ -113,9 +114,11 @@ scenario load comes from the VUs themselves. A level breaks when any runner's
 P99 crosses its threshold or success drops under 95% — the verdict names the
 culprit (`CAUSE db`, `http,redis`, …), and the report charts concurrency vs
 P99 so you see a cliff or a slope, not just one number. `ramp:` and
-`duration:` are ignored while auto-ramp runs (set them `0s`/anything; the
+`duration:` are ignored while a sweep runs (set them `0s`/anything; the
 loader still requires the keys). The same mode is available as
-`--auto-ramp` / `--ramp-max-concurrency` / `--ramp-step-duration` flags.
+`--capacity` / `--capacity-max-concurrency` / `--capacity-step-duration`
+flags; the pre-0.6 names `auto_ramp:` and `--auto-ramp`/`--ramp-max-concurrency`/
+`--ramp-step-duration` still load with a rename warning.
 
 Same-machine caveat: running the generator on the same box as the app,
 database, or Redis means all of them fight for the same CPU — the break
@@ -234,6 +237,21 @@ Requires Go 1.25 or later for source builds only. The DB runner supports **Postg
 **SQLite** out of the box; because it sits on `database/sql`, any other driver
 can be linked in by adding a blank import and registering its name. HTTP-only
 runs require no backing services.
+
+## Releasing
+
+Cutting a release is one command — no hunting for the version string:
+
+```sh
+./scripts/release.sh v0.6.0
+```
+
+It bumps the version everywhere (the `internal/version` source of truth, the
+install pin in `install.sh`, and the README/SKILL examples), runs the
+build/vet/test/gofmt gate, commits as `chore(release)`, tags, and pushes. CI
+then cross-compiles the platform binaries and publishes the GitHub release
+with generated notes. The binary's embedded version always comes from the git
+tag (ldflags), so the package-var default only shows for local `go run` builds.
 
 ## Configuration
 
@@ -367,10 +385,11 @@ scenario:
   `redis` are paced per-second targets; scenario throughput emerges from VUs
   looping). Scenarios can run alongside `db`/`redis` — buckets use the same
   `Start.Unix()/bucket_width` scheme so timelines align.
-- `auto_ramp:` replaces a single run with a search: `max_concurrency` caps it,
+- `capacity:` replaces a single run with a search: `max_concurrency` caps it,
   `step_duration` (default 10s) sizes each level's burst. Start is the run's
   `concurrency`. While it runs, `ramp:` and `duration:` are ignored — bursts
-  force the inner ramp off and use `step_duration` instead.
+  force the inner ramp off and use `step_duration` instead. `auto_ramp:` is
+  accepted as a deprecated alias for `capacity:`.
 
 ## CLI
 
@@ -378,21 +397,21 @@ scenario:
 $ barrage run --help
 
 Flags:
-      --auto-ramp                     ramp concurrency (double, then fine fill) to find the break point
-  -b, --bucket-width duration         override the bucket width from the config
-      --concurrency int               worker count for the db/redis pools and http attackers
-  -c, --config string                 path to the config file (default "config.yaml")
-      --db-threshold duration         DB spike threshold for correlation (default 100ms)
-  -d, --duration duration             override the run duration from the config
-      --http-threshold duration       HTTP spike threshold for correlation (default 100ms)
-      --json string                   also write a JSON summary of the run to this path
-      --no-progress                   disable the live progress view (plain log lines instead)
-      --no-report                     skip writing the HTML report
-  -o, --open                          open the report in a browser after the run
-      --ramp duration                 ramp the rate from 0 up to full over this duration
-      --ramp-max-concurrency int      cap for auto-ramp concurrency search
-      --ramp-step-duration duration   per-level burst time for auto-ramp (default 10s)
-      --redis-threshold duration      Redis spike threshold for correlation (default 100ms)
+  -b, --bucket-width duration             override the bucket width from the config
+      --capacity                          sweep concurrency (double, then fine fill) to find the break point
+      --capacity-max-concurrency int      cap for the capacity sweep
+      --capacity-step-duration duration   per-level burst time for the capacity sweep (default 10s)
+      --concurrency int                   worker count for the db/redis pools and http attackers
+  -c, --config string                     path to the config file (default "config.yaml")
+      --db-threshold duration             DB spike threshold for correlation (default 100ms)
+  -d, --duration duration                 override the run duration from the config
+      --http-threshold duration           HTTP spike threshold for correlation (default 100ms)
+      --json string                       also write a JSON summary of the run to this path
+      --no-progress                       disable the live progress view (plain log lines instead)
+      --no-report                         skip writing the HTML report
+  -o, --open                              open the report in a browser after the run
+      --ramp duration                     ramp the rate from 0 up to full over this duration
+      --redis-threshold duration          Redis spike threshold for correlation (default 100ms)
       --report string                 path for the HTML report (default "report.html")
   -v, --verbose                       print per-bucket detail
 ```
@@ -517,10 +536,12 @@ Thresholds default to 100ms each and apply per runner (`--http-threshold`,
 
 The JSON export mirrors this structure: `generated_at`, `duration`, `ramp`,
 `concurrency`, per-runner metrics (latencies in milliseconds), correlated spikes
-(each with `runner`, `http_p99_ms`, `storage_p99_ms`, and `masked`), and the
-timeline. In the timeline's `p99_ms` series, `-1` marks a bucket where that
-runner had no request (e.g. before the ramp produced its first hit); the report
-chart renders these as gaps, not as a latency of -1ms.
+(each with `runner`, `http_p99_ms`, `storage_p99_ms`, and `masked`), the
+timeline, and — when the run was a capacity sweep — the `capacity_search`
+curve (per-level concurrency/requests/p99/success, `break_at`, `last_ok`). In
+the timeline's `p99_ms` series, `-1` marks a bucket where that runner had no
+request (e.g. before the ramp produced its first hit); the report chart renders
+these as gaps, not as a latency of -1ms.
 
 ## Demo stack
 

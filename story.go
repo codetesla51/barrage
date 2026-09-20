@@ -29,8 +29,8 @@ type StoryData struct {
 // ramp, concurrency set) — RenderHTML and BuildJSON do this themselves so
 // every output carries the story with no ordering constraints.
 func BuildStory(data ReportData) StoryData {
-	if data.RampSearch != nil {
-		return rampStory(data.RampSearch)
+	if data.CapacitySearch != nil {
+		return capacityStory(data.CapacitySearch)
 	}
 	if data.Error != "" {
 		return StoryData{
@@ -159,10 +159,10 @@ func BuildStory(data ReportData) StoryData {
 	return s
 }
 
-// rampStory verdicts an auto-ramp search: where it broke and who did it.
-func rampStory(res *RampResult) StoryData {
+// capacityStory verdicts a capacity sweep: where it broke and who did it.
+func capacityStory(res *CapacityResult) StoryData {
 	if res == nil || len(res.Steps) == 0 {
-		return StoryData{Title: "Ramp produced no levels", Tone: "err", Detail: "No concurrency level ran. Check the ramp config and target reachability."}
+		return StoryData{Title: "Sweep produced no levels", Tone: "err", Detail: "No concurrency level ran. Check the capacity config and target reachability."}
 	}
 	causes := map[string]bool{}
 	for _, s := range res.Steps {
@@ -183,7 +183,7 @@ func rampStory(res *RampResult) StoryData {
 		return StoryData{
 			Title:  fmt.Sprintf("Broke at %d concurrent users", res.BreakAt),
 			Tone:   "err",
-			Detail: detail + " See the ramp chart for cliff vs slope.",
+			Detail: detail + " See the capacity chart for cliff vs slope.",
 			NextSteps: []string{
 				fmt.Sprintf("Re-test at %d users after the fix to prove the knee moved.", res.BreakAt),
 				"Same-machine numbers are relative — generate load from a separate box for real capacity.",

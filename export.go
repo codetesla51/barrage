@@ -11,20 +11,20 @@ import (
 // Latencies are in milliseconds so consumers can compare runs without parsing
 // strings.
 type JSONReport struct {
-	GeneratedAt time.Time    `json:"generated_at"`
-	Duration    string       `json:"duration"`
-	Ramp        string       `json:"ramp"`
-	Concurrency int          `json:"concurrency"`
-	Error       string       `json:"error,omitempty"`
-	Runners     []JSONRunner `json:"runners"`
-	Spikes      []JSONSpike  `json:"spikes"`
-	Timeline    JSONTimeline `json:"timeline"`
-	RampSearch  *JSONRamp    `json:"ramp_search,omitempty"`
-	Story       JSONStory    `json:"story"`
+	GeneratedAt    time.Time     `json:"generated_at"`
+	Duration       string        `json:"duration"`
+	Ramp           string        `json:"ramp"`
+	Concurrency    int           `json:"concurrency"`
+	Error          string        `json:"error,omitempty"`
+	Runners        []JSONRunner  `json:"runners"`
+	Spikes         []JSONSpike   `json:"spikes"`
+	Timeline       JSONTimeline  `json:"timeline"`
+	CapacitySearch *JSONCapacity `json:"capacity_search,omitempty"`
+	Story          JSONStory     `json:"story"`
 }
 
-// JSONRampStep is one auto-ramp level in the JSON export.
-type JSONRampStep struct {
+// JSONCapacityStep is one capacity-sweep level in the JSON export.
+type JSONCapacityStep struct {
 	Concurrency int      `json:"concurrency"`
 	Requests    uint64   `json:"requests"`
 	P99MS       int64    `json:"p99_ms"`
@@ -33,11 +33,11 @@ type JSONRampStep struct {
 	BrokenBy    []string `json:"broken_by,omitempty"`
 }
 
-// JSONRamp is the auto-ramp curve in the JSON export.
-type JSONRamp struct {
-	Steps   []JSONRampStep `json:"steps"`
-	BreakAt int            `json:"break_at"`
-	LastOK  int            `json:"last_ok"`
+// JSONCapacity is the capacity-sweep curve in the JSON export.
+type JSONCapacity struct {
+	Steps   []JSONCapacityStep `json:"steps"`
+	BreakAt int                `json:"break_at"`
+	LastOK  int                `json:"last_ok"`
 }
 
 // JSONRunner is one runner's aggregate summary in the JSON export.
@@ -152,10 +152,10 @@ func BuildJSON(data ReportData) ([]byte, error) {
 			StatusCodes: r.StatusCodes,
 		})
 	}
-	if data.RampSearch != nil {
-		jr := &JSONRamp{BreakAt: data.RampSearch.BreakAt, LastOK: data.RampSearch.LastOK}
-		for _, s := range data.RampSearch.Steps {
-			jr.Steps = append(jr.Steps, JSONRampStep{
+	if data.CapacitySearch != nil {
+		jc := &JSONCapacity{BreakAt: data.CapacitySearch.BreakAt, LastOK: data.CapacitySearch.LastOK}
+		for _, s := range data.CapacitySearch.Steps {
+			jc.Steps = append(jc.Steps, JSONCapacityStep{
 				Concurrency: s.Concurrency,
 				Requests:    s.Requests,
 				P99MS:       s.P99.Milliseconds(),
@@ -164,7 +164,7 @@ func BuildJSON(data ReportData) ([]byte, error) {
 				BrokenBy:    s.BrokenBy,
 			})
 		}
-		report.RampSearch = jr
+		report.CapacitySearch = jc
 	}
 
 	buf, err := json.MarshalIndent(report, "", "  ")

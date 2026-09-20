@@ -85,7 +85,7 @@ func TestScaledRate(t *testing.T) {
 	}
 }
 
-func TestRampBreakers(t *testing.T) {
+func TestCapacityBreakers(t *testing.T) {
 	th := 100 * time.Millisecond
 	cases := []struct {
 		name             string
@@ -104,7 +104,7 @@ func TestRampBreakers(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := rampBreakers(c.httpP99, c.dbP99, 0, 0, c.httpSucc, c.dbSucc, 1.0, 1.0, c.httpOK, c.dbOK, false, false, th, th, th)
+			got := capacityBreakers(c.httpP99, c.dbP99, 0, 0, c.httpSucc, c.dbSucc, 1.0, 1.0, c.httpOK, c.dbOK, false, false, th, th, th)
 			if (len(got) > 0) != c.wantBroken {
 				t.Fatalf("broken = %v, want %v (by=%v)", len(got) > 0, c.wantBroken, got)
 			}
@@ -120,7 +120,7 @@ func TestRampBreakers(t *testing.T) {
 	}
 }
 
-func TestRunAutoRamp_HTTPFullSweep(t *testing.T) {
+func TestRunCapacitySweep_HTTPFullSweep(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -135,11 +135,11 @@ func TestRunAutoRamp_HTTPFullSweep(t *testing.T) {
 			Rate:   20,
 		},
 	}
-	ramp := AutoRampConfig{MaxConcurrency: 8, StepDuration: Duration(1200 * time.Millisecond)}
+	sweep := CapacityConfig{MaxConcurrency: 8, StepDuration: Duration(1200 * time.Millisecond)}
 	// Generous threshold so nothing breaks and the full coarse grid runs.
-	res, err := RunAutoRamp(cfg, ramp, 5*time.Second, 5*time.Second, 5*time.Second)
+	res, err := RunCapacitySweep(cfg, sweep, 5*time.Second, 5*time.Second, 5*time.Second)
 	if err != nil {
-		t.Fatalf("RunAutoRamp: %v", err)
+		t.Fatalf("RunCapacitySweep: %v", err)
 	}
 	if len(res.Steps) == 0 {
 		t.Fatal("expected at least one step")
@@ -173,7 +173,7 @@ func TestRunAutoRamp_HTTPFullSweep(t *testing.T) {
 	}
 }
 
-func TestRunAutoRamp_HTTPImmediateBreak(t *testing.T) {
+func TestRunCapacitySweep_HTTPImmediateBreak(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -188,18 +188,18 @@ func TestRunAutoRamp_HTTPImmediateBreak(t *testing.T) {
 			Rate:   20,
 		},
 	}
-	ramp := AutoRampConfig{MaxConcurrency: 8, StepDuration: Duration(1200 * time.Millisecond)}
+	sweep := CapacityConfig{MaxConcurrency: 8, StepDuration: Duration(1200 * time.Millisecond)}
 	// Impossible threshold breaks the first level; fine fill probes below it.
-	res, err := RunAutoRamp(cfg, ramp, time.Nanosecond, 100*time.Millisecond, 100*time.Millisecond)
+	res, err := RunCapacitySweep(cfg, sweep, time.Nanosecond, 100*time.Millisecond, 100*time.Millisecond)
 	if err != nil {
-		t.Fatalf("RunAutoRamp: %v", err)
+		t.Fatalf("RunCapacitySweep: %v", err)
 	}
 	if res.BreakAt == 0 {
 		t.Error("expected a break with a 1ns threshold")
 	}
 }
 
-func TestRunAutoRamp_RejectsBadMax(t *testing.T) {
+func TestRunCapacitySweep_RejectsBadMax(t *testing.T) {
 	cfg := OrchestratorConfig{
 		Duration:    Duration(5 * time.Second),
 		BucketWidth: Duration(time.Second),
@@ -209,22 +209,41 @@ func TestRunAutoRamp_RejectsBadMax(t *testing.T) {
 			Rate:   1,
 		},
 	}
-	_, err := RunAutoRamp(cfg, AutoRampConfig{MaxConcurrency: 5}, 100*time.Millisecond, 100*time.Millisecond, 100*time.Millisecond)
+	_, err := RunCapacitySweep(cfg, CapacityConfig{MaxConcurrency: 5}, 100*time.Millisecond, 100*time.Millisecond, 100*time.Millisecond)
 	if err == nil {
 		t.Error("expected error for max below start")
 	}
 }
 
-func TestLoadConfig_AutoRamp(t *testing.T) {
+func TestLoadConfig_Capacity(t *testing.T) {
+	cfg, err := LoadConfigBytes([]byte("duration: 15s\nconcurrency: 10\nhttp:\n  rate: 5\n  target:\n    method: GET\n    url: http://localhost:8080/\ncapacity:\n  max_concurrency: 80\n  step_duration: 10s\n"))
+	if err != nil {
+		t.Fatalf("LoadConfigBytes: %v", err)
+	}
+	if cfg.Capacity == nil || cfg.Capacity.MaxConcurrency != 80 {
+		t.Fatalf("capacity not parsed: %+v", cfg.Capacity)
+	}
+	if cfg.UsedDeprecatedAutoRamp {
+		t.Error("capacity: should not set the deprecated-name flag")
+	}
+	bad, err := LoadConfigBytes([]byte("duration: 15s\nconcurrency: 10\nhttp:\n  rate: 5\n  target:\n    method: GET\n    url: http://localhost:8080/\ncapacity:\n  max_concurrency: 5\n  step_duration: 10s\n"))
+	if err == nil || bad != nil {
+		t.Errorf("expected max<start to fail, got %v, %v", bad, err)
+	}
+}
+
+// TestLoadConfig_DeprecatedAutoRamp pins the pre-0.6 compat alias: a config
+// that still says auto_ramp: loads exactly like capacity: and flags itself so
+// callers can print a rename warning.
+func TestLoadConfig_DeprecatedAutoRamp(t *testing.T) {
 	cfg, err := LoadConfigBytes([]byte("duration: 15s\nconcurrency: 10\nhttp:\n  rate: 5\n  target:\n    method: GET\n    url: http://localhost:8080/\nauto_ramp:\n  max_concurrency: 80\n  step_duration: 10s\n"))
 	if err != nil {
 		t.Fatalf("LoadConfigBytes: %v", err)
 	}
-	if cfg.AutoRamp == nil || cfg.AutoRamp.MaxConcurrency != 80 {
-		t.Fatalf("auto_ramp not parsed: %+v", cfg.AutoRamp)
+	if cfg.Capacity == nil || cfg.Capacity.MaxConcurrency != 80 {
+		t.Fatalf("auto_ramp: not merged into Capacity: %+v", cfg.Capacity)
 	}
-	bad, err := LoadConfigBytes([]byte("duration: 15s\nconcurrency: 10\nhttp:\n  rate: 5\n  target:\n    method: GET\n    url: http://localhost:8080/\nauto_ramp:\n  max_concurrency: 5\n  step_duration: 10s\n"))
-	if err == nil || bad != nil {
-		t.Errorf("expected max<start to fail, got %v, %v", bad, err)
+	if !cfg.UsedDeprecatedAutoRamp {
+		t.Error("expected the deprecated-name flag when auto_ramp: is used")
 	}
 }

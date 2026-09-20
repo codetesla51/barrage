@@ -67,6 +67,12 @@ func loadConfigBytes(data []byte, path string) (*OrchestratorConfig, error) {
 	if len(cfg.DeprecatedScenarios) > 0 {
 		return nil, errors.New("scenarios: is renamed to scenario: (singular)")
 	}
+	// auto_ramp: is the pre-0.6 name for the capacity sweep. Merge it so old
+	// configs load unchanged, and flag it so the caller can print a warning.
+	if cfg.Capacity == nil && cfg.DeprecatedAutoRamp != nil {
+		cfg.Capacity = cfg.DeprecatedAutoRamp
+		cfg.UsedDeprecatedAutoRamp = true
+	}
 	hasScenario := len(cfg.Scenario) > 0
 	if cfg.HTTP == nil && cfg.DB == nil && cfg.Redis == nil && !hasScenario {
 		return nil, errors.New("config must specify at least one runner: http, db, redis, or scenario")
@@ -140,22 +146,22 @@ func loadConfigBytes(data []byte, path string) (*OrchestratorConfig, error) {
 			return nil, err
 		}
 	}
-	if cfg.AutoRamp != nil {
+	if cfg.Capacity != nil {
 		start := cfg.Concurrency
 		if start <= 0 {
 			start = DefaultConcurrency
 		}
-		if cfg.AutoRamp.MaxConcurrency <= 0 {
-			return nil, errors.New("auto_ramp max_concurrency must be greater than zero")
+		if cfg.Capacity.MaxConcurrency <= 0 {
+			return nil, errors.New("capacity max_concurrency must be greater than zero")
 		}
-		if cfg.AutoRamp.MaxConcurrency < start {
-			return nil, fmt.Errorf("auto_ramp max_concurrency %d below concurrency %d", cfg.AutoRamp.MaxConcurrency, start)
+		if cfg.Capacity.MaxConcurrency < start {
+			return nil, fmt.Errorf("capacity max_concurrency %d below concurrency %d", cfg.Capacity.MaxConcurrency, start)
 		}
-		if cfg.AutoRamp.StepDuration < 0 {
-			return nil, errors.New("auto_ramp step_duration must not be negative")
+		if cfg.Capacity.StepDuration < 0 {
+			return nil, errors.New("capacity step_duration must not be negative")
 		}
-		if cfg.AutoRamp.StepDuration > 0 && time.Duration(cfg.AutoRamp.StepDuration) < time.Duration(cfg.BucketWidth) {
-			return nil, errors.New("auto_ramp step_duration must cover at least one bucket")
+		if cfg.Capacity.StepDuration > 0 && time.Duration(cfg.Capacity.StepDuration) < time.Duration(cfg.BucketWidth) {
+			return nil, errors.New("capacity step_duration must cover at least one bucket")
 		}
 	}
 	if time.Duration(cfg.Duration) <= 0 {

@@ -485,24 +485,24 @@
     </div>
   </section>
 
-  {{if .RampSearch}}
+  {{if .CapacitySearch}}
   <section>
-    <h2 class="section-title">capacity ramp — concurrency vs p99</h2>
+    <h2 class="section-title">capacity sweep — concurrency vs p99</h2>
     <div class="panel-grid">
       <div class="panel">
         <div class="panel-header">
           <h2>p99 by concurrency</h2>
-          <span class="meta">ms · {{if .RampSearch.BreakAt}}broke at {{.RampSearch.BreakAt}}{{else}}held to {{.RampSearch.LastOK}}{{end}}</span>
+          <span class="meta">ms · {{if .CapacitySearch.BreakAt}}broke at {{.CapacitySearch.BreakAt}}{{else}}held to {{.CapacitySearch.LastOK}}{{end}}</span>
         </div>
         <div class="chart-body">
           <div class="chart-container">
-            <canvas id="rampChart"></canvas>
+            <canvas id="capacityChart"></canvas>
           </div>
         </div>
       </div>
       <div class="panel">
         <div class="panel-header">
-          <h2>ramp steps</h2>
+          <h2>sweep steps</h2>
           <span class="meta">coarse double, then fine fill</span>
         </div>
         <div class="table-scroll">
@@ -518,7 +518,7 @@
               </tr>
             </thead>
             <tbody>
-              {{range .RampSearch.Steps}}
+              {{range .CapacitySearch.Steps}}
               <tr>
                 <td class="mono">{{.Concurrency}}</td>
                 <td class="mono">{{.Requests}}</td>
@@ -534,13 +534,13 @@
       </div>
     </div>
     <script>
-      new Chart(document.getElementById('rampChart'), {
+      new Chart(document.getElementById('capacityChart'), {
         type: 'line',
         data: {
-          labels: [{{range .RampSearch.Steps}}"{{.Concurrency}}",{{end}}],
+          labels: [{{range .CapacitySearch.Steps}}"{{.Concurrency}}",{{end}}],
           datasets: [{
             label: 'P99 (ms)',
-            data: [{{range .RampSearch.Steps}}{{.P99.Milliseconds}},{{end}}],
+            data: [{{range .CapacitySearch.Steps}}{{.P99.Milliseconds}},{{end}}],
             borderColor: '#fafafa',
             backgroundColor: 'rgba(0,0,0,0)',
             tension: 0.25,

@@ -16,14 +16,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/codetesla51/barrage"
 	"github.com/codetesla51/barrage/internal/cliui"
+	"github.com/codetesla51/barrage/internal/version"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 	_ "modernc.org/sqlite"
 )
-
-var version = "v0.5.6"
 
 const banner = `     ________  ________  ________  ________  ________  ________  _______
     |\   __  \|\   __  \|\   __  \|\   __  \|\   __  \|\   ____\|\  ___ \
@@ -34,23 +33,23 @@ const banner = `     ________  ________  ________  ________  ________  ________ 
         \|_______|\|__|\|__|\|__|\|__|\|__|\|__|\|__|\|__|\|_______|\|_______|`
 
 type runOptions struct {
-	config             string
-	report             string
-	noReport           bool
-	open               bool
-	duration           time.Duration
-	bucketWidth        time.Duration
-	ramp               time.Duration
-	concurrency        int
-	jsonPath           string
-	httpThreshold      time.Duration
-	dbThreshold        time.Duration
-	redisThreshold     time.Duration
-	verbose            bool
-	noProgress         bool
-	autoRamp           bool
-	rampMaxConcurrency int
-	rampStepDuration   time.Duration
+	config            string
+	report            string
+	noReport          bool
+	open              bool
+	duration          time.Duration
+	bucketWidth       time.Duration
+	ramp              time.Duration
+	concurrency       int
+	jsonPath          string
+	httpThreshold     time.Duration
+	dbThreshold       time.Duration
+	redisThreshold    time.Duration
+	verbose           bool
+	noProgress        bool
+	capacity          bool
+	capacityMaxConcur int
+	capacityStepDur   time.Duration
 }
 
 type compareOptions struct {
@@ -89,6 +88,7 @@ func newRunCmd() *cobra.Command {
 		Short: "Run a load test from a config file",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			warnDeprecatedRunFlags(cmd)
 			return runLoadTest(opts)
 		},
 	}
@@ -107,9 +107,16 @@ func newRunCmd() *cobra.Command {
 	f.DurationVar(&opts.redisThreshold, "redis-threshold", 100*time.Millisecond, "Redis spike threshold for correlation")
 	f.BoolVarP(&opts.verbose, "verbose", "v", false, "print per-bucket detail")
 	f.BoolVar(&opts.noProgress, "no-progress", false, "disable the live progress view (plain log lines instead)")
-	f.BoolVar(&opts.autoRamp, "auto-ramp", false, "ramp concurrency (double, then fine fill) to find the break point")
-	f.IntVar(&opts.rampMaxConcurrency, "ramp-max-concurrency", 0, "cap for auto-ramp concurrency search")
-	f.DurationVar(&opts.rampStepDuration, "ramp-step-duration", 0, "per-level burst time for auto-ramp (default 10s)")
+	f.BoolVar(&opts.capacity, "capacity", false, "sweep concurrency (double, then fine fill) to find the break point")
+	f.IntVar(&opts.capacityMaxConcur, "capacity-max-concurrency", 0, "cap for the capacity sweep")
+	f.DurationVar(&opts.capacityStepDur, "capacity-step-duration", 0, "per-level burst time for the capacity sweep (default 10s)")
+	// Pre-0.6 names, kept as hidden aliases so existing invocations keep working.
+	f.BoolVar(&opts.capacity, "auto-ramp", false, "deprecated, use --capacity")
+	f.IntVar(&opts.capacityMaxConcur, "ramp-max-concurrency", 0, "deprecated, use --capacity-max-concurrency")
+	f.DurationVar(&opts.capacityStepDur, "ramp-step-duration", 0, "deprecated, use --capacity-step-duration")
+	_ = cmd.Flags().MarkHidden("auto-ramp")
+	_ = cmd.Flags().MarkHidden("ramp-max-concurrency")
+	_ = cmd.Flags().MarkHidden("ramp-step-duration")
 	return cmd
 }
 
@@ -138,7 +145,7 @@ func newVersionCmd() *cobra.Command {
 		Short: "Print the version",
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("barrage %s\n", version)
+			fmt.Printf("barrage %s\n", version.Version)
 		},
 	}
 }
@@ -165,32 +172,35 @@ func runLoadTest(opts *runOptions) error {
 		cfg.Concurrency = opts.concurrency
 	}
 
-	if opts.autoRamp && cfg.AutoRamp == nil {
-		cfg.AutoRamp = &barrage.AutoRampConfig{}
+	if opts.capacity && cfg.Capacity == nil {
+		cfg.Capacity = &barrage.CapacityConfig{}
 	}
-	if opts.rampMaxConcurrency > 0 {
-		if cfg.AutoRamp == nil {
-			cfg.AutoRamp = &barrage.AutoRampConfig{}
+	if opts.capacityMaxConcur > 0 {
+		if cfg.Capacity == nil {
+			cfg.Capacity = &barrage.CapacityConfig{}
 		}
-		cfg.AutoRamp.MaxConcurrency = opts.rampMaxConcurrency
+		cfg.Capacity.MaxConcurrency = opts.capacityMaxConcur
 	}
-	if opts.rampStepDuration > 0 {
-		if cfg.AutoRamp == nil {
-			cfg.AutoRamp = &barrage.AutoRampConfig{}
+	if opts.capacityStepDur > 0 {
+		if cfg.Capacity == nil {
+			cfg.Capacity = &barrage.CapacityConfig{}
 		}
-		cfg.AutoRamp.StepDuration = barrage.Duration(opts.rampStepDuration)
+		cfg.Capacity.StepDuration = barrage.Duration(opts.capacityStepDur)
+	}
+	if cfg.UsedDeprecatedAutoRamp {
+		fmt.Fprintln(os.Stderr, "warning: auto_ramp: is deprecated; rename it to capacity:")
 	}
 
 	fmt.Println(banner)
 	fmt.Println()
-	fmt.Printf("barrage %s\n", version)
-	if cfg.AutoRamp != nil {
-		stepDur := time.Duration(cfg.AutoRamp.StepDuration)
+	fmt.Printf("barrage %s\n", version.Version)
+	if cfg.Capacity != nil {
+		stepDur := time.Duration(cfg.Capacity.StepDuration)
 		if stepDur <= 0 {
 			stepDur = 10 * time.Second
 		}
-		fmt.Println(cliui.Dim(fmt.Sprintf("auto-ramp %d → %d · step %s · bucket %s",
-			effectiveConcurrency(cfg), cfg.AutoRamp.MaxConcurrency, stepDur, time.Duration(cfg.BucketWidth))))
+		fmt.Println(cliui.Dim(fmt.Sprintf("capacity %d → %d · step %s · bucket %s",
+			effectiveConcurrency(cfg), cfg.Capacity.MaxConcurrency, stepDur, time.Duration(cfg.BucketWidth))))
 	} else {
 		fmt.Println(cliui.Dim(fmt.Sprintf("duration %s · bucket %s · concurrency %d · ramp %s",
 			time.Duration(cfg.Duration), time.Duration(cfg.BucketWidth), effectiveConcurrency(cfg), time.Duration(cfg.Ramp))))
@@ -201,8 +211,8 @@ func runLoadTest(opts *runOptions) error {
 
 	fmt.Println()
 
-	if cfg.AutoRamp != nil {
-		return runAutoRamp(opts, cfg)
+	if cfg.Capacity != nil {
+		return runCapacitySweep(opts, cfg)
 	}
 
 	// Live progress: Bubble Tea view on TTY stderr, plain 5s log lines
@@ -262,19 +272,35 @@ func runLoadTest(opts *runOptions) error {
 	return nil
 }
 
-func runAutoRamp(opts *runOptions, cfg *barrage.OrchestratorConfig) error {
+// warnDeprecatedRunFlags prints a one-line rename hint for each pre-0.6 flag
+// the user still invoked. The aliases bind to the same options as the new
+// names, so behavior is unchanged; this just nudges configs onto capacity:.
+func warnDeprecatedRunFlags(cmd *cobra.Command) {
+	deprecated := []struct{ flag, hint string }{
+		{"auto-ramp", "--capacity"},
+		{"ramp-max-concurrency", "--capacity-max-concurrency"},
+		{"ramp-step-duration", "--capacity-step-duration"},
+	}
+	for _, d := range deprecated {
+		if cmd.Flags().Changed(d.flag) {
+			fmt.Fprintf(os.Stderr, "warning: --%s is deprecated; use %s\n", d.flag, d.hint)
+		}
+	}
+}
+
+func runCapacitySweep(opts *runOptions, cfg *barrage.OrchestratorConfig) error {
 	stats := &barrage.RunStats{}
 	cfg.Stats = stats
 	cfg.Quiet = true
 
-	rampCfg := *cfg.AutoRamp
-	res, err := barrage.RunAutoRamp(*cfg, rampCfg, opts.httpThreshold, opts.dbThreshold, opts.redisThreshold)
+	sweepCfg := *cfg.Capacity
+	res, err := barrage.RunCapacitySweep(*cfg, sweepCfg, opts.httpThreshold, opts.dbThreshold, opts.redisThreshold)
 	if err != nil {
-		return fmt.Errorf("auto-ramp failed: %w", err)
+		return fmt.Errorf("capacity sweep failed: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "[barrage] ramp done · %s\n", stats.Summary())
-	printRampTable(res)
+	fmt.Fprintf(os.Stderr, "[barrage] sweep done · %s\n", stats.Summary())
+	printCapacityTable(res)
 	if res.BreakAt != 0 {
 		fmt.Printf("\nbroke at concurrency %d (last ok %d)\n", res.BreakAt, res.LastOK)
 	} else {
@@ -282,15 +308,15 @@ func runAutoRamp(opts *runOptions, cfg *barrage.OrchestratorConfig) error {
 	}
 
 	if !opts.noReport {
-		data := barrage.ReportData{RampSearch: res}
-		stepDur := time.Duration(cfg.AutoRamp.StepDuration)
+		data := barrage.ReportData{CapacitySearch: res}
+		stepDur := time.Duration(cfg.Capacity.StepDuration)
 		if stepDur <= 0 {
 			stepDur = 10 * time.Second
 		}
 		total := stepDur * time.Duration(len(res.Steps))
 		data.Duration = total.String()
 		data.Ramp = time.Duration(cfg.Ramp).String()
-		data.Concurrency = cfg.AutoRamp.MaxConcurrency
+		data.Concurrency = cfg.Capacity.MaxConcurrency
 		file, err := os.Create(opts.report)
 		if err != nil {
 			return fmt.Errorf("creating report %q: %w", opts.report, err)
@@ -311,14 +337,14 @@ func runAutoRamp(opts *runOptions, cfg *barrage.OrchestratorConfig) error {
 	}
 
 	if opts.jsonPath != "" {
-		data := barrage.ReportData{RampSearch: res}
-		stepDur := time.Duration(cfg.AutoRamp.StepDuration)
+		data := barrage.ReportData{CapacitySearch: res}
+		stepDur := time.Duration(cfg.Capacity.StepDuration)
 		if stepDur <= 0 {
 			stepDur = 10 * time.Second
 		}
 		data.Duration = (stepDur * time.Duration(len(res.Steps))).String()
 		data.Ramp = time.Duration(cfg.Ramp).String()
-		data.Concurrency = cfg.AutoRamp.MaxConcurrency
+		data.Concurrency = cfg.Capacity.MaxConcurrency
 		if err := barrage.ExportJSON(data, opts.jsonPath); err != nil {
 			return fmt.Errorf("writing JSON: %w", err)
 		}
@@ -327,7 +353,7 @@ func runAutoRamp(opts *runOptions, cfg *barrage.OrchestratorConfig) error {
 	return nil
 }
 
-func printRampTable(res *barrage.RampResult) {
+func printCapacityTable(res *barrage.CapacityResult) {
 	if res == nil {
 		return
 	}
