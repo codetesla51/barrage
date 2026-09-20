@@ -27,7 +27,7 @@ Use this skill whenever:
 curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash
 
 # pin a version, change the install dir, or build from source instead:
-curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash -s -- --version v0.5.6 --dir ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash -s -- --version v0.6.0 --dir ~/.local/bin
 curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash -s -- --from-source
 
 # from a checkout (requires Go 1.25+):

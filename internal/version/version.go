@@ -5,4 +5,4 @@ package version
 
 // Version is the current released version, e.g. "v0.6.0". Bump it with
 // scripts/release.sh, never by hand across the repo.
-var Version = "v0.5.6"
+var Version = "v0.6.0"
