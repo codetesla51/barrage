@@ -1,0 +1,81 @@
+# End-to-end capacity sweep with ZERO synthetic load.
+#
+# Only scenario VUs (real journeys through the demo app) — no direct db
+# or redis runners. Every request spends its whole lifecycle through the
+# server: login (bcrypt) -> token -> orders -> checkout, plus browse and
+# health. The knee here is the honest "whole app" number: nothing else on
+# the box competes with it except what the app itself touches.
+#
+# Run by: docker compose run --rm barrage run -c /configs/real-app.yaml \
+#            --json /out/results.json --report /out/report.html
+#    or via the demo-stack workflow with profile=real-app
+duration: 15s        # ignored during a sweep; key is required
+bucket_width: 1s
+ramp: 0s             # sweeps force the ramp off; key is required
+concurrency: 5       # sweep start
+capacity:            # auto-ramp: doubles, then fine-fills to the knee
+  max_concurrency: 200
+  step_duration: 10s
+
+scenario:
+  - name: browse                 # the reading crowd
+    weight: 45
+    steps:
+      - method: GET
+        url: http://demoserver:8080/api/products
+      - method: GET
+        url: http://demoserver:8080/api/orders
+
+  - name: account-check          # returning users checking their session
+    weight: 15
+    steps:
+      - method: POST
+        url: http://demoserver:8080/api/login
+        body: '{"username":"alice","password":"secret"}'
+        headers:
+          Content-Type: application/json
+        extract:
+          token: $.token
+      - method: GET
+        url: http://demoserver:8080/api/me
+        headers:
+          Authorization: Bearer {{token}}
+
+  - name: checkout-flow          # the buyers: auth -> order -> checkout
+    weight: 25
+    steps:
+      - method: POST
+        url: http://demoserver:8080/api/login
+        body: '{"username":"alice","password":"secret"}'
+        headers:
+          Content-Type: application/json
+        extract:
+          token: $.token
+      - method: GET
+        url: http://demoserver:8080/api/me
+        headers:
+          Authorization: Bearer {{token}}
+      - method: POST
+        url: http://demoserver:8080/api/orders
+        body: '{"amount":1}'
+        headers:
+          Content-Type: application/json
+      - method: GET
+        url: http://demoserver:8080/api/checkout?token={{token}}
+        headers:
+          Authorization: Bearer {{token}}
+
+  - name: login-only             # auth hits that go no further
+    weight: 10
+    steps:
+      - method: POST
+        url: http://demoserver:8080/api/login
+        body: '{"username":"alice","password":"secret"}'
+        headers:
+          Content-Type: application/json
+
+  - name: health-ping            # ops probes
+    weight: 5
+    steps:
+      - method: GET
+        url: http://demoserver:8080/health
