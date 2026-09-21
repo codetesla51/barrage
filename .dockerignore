@@ -1,0 +1,6 @@
+.git
+reports
+report.html
+results.json
+*.db
+tmp

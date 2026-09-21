@@ -1,0 +1,49 @@
+# Containerized full-stack profile for the docker-compose demo stack.
+#
+# Endpoints use compose SERVICE NAMES, not localhost — the containers
+# only know each other by name (demoserver, postgres, redis). The same
+# profile shape as examples/heavy.yaml, but against the compose network.
+#
+# Run by: docker compose up --build   (barrage service runs this file)
+duration: 15s
+bucket_width: 1s
+ramp: 3s
+concurrency: 20
+
+http:
+  rate: 50
+  target:
+    method: GET
+    url: http://demoserver:8080/api/products
+    header:
+      accept: [application/json]
+
+db:
+  rate: 20
+  target:
+    driver: postgres
+    conn: postgres://barrage:barrage@postgres:5432/barrage_demo?sslmode=disable
+    # pool capped at the profile's concurrency (20); postgres max_connections default is 100
+    max_open_conns: 20
+    queries:
+      - query: SELECT count(*) FROM orders
+        weight: 3
+        type: read
+      - query: SELECT id, customer, amount FROM orders ORDER BY id DESC LIMIT 20
+        weight: 2
+        type: read
+      - query: INSERT INTO orders (customer, amount) VALUES ('load', 1) RETURNING id
+        weight: 1
+        type: write
+
+redis:
+  rate: 30
+  target:
+    addr: redis:6379
+    queries:
+      - query: PING
+        weight: 3
+      - query: SET sess:demo ok
+        weight: 1
+      - query: INCR demo:hits
+        weight: 2

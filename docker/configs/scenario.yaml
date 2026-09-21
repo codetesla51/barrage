@@ -1,0 +1,34 @@
+# Containerized scenario profile for the docker-compose demo stack.
+# Same journeys as examples/scenarios-weighted.yaml but pointed at the
+# compose service name. Note the single `scenario:` block replaces http:
+# (correlation needs exactly one app-side curve per bucket).
+#
+# Run by: docker compose run --rm barrage run -c /configs/scenario.yaml \
+#            --json /out/scenario.json --report /out/scenario-report.html
+duration: 15s
+bucket_width: 1s
+concurrency: 20
+
+scenario:
+  - name: browse
+    weight: 70
+    steps:
+      - method: GET
+        url: http://demoserver:8080/api/products
+      - method: GET
+        url: http://demoserver:8080/api/orders
+
+  - name: checkout-flow
+    weight: 30
+    steps:
+      - method: POST
+        url: http://demoserver:8080/api/login
+        body: '{"user":"alice"}'
+        headers:
+          Content-Type: application/json
+        extract:
+          token: $.token
+      - method: GET
+        url: http://demoserver:8080/api/checkout?token={{token}}
+        headers:
+          Authorization: Bearer {{token}}

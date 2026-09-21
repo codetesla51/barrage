@@ -1,0 +1,107 @@
+# Barrage demo stack — the whole reference backend + load runner in
+# isolation, one command:
+#
+#   docker compose up --build
+#       builds the images, starts postgres + redis, seeds 1M orders rows,
+#       starts the demo HTTP app, then runs the full-stack profile
+#       (docker/configs/demo.yaml). Results land in ./reports/.
+#
+#   docker compose up postgres redis
+#       just the data stores, if you want to run barrage from the host.
+#
+#   docker compose run --rm barrage run -c /configs/scenario.yaml \
+#           --json /out/scenario.json
+#       ad-hoc run of any profile in docker/configs/ against the stack.
+#
+# Containers reach each other by COMPOSE SERVICE NAME over the compose
+# network (postgres, redis, demoserver) — never localhost. The configs in
+# docker/configs/ already encode that. Host ports are exposed wired 5432,
+# 6379, 8080 for running barrage from the host instead.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: barrage
+      POSTGRES_PASSWORD: barrage
+      POSTGRES_DB: barrage_demo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U barrage -d barrage_demo"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    ports:
+      - "5432:5432" # optional: run barrage from the host against this store
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "6379:6379" # optional
+
+  seeddb:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: seeddb
+    environment:
+      POSTGRES_DSN: "postgres://barrage:barrage@postgres:5432/barrage_demo?sslmode=disable"
+    command: ["-n", "1000000"] # one-shot: drop+recreate orders, COPY 1M rows
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  demoserver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: demoserver
+    environment:
+      POSTGRES_DSN: "postgres://barrage:barrage@postgres:5432/barrage_demo?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      seeddb:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    ports:
+      - "8080:8080" # optional: hit the app from the host
+
+  barrage:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: barrage
+    command:
+      - run
+      - -c
+      - /configs/demo.yaml
+      # --no-progress: the Bubble Tea TUI needs a TTY; a container log isn't one
+      - --no-progress
+      - --json
+      - /out/results.json
+      - --report
+      - /out/report.html
+    volumes:
+      - ./docker/configs:/configs:ro   # profiles to load (read-only)
+      - ./reports:/out                 # reports land here on the host
+    depends_on:
+      demoserver:
+        condition: service_healthy
+
+volumes:
+  pgdata:
