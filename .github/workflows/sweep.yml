@@ -3,6 +3,13 @@
 # instead of crossing an ocean. Manual trigger only. DSNs come from repo
 # secrets (BERTH_DSN_ANY / BERTH_DSN_RO / BERTH_DSN_RW) and never touch a
 # committed file. Results upload as artifacts.
+#
+# Workload: profiles/berth-queries.yaml (catalog reads) are always used;
+# profiles/berth-writes.yaml (INSERTs into public.barrage_load) are appended
+# for write-capable endpoints (any, rw — never ro) when include_writes=yes.
+# warmup_s runs one short burst per host first so scaled-to-zero Neon
+# computes are warm before the real levels (rw's first-burst cold start
+# otherwise pollutes the scan).
 name: berth capacity sweep
 
 on:
@@ -20,6 +27,14 @@ on:
         description: seconds per level burst
         required: false
         default: "10"
+      include_writes:
+        description: also append the write workload (any + rw only; creates the barrage_load table)
+        required: false
+        default: "no"
+      warmup_s:
+        description: seconds of warm-up load per host before the sweep (0 disables)
+        required: false
+        default: "10"
 
 permissions:
   contents: read
@@ -34,6 +49,8 @@ jobs:
       DB_THRESHOLD: ${{ inputs.db_threshold }}
       MAX_CONCURRENCY: ${{ inputs.max_concurrency }}
       STEP_DURATION: ${{ inputs.step_duration }}
+      INCLUDE_WRITES: ${{ inputs.include_writes }}
+      WARMUP_S: ${{ inputs.warmup_s }}
     steps:
       - uses: actions/checkout@v4
 
@@ -43,6 +60,10 @@ jobs:
 
       - name: build barrage
         run: go build -o /tmp/barrage ./cmd/barrage
+
+      - name: ensure benchmark table (writes only)
+        if: inputs.include_writes == 'yes'
+        run: go run ./profiles/pgschema "$ANY_DSN"
 
       - name: sweep any/ro/rw
         id: sweep
@@ -56,6 +77,26 @@ jobs:
               rw)  dsn="$RW_DSN" ;;
             esac
             [ -n "$dsn" ] || { echo "::error::missing secret for $name"; exit 1; }
+
+            # warm-up burst first (wakes scaled-to-zero compute, warms the pool)
+            if [ "$WARMUP_S" -gt 0 ] && [ "$WARMUP_S" != "0" ]; then
+              {
+                echo "duration: ${WARMUP_S}s"
+                echo "concurrency: 5"
+                echo "bucket_width: 1s"
+                echo "db:"
+                echo "  rate: 10"
+                echo "  target:"
+                echo "    driver: postgres"
+                echo "    conn: $dsn"
+                cat profiles/berth-queries.yaml
+              } > "/tmp/$name-warmup.yaml"
+              echo "---- warm-up: $name (${WARMUP_S}s) ----"
+              /tmp/barrage run -c "/tmp/$name-warmup.yaml" \
+                --db-threshold "${DB_THRESHOLD}ms" --no-progress \
+                --json "/tmp/results/warmup-$name.json" || true
+            fi
+
             {
               echo "duration: 60s"
               echo "concurrency: 5"
@@ -68,10 +109,10 @@ jobs:
               echo "  target:"
               echo "    driver: postgres"
               echo "    conn: $dsn"
-              echo "    queries:"
-              echo "      - query: SELECT 1"
-              echo "        weight: 1"
-              echo "        type: read"
+              cat profiles/berth-queries.yaml
+              if [ "$INCLUDE_WRITES" = "yes" ] && [ "$name" != "ro" ]; then
+                cat profiles/berth-writes.yaml
+              fi
             } > "/tmp/$name.yaml"
             echo "========== SWEEP: $name =========="
             /tmp/barrage run -c "/tmp/$name.yaml" \

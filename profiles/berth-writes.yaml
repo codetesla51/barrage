@@ -1,0 +1,10 @@
+# berth HA sweep — write workload (opt-in via the include_writes input).
+# Writes go to the dedicated benchmark table public.barrage_load (created by
+# the workflow when writes are enabled). Only appended to write-capable
+# endpoints (any, rw) — never to ro (read-only replica).
+      - query: INSERT INTO public.barrage_load (payload) VALUES ('ha') RETURNING id
+        weight: 2
+        type: write
+      - query: SELECT count(*) FROM public.barrage_load
+        weight: 1
+        type: read

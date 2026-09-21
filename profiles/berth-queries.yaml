@@ -1,0 +1,18 @@
+# berth HA sweep — read workload (ops/monitoring queries).
+# These hit the pg catalog: real joins, scans, and aggregates, so the
+# engine works instead of just answering SELECT 1. Concatenated into the
+# runtime config by .github/workflows/sweep.yml under the db.target key.
+# Indentation matters: the file is appended verbatim after the target header.
+    queries:
+      - query: SELECT count(*) FROM pg_stat_activity
+        weight: 3
+        type: read
+      - query: SELECT n.nspname, c.relname, c.reltuples FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind IN ('r','p') ORDER BY c.reltuples DESC LIMIT 100
+        weight: 2
+        type: read
+      - query: SELECT datname, numbackends, xact_commit, xact_rollback, blks_read, blks_hit FROM pg_stat_database ORDER BY datname
+        weight: 2
+        type: read
+      - query: SELECT l.locktype, count(*) FROM pg_locks l GROUP BY l.locktype ORDER BY count(*) DESC
+        weight: 1
+        type: read
