@@ -1,0 +1,101 @@
+# Full-app lifecycle + capacity sweep against the compose demo stack.
+# Exercises every route the demoserver exposes (health, login, me,
+# products, orders GET/POST, checkout), weighted like real e-commerce
+# traffic, plus weighted DB reads/writes and Redis commands on one clock.
+# capacity: is what auto_ramp: became in 0.6.
+duration: 15s        # ignored during a sweep; key is required
+bucket_width: 1s
+ramp: 0s             # sweeps force the ramp off; key is required
+concurrency: 5       # sweep start
+capacity:            # auto-ramp: doubles, then fine-fills to the knee
+  max_concurrency: 200
+  step_duration: 10s
+
+scenario:
+  - name: browse                 # the reading crowd
+    weight: 45
+    steps:
+      - method: GET
+        url: http://demoserver:8080/api/products
+      - method: GET
+        url: http://demoserver:8080/api/orders
+
+  - name: account-check          # returning users checking their session
+    weight: 15
+    steps:
+      - method: POST
+        url: http://demoserver:8080/api/login
+        headers:
+          Content-Type: application/json
+        extract:
+          token: $.token
+      - method: GET
+        url: http://demoserver:8080/api/me
+        headers:
+          Authorization: Bearer {{token}}
+
+  - name: checkout-flow          # the buyers: auth -> order -> checkout
+    weight: 25
+    steps:
+      - method: POST
+        url: http://demoserver:8080/api/login
+        headers:
+          Content-Type: application/json
+        extract:
+          token: $.token
+      - method: GET
+        url: http://demoserver:8080/api/me
+        headers:
+          Authorization: Bearer {{token}}
+      - method: POST
+        url: http://demoserver:8080/api/orders
+        body: '{"amount":1}'
+        headers:
+          Content-Type: application/json
+      - method: GET
+        url: http://demoserver:8080/api/checkout?token={{token}}
+        headers:
+          Authorization: Bearer {{token}}
+
+  - name: login-only             # auth hits that go no further
+    weight: 10
+    steps:
+      - method: POST
+        url: http://demoserver:8080/api/login
+        headers:
+          Content-Type: application/json
+
+  - name: health-ping            # ops probes
+    weight: 5
+    steps:
+      - method: GET
+        url: http://demoserver:8080/health
+
+db:
+  rate: 40            # scaled up with each sweep level
+  target:
+    driver: postgres
+    conn: postgres://barrage:barrage@postgres:5432/barrage_demo?sslmode=disable
+    max_open_conns: 20
+    queries:
+      - query: SELECT count(*) FROM orders
+        weight: 2
+        type: read
+      - query: SELECT id, customer, amount FROM orders ORDER BY id DESC LIMIT 20
+        weight: 2
+        type: read
+      - query: INSERT INTO orders (customer, amount) VALUES ('load', 1) RETURNING id
+        weight: 1
+        type: write
+
+redis:
+  rate: 100
+  target:
+    addr: redis:6379
+    queries:
+      - query: PING
+        weight: 3
+      - query: SET sess:demo ok
+        weight: 1
+      - query: INCR demo:hits
+        weight: 2
