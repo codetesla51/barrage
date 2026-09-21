@@ -35,6 +35,10 @@ on:
         description: seconds of warm-up load per host before the sweep (0 disables)
         required: false
         default: "10"
+      pool_size:
+        description: "fixed client connection pool (max_open_conns). 0 = one connection per worker (direct). A positive value tests pooled requests; concurrency above the pool size queues on connections, like a real app's DB pool."
+        required: false
+        default: "0"
 
 permissions:
   contents: read
@@ -51,6 +55,7 @@ jobs:
       STEP_DURATION: ${{ inputs.step_duration }}
       INCLUDE_WRITES: ${{ inputs.include_writes }}
       WARMUP_S: ${{ inputs.warmup_s }}
+      POOL_SIZE: ${{ inputs.pool_size }}
     steps:
       - uses: actions/checkout@v4
 
@@ -91,6 +96,9 @@ jobs:
                 echo "  target:"
                 echo "    driver: postgres"
                 echo "    conn: $dsn"
+                if [ "$POOL_SIZE" -gt 0 ]; then
+                  echo "    max_open_conns: $POOL_SIZE"
+                fi
                 cat profiles/berth-queries.yaml
               } > "/tmp/$name-warmup.yaml"
               echo "---- warm-up: $name (${WARMUP_S}s) ----"
@@ -111,6 +119,9 @@ jobs:
               echo "  target:"
               echo "    driver: postgres"
               echo "    conn: $dsn"
+              if [ "$POOL_SIZE" -gt 0 ]; then
+                echo "    max_open_conns: $POOL_SIZE"
+              fi
               cat profiles/berth-queries.yaml
               if [ "$INCLUDE_WRITES" = "yes" ] && [ "$name" = "rw" ]; then
                 cat profiles/berth-writes.yaml
