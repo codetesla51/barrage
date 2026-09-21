@@ -63,7 +63,9 @@ jobs:
 
       - name: ensure benchmark table (writes only)
         if: inputs.include_writes == 'yes'
-        run: go run ./profiles/pgschema "$ANY_DSN"
+        # rw is the only guaranteed write path in this HA setup: ro is
+        # read-only and any can land on a read-only compute.
+        run: go run ./profiles/pgschema "$RW_DSN"
 
       - name: sweep any/ro/rw
         id: sweep
@@ -110,7 +112,7 @@ jobs:
               echo "    driver: postgres"
               echo "    conn: $dsn"
               cat profiles/berth-queries.yaml
-              if [ "$INCLUDE_WRITES" = "yes" ] && [ "$name" != "ro" ]; then
+              if [ "$INCLUDE_WRITES" = "yes" ] && [ "$name" = "rw" ]; then
                 cat profiles/berth-writes.yaml
               fi
             } > "/tmp/$name.yaml"
