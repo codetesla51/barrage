@@ -55,27 +55,24 @@ jobs:
               ro)  dsn="$RO_DSN" ;;
               rw)  dsn="$RW_DSN" ;;
             esac
-            if [ -z "$dsn" ]; then
-              echo "::error::missing secret for $name (BERTH_DSN_${name^^})"
-              exit 1
-            fi
-            cat > "/tmp/$name.yaml" <<EOF
-            duration: 60s
-            concurrency: 5
-            bucket_width: 1s
-            capacity:
-              max_concurrency: $MAX_CONCURRENCY
-              step_duration: ${STEP_DURATION}s
-            db:
-              rate: 10
-              target:
-                driver: postgres
-                conn: $dsn
-                queries:
-                  - query: SELECT 1
-                    weight: 1
-                    type: read
-            EOF
+            [ -n "$dsn" ] || { echo "::error::missing secret for $name"; exit 1; }
+            {
+              echo "duration: 60s"
+              echo "concurrency: 5"
+              echo "bucket_width: 1s"
+              echo "capacity:"
+              echo "  max_concurrency: $MAX_CONCURRENCY"
+              echo "  step_duration: ${STEP_DURATION}s"
+              echo "db:"
+              echo "  rate: 10"
+              echo "  target:"
+              echo "    driver: postgres"
+              echo "    conn: $dsn"
+              echo "    queries:"
+              echo "      - query: SELECT 1"
+              echo "        weight: 1"
+              echo "        type: read"
+            } > "/tmp/$name.yaml"
             echo "========== SWEEP: $name =========="
             /tmp/barrage run -c "/tmp/$name.yaml" \
               --db-threshold "${DB_THRESHOLD}ms" --no-progress \
