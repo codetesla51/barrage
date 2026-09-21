@@ -597,6 +597,50 @@ barrage compare --baseline baseline.json --current current.json --fail-on 100ms
 - [ ] miniredis/httptest vs real service — unit-test backends don't
       saturate like prod; confirm against staging before verdicting.
 
+## Repo case studies (proven here — don't re-learn these)
+
+The demo stack is a *real-ish* backend, not a stub: bcrypt login with
+HMAC-signed tokens (`AUTH_SECRET`, 15 min expiry), indexed reads (orders list
+scans the PK for the newest 20 rows — **no `COUNT(*)` over the 1M-row seed**),
+Redis-cached read routes with write-invalidation, and seeded users
+(`alice`/`bob`/`carol`, password `secret`). Capacity profiles live in
+`docker/configs/` and sweep concurrency 5→200 in levels. The full progression,
+all on a 2-vCPU GitHub runner with the same journey mix:
+
+1. **The `COUNT(*)` wall.** Original stack did `SELECT count(*) FROM orders`
+   over 1M rows; DB P99 sat at ~100ms doing nothing and the sweep broke at
+   0–1 users with DB blamed. Fix: read newest-20 via the PK index, add the
+   `(customer, id DESC)` / `(created_at)` indexes the read paths need, cache
+   the read routes. Knee went 0→10 users; tail at 5 users 646ms→22ms.
+2. **Cache moves the boundary, it does not remove it.** A 5s TTL read cache
+   took the old-schema knee 0→3, and the DB only broke again because the
+   synthetic `db:` runner still pounded the store directly.
+3. **Once the DB is fixed, the app is the wall.** At 11+ users the blame
+   becomes the app's own cost — bcrypt CPU + synchronous writes — not a
+   store. That is the honest shape of a working backend.
+4. **Synthetic load can crowd out the app.** The VU-only profile
+   (`real-app.yaml`, scenario with no `db:`/`redis:` sections) gives the
+   clean whole-app knee: ~7–8 users, `scenario` blamed alone, ~1–3K req/s of
+   real journey traffic.
+5. **Every break here was latency, not errors** — success held 98–100%.
+   A "broken" level means the P99 crossed the threshold, not that requests
+   failed.
+
+### GitHub-runner numbers are RELATIVE — say so
+
+`demo-stack.yml` runs the whole stack (load generator + app + Postgres +
+Redis) in containers on one runner, and runner VMs are **not reproducible**:
+size and neighbours vary between runs. Same-profile knees have wobbled 7 vs 10
+users; a TTL cache-expiry herd collapses isolated levels. Consequences to
+state in every verdict:
+
+- absolute knees / req/s describe *that* box on *that* day — they are
+  relative shapes, never a reproducible capacity spec;
+- the trustworthy outputs are: which layer broke, and whether the boundary
+  moved between configs;
+- for a real capacity figure, load from a separate machine on pinned
+  hardware and repeat. Same-machine sweeps prove shape, not scale.
+
 ## CLI reference
 
 ```sh

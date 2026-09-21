@@ -282,7 +282,7 @@ db:
     driver: postgres # postgres | mysql | sqlite (aliases accepted, e.g. postgresql, sqlite3)
     conn: postgres://user:pass@localhost:5432/mydb?sslmode=disable
     queries:          # one query is picked per request, weighted
-      - query: SELECT count(*) FROM orders
+      - query: SELECT id, customer, amount FROM orders WHERE customer = 'customer-4242' ORDER BY id DESC LIMIT 20
         weight: 20
         type: read
       - query: SELECT customer, amount FROM orders LIMIT 10
@@ -545,20 +545,76 @@ these as gaps, not as a latency of -1ms.
 
 ## Demo stack
 
-Helpers for exercising a local reference backend:
+A reference backend + load stack for exercising every runner on one clock
+without touching a real service. Everything lives in this repo:
 
-- `cmd/demoserver` — HTTP app on `:8080` with routes for scenarios:
-  `POST /api/login` → `{"token":"tok-123"}`, `GET /api/me` (checks
-  `Authorization: Bearer {{token}}`), `GET /api/products`, `POST /api/orders`,
-  `GET /api/checkout?token={{token}}`. See `examples/scenario-login.yaml`
-  (single flow) and `examples/scenarios-weighted.yaml` (weighted browse vs
-  checkout) for examples.
-- `cmd/seeddb` — bulk-seeds an `orders` table (COPY, 100k-row chunks) so DB
-  queries have real work to do:
+- `cmd/demoserver` — an HTTP app on `:8080` written to behave like a real
+  backend:
+  - `POST /api/login` — verifies a **bcrypt** password hash against a seeded
+    `users` table and returns an HMAC-signed token (`AUTH_SECRET`, 15 min
+    expiry)
+  - `GET /api/me` — validates the Bearer token (signature + expiry)
+  - `GET /api/products` / `GET /api/orders` — read routes served from a
+    short-TTL Redis cache (`REDIS_ADDR`) with an indexed Postgres fallback;
+    the orders list scans only the primary key for the newest 20 rows — no
+    full-table count over the seeded 1M rows
+  - `POST /api/orders` — INSERTs one row, invalidates the cached list
+  - `GET /api/checkout`, `GET /health`
+- `cmd/seeddb` — bulk-seeds an `orders` table (COPY, 100k-row chunks), adds
+  the indexes the read paths rely on (`customer, id DESC`, `created_at`), and
+  seeds login users (`alice`/`bob`/`carol`, password `secret`) with real
+  bcrypt hashes:
 
 ```sh
 go run ./cmd/seeddb -conn "postgres://user:pass@localhost:5432/mydb?sslmode=disable" -n 1000000
 ```
+
+- `docker-compose.yml` + `docker/configs/` — the whole stack containerized.
+  `docker compose up --build` starts postgres + redis, seeds, brings up the
+  app, then runs `docker/configs/demo.yaml`; results land in `./reports/`.
+  Capacity profiles (`lifecycle.yaml`, `full-app.yaml`, `real-app.yaml`)
+  sweep concurrency 5→200 with journeys, DB, and Redis all on one clock.
+  The same stack runs on a GitHub runner via `.github/workflows/demo-stack.yml`
+  (manual dispatch, `profile` input selects the config, `./reports/` uploaded
+  as an artifact).
+
+## Case studies: the demo-stack progression
+
+Four progressive sweeps of the same journey mix (browse / account-check /
+checkout-flow / login / health) against the same 2-vCPU GitHub runner. The
+lesson is not the numbers — it is that each fix moved the boundary and
+changed who was blamed:
+
+| Stack state | Knee (users) | First victim | Why |
+|---|---|---|---|
+| original (stub login, `SELECT count(*)` over 1M rows) | 0–1 | DB | the full-table scan parked DB P99 at the 100ms line doing nothing |
+| + Redis cache on the read routes | 3 | DB | reads offloaded, but the synthetic DB runner still blasted the store |
+| + real schema, indexes, real bcrypt login | 10 | app | the silly query is gone; the app's own CPU (bcrypt + writes) is now the wall |
+| same, VUs only (zero synthetic db/redis load) | 7–8 | app | removes out-of-band load; the app is still the bottleneck |
+
+The tails at the last good level tell the same story in one line: **103ms →
+75–89ms → 22–96ms → 41–64ms**, with success held at 98–100% throughout —
+every break was a latency crossing, never an error storm.
+
+### Read the verdicts, not the numbers
+
+Every run above happened on a GitHub Actions runner: 2 vCPUs, the whole stack
+(load generator + app + Postgres + Redis) sharing one box, on a VM whose
+resource allocation is **not guaranteed between runs**. Consequences:
+
+- **Knees wobble run to run** — the same profile measured 7 users one day and
+  10 the next. Causes include transient VM allocation, cache-expiry timing
+  (the 5s TTL thundering-herd collapses isolated levels), and bursty VU
+  firehose throughput.
+- **Absolute numbers are relative.** "~7K req/s ceiling" and "holds ~10 users"
+  describe *that* box on *that* day. They are for comparing configs and
+  finding the culprit layer — not a capacity spec.
+- **"Slow" is a budget you set.** A P99 that crossed this run's 100ms bar
+  might be perfectly acceptable under a 200ms SLO. The tool finds where
+  *your* line gets crossed; it does not decree the line.
+- **For a real capacity figure:** load from a separate machine on stable,
+  pinned hardware, and repeat. Same-machine sweeps prove shape and culprit —
+  not scale.
 
 ## Example configs
 
