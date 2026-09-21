@@ -1,0 +1,110 @@
+# berth capacity sweep — runs the any/ro/rw sweeps on a hosted GitHub
+# runner (Azure US), so the measured path is short to the Fly.io edge
+# instead of crossing an ocean. Manual trigger only. DSNs come from repo
+# secrets (BERTH_DSN_ANY / BERTH_DSN_RO / BERTH_DSN_RW) and never touch a
+# committed file. Results upload as artifacts.
+name: berth capacity sweep
+
+on:
+  workflow_dispatch:
+    inputs:
+      db_threshold:
+        description: P99 budget in ms (a level is broken when its p99 exceeds this)
+        required: false
+        default: "300"
+      max_concurrency:
+        description: highest concurrency level to probe
+        required: false
+        default: "50"
+      step_duration:
+        description: seconds per level burst
+        required: false
+        default: "10"
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    env:
+      ANY_DSN: ${{ secrets.BERTH_DSN_ANY }}
+      RO_DSN: ${{ secrets.BERTH_DSN_RO }}
+      RW_DSN: ${{ secrets.BERTH_DSN_RW }}
+      DB_THRESHOLD: ${{ inputs.db_threshold }}
+      MAX_CONCURRENCY: ${{ inputs.max_concurrency }}
+      STEP_DURATION: ${{ inputs.step_duration }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: build barrage
+        run: go build -o /tmp/barrage ./cmd/barrage
+
+      - name: sweep any/ro/rw
+        id: sweep
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/results
+          for name in any ro rw; do
+            case "$name" in
+              any) dsn="$ANY_DSN" ;;
+              ro)  dsn="$RO_DSN" ;;
+              rw)  dsn="$RW_DSN" ;;
+            esac
+            if [ -z "$dsn" ]; then
+              echo "::error::missing secret for $name (BERTH_DSN_${name^^})"
+              exit 1
+            fi
+            cat > "/tmp/$name.yaml" <<EOF
+            duration: 60s
+            concurrency: 5
+            bucket_width: 1s
+            capacity:
+              max_concurrency: $MAX_CONCURRENCY
+              step_duration: ${STEP_DURATION}s
+            db:
+              rate: 10
+              target:
+                driver: postgres
+                conn: $dsn
+                queries:
+                  - query: SELECT 1
+                    weight: 1
+                    type: read
+            EOF
+            echo "========== SWEEP: $name =========="
+            /tmp/barrage run -c "/tmp/$name.yaml" \
+              --db-threshold "${DB_THRESHOLD}ms" --no-progress \
+              --json "/tmp/results/$name.json" --report "/tmp/results/$name-report.html" || true
+          done
+
+      - name: summary
+        run: |
+          summary=$(mktemp)
+          for name in any ro rw; do
+            jf="/tmp/results/$name.json"
+            if [ -s "$jf" ]; then
+              jq -r --arg n "$name" --arg f "$jf" \
+                '"\($n): broke at concurrency \(.capacity_search.break_at) | last ok \(.capacity_search.last_ok)"' \
+                "$jf" >> "$summary"
+            else
+              echo "$name: no results (failed above)" >> "$summary"
+            fi
+          done
+          {
+            echo "## Sweep verdicts"
+            echo '```'
+            cat "$summary"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: sweep-results
+          path: /tmp/results/
+          if-no-files-found: error
