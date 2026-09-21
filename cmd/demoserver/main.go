@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/redis/go-redis/v9"
 
 	_ "github.com/lib/pq"
 )
@@ -32,10 +36,22 @@ import (
 //	POST /api/orders   -> INSERTs one row, returns {"id":N,...}
 //	GET  /api/checkout -> echoes token query param
 //	GET  /health       -> {"status":"ok","db":"connected|unconfigured"}
+//
+// Cache-offload hookup (env REDIS_ADDR, optional): the read routes
+// (products, orders list) serve from Redis with a short TTL and fall back
+// to Postgres on a miss; creating an order invalidates the orders key so
+// new rows show up promptly. Unset REDIS_ADDR = no caching, every read
+// goes to the database, exactly like the original behaviour.
 var db *sql.DB
+var rc *redis.Client
+
+const cacheTTL = 5 * time.Second
+const productsCacheKey = "cache:products"
+const ordersCacheKey = "cache:orders"
 
 func main() {
 	db = openDBFromEnv()
+	rc = openRedisFromEnv()
 
 	http.HandleFunc("/api/login", handleLogin)
 	http.HandleFunc("/api/me", handleMe)
@@ -50,6 +66,11 @@ func main() {
 		log.Println("db: connected (postgres)")
 	} else {
 		log.Println("db: unconfigured, using stub responses (set POSTGRES_DSN to use postgres)")
+	}
+	if rc != nil {
+		log.Printf("redis: connected (%s), caching products/orders for %s", rc.Options().Addr, cacheTTL)
+	} else {
+		log.Println("redis: unconfigured, no caching (set REDIS_ADDR to enable)")
 	}
 	log.Println("routes:")
 	log.Println("  POST /api/login     -> {\"token\":\"tok-123\"}")
@@ -106,6 +127,47 @@ func openDBFromEnv() *sql.DB {
 	return conn
 }
 
+// openRedisFromEnv connects when REDIS_ADDR is set, else returns nil so
+// the read handlers go straight to the database. A bad address is fatal,
+// same rationale as the DB: silently ignoring a configured cache would
+// make the clock lie about which layer served the reads.
+func openRedisFromEnv() *redis.Client {
+	addr := strings.TrimSpace(os.Getenv("REDIS_ADDR"))
+	if addr == "" {
+		return nil
+	}
+	c := redis.NewClient(&redis.Options{Addr: addr})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := c.Ping(ctx).Err(); err != nil {
+		log.Fatalf("redis ping: %v (check REDIS_ADDR)", err)
+	}
+	return c
+}
+
+// serveCached answers a JSON read route: serve the cached bytes on a hit,
+// otherwise render via gen and store the result under key for ttl. gen's
+// error is written back as a 500. rc == nil disables caching entirely.
+func serveCached(w http.ResponseWriter, key string, ttl time.Duration, gen func() ([]byte, error)) {
+	if rc != nil {
+		if b, err := rc.Get(context.Background(), key).Bytes(); err == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(b)
+			return
+		}
+	}
+	b, err := gen()
+	if err != nil {
+		http.Error(w, `{"error":`+strconv.Quote(err.Error())+`}`, http.StatusInternalServerError)
+		return
+	}
+	if rc != nil {
+		rc.Set(context.Background(), key, b, ttl)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(b)
+}
+
 func handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -139,32 +201,36 @@ func handleMe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func handleProducts(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+// productsList renders the products JSON, hitting the DB when connected.
+func productsList() ([]byte, error) {
+	var payload any
 	if db == nil {
-		json.NewEncoder(w).Encode([]map[string]any{
+		payload = []map[string]any{
 			{"id": 1, "name": "widget", "price": 9.99},
 			{"id": 2, "name": "gadget", "price": 19.99},
-		})
-		return
-	}
-	rows, err := db.Query(`SELECT id, name, price FROM products ORDER BY id`)
-	if err != nil {
-		http.Error(w, `{"error":"db query failed"}`, http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-	out := []map[string]any{}
-	for rows.Next() {
-		var id int
-		var name, price string
-		if err := rows.Scan(&id, &name, &price); err != nil {
-			http.Error(w, `{"error":"db scan failed"}`, http.StatusInternalServerError)
-			return
 		}
-		out = append(out, map[string]any{"id": id, "name": name, "price": price})
+	} else {
+		rows, err := db.Query(`SELECT id, name, price FROM products ORDER BY id`)
+		if err != nil {
+			return nil, fmt.Errorf("products query: %w", err)
+		}
+		defer rows.Close()
+		out := []map[string]any{}
+		for rows.Next() {
+			var id int
+			var name, price string
+			if err := rows.Scan(&id, &name, &price); err != nil {
+				return nil, fmt.Errorf("products scan: %w", err)
+			}
+			out = append(out, map[string]any{"id": id, "name": name, "price": price})
+		}
+		payload = out
 	}
-	json.NewEncoder(w).Encode(out)
+	return json.Marshal(payload)
+}
+
+func handleProducts(w http.ResponseWriter, r *http.Request) {
+	serveCached(w, productsCacheKey, cacheTTL, productsList)
 }
 
 func handleOrders(w http.ResponseWriter, r *http.Request) {
@@ -179,21 +245,18 @@ func handleOrders(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 }
 
-func handleOrdersList(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
+// ordersList renders orders + count, hitting the DB when connected.
+func ordersList() ([]byte, error) {
 	if db == nil {
-		json.NewEncoder(w).Encode(map[string]any{"orders": []any{}, "count": 0})
-		return
+		return json.Marshal(map[string]any{"orders": []any{}, "count": 0})
 	}
 	var count int
 	if err := db.QueryRow(`SELECT count(*) FROM orders`).Scan(&count); err != nil {
-		http.Error(w, `{"error":"db query failed"}`, http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("orders count: %w", err)
 	}
 	rows, err := db.Query(`SELECT id, customer, amount FROM orders ORDER BY id DESC LIMIT 20`)
 	if err != nil {
-		http.Error(w, `{"error":"db query failed"}`, http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("orders query: %w", err)
 	}
 	defer rows.Close()
 	orders := []map[string]any{}
@@ -201,12 +264,15 @@ func handleOrdersList(w http.ResponseWriter) {
 		var id int
 		var customer, amount string
 		if err := rows.Scan(&id, &customer, &amount); err != nil {
-			http.Error(w, `{"error":"db scan failed"}`, http.StatusInternalServerError)
-			return
+			return nil, fmt.Errorf("orders scan: %w", err)
 		}
 		orders = append(orders, map[string]any{"id": id, "customer": customer, "amount": amount})
 	}
-	json.NewEncoder(w).Encode(map[string]any{"orders": orders, "count": count})
+	return json.Marshal(map[string]any{"orders": orders, "count": count})
+}
+
+func handleOrdersList(w http.ResponseWriter) {
+	serveCached(w, ordersCacheKey, cacheTTL, ordersList)
 }
 
 // handleOrdersCreate inserts one row per call — the regular write op.
@@ -214,6 +280,12 @@ func handleOrdersList(w http.ResponseWriter) {
 // to 1 when absent, so canned barrage bodies keep working.
 func handleOrdersCreate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	// Any order creation invalidates the cached list — pessimistic
+	// (unconditional) invalidation, simplest to reason about. Runs even in
+	// stub mode so the cache never outlives a write.
+	if rc != nil {
+		rc.Del(context.Background(), ordersCacheKey)
+	}
 	if db == nil {
 		json.NewEncoder(w).Encode(map[string]any{"id": 1, "customer": 42, "status": "ok"})
 		return

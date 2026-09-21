@@ -67,6 +67,7 @@ services:
       target: demoserver
     environment:
       POSTGRES_DSN: "postgres://barrage:barrage@postgres:5432/barrage_demo?sslmode=disable"
+      REDIS_ADDR: "redis:6379" # turns on the products/orders cache (5s TTL)
     depends_on:
       postgres:
         condition: service_healthy
