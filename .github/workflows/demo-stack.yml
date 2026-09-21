@@ -1,12 +1,17 @@
 # Demo stack validation — builds the docker-compose reference stack on a
-# hosted runner and runs the full-stack profile end to end. Manual trigger
-# only. Green here means the Dockerfile + docker-compose.yml + configs are
-# correct, so `docker compose up --build` works the same on any machine
-# that has Docker with the compose plugin.
+# hosted runner and runs a profile end to end. Manual trigger only. Green
+# here means the Dockerfile + docker-compose.yml + configs are correct, so
+# `docker compose up --build` behaves the same on any machine with Docker +
+# the compose plugin.
 name: demo stack validation
 
 on:
   workflow_dispatch:
+    inputs:
+      profile:
+        description: config in docker/configs/ to run against the stack
+        required: false
+        default: demo.yaml
 
 permissions:
   contents: read
@@ -14,6 +19,8 @@ permissions:
 jobs:
   stack:
     runs-on: ubuntu-latest
+    env:
+      PROFILE: ${{ inputs.profile }}
     steps:
       - uses: actions/checkout@v4
 
@@ -23,11 +30,17 @@ jobs:
       - name: build images
         run: docker compose -f docker-compose.yml build
 
-      - name: run full-stack profile
-        # starts postgres+redis, seeds 1M rows, boots the demo app, then
-        # runs the barrage profile inside the compose network; exits with
-        # barrage's exit code so failures are loud.
-        run: docker compose -f docker-compose.yml up --exit-code-from barrage barrage
+      - name: run profile against the stack
+        # bring data stores + app up (waits for postgres/redis/demoserver
+        # healthy, and seeddb to finish), then run the chosen profile as a
+        # one-shot from the barrage image; reports land in ./reports/.
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.yml up -d --wait postgres redis seeddb demoserver
+          docker compose -f docker-compose.yml run --rm barrage run \
+            -c "/configs/$PROFILE" --no-progress \
+            --json /out/results.json --report /out/report.html
+          docker compose -f docker-compose.yml down
 
       - name: show run summary
         run: |
