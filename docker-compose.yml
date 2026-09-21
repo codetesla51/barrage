@@ -102,6 +102,8 @@ services:
     depends_on:
       demoserver:
         condition: service_healthy
+      redis:
+        condition: service_healthy   # demo.yaml hits redis directly
 
 volumes:
   pgdata:
