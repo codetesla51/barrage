@@ -600,7 +600,9 @@ barrage compare --baseline baseline.json --current current.json --fail-on 100ms
 ## Repo case studies (proven here — don't re-learn these)
 
 The demo stack is a *real-ish* backend, not a stub: bcrypt login with
-HMAC-signed tokens (`AUTH_SECRET`, 15 min expiry), indexed reads (orders list
+HMAC-signed tokens (`AUTH_SECRET`, 15 min expiry) and **session reuse on
+repeat logins** (bcrypt once per session, then a fast HMAC password check),
+indexed reads (orders list
 scans the PK for the newest 20 rows — **no `COUNT(*)` over the 1M-row seed**),
 Redis-cached read routes with write-invalidation, and seeded users
 (`alice`/`bob`/`carol`, password `secret`). Capacity profiles live in

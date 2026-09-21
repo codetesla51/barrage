@@ -552,7 +552,8 @@ without touching a real service. Everything lives in this repo:
   backend:
   - `POST /api/login` — verifies a **bcrypt** password hash against a seeded
     `users` table and returns an HMAC-signed token (`AUTH_SECRET`, 15 min
-    expiry)
+    expiry); repeat logins **reuse the live session** (bcrypt once per
+    session, then a fast HMAC password check — no recompute)
   - `GET /api/me` — validates the Bearer token (signature + expiry)
   - `GET /api/products` / `GET /api/orders` — read routes served from a
     short-TTL Redis cache (`REDIS_ADDR`) with an indexed Postgres fallback;

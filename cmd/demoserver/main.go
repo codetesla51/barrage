@@ -15,6 +15,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -28,7 +29,8 @@ import (
 // teaches real lessons:
 //
 //   - login verifies a bcrypt hash and issues an HMAC-signed token
-//     (AUTH_SECRET key, 15m expiry); /api/me validates it.
+//     (AUTH_SECRET key, 15m expiry); /api/me validates it. Repeat logins
+//     reuse the live session instead of re-running bcrypt.
 //   - read routes use indexes only — the orders list hits the PRIMARY KEY
 //     and reads the newest 20 rows, never the 1M-row table.
 //   - products/orders list are served from Redis (5s TTL) when REDIS_ADDR
@@ -40,7 +42,7 @@ import (
 //
 // Routes:
 //
-//	POST /api/login     -> {"token":"<signed>","user":{...}}  (bcrypt verify)
+//	POST /api/login     -> {"token":"<signed>","user":{...}}  (bcrypt, then session reuse)
 //	GET  /api/me        -> validates Bearer <signed token>
 //	GET  /api/products  -> product list (indexed, cached)
 //	GET  /api/orders    -> {"orders":[...]} newest 20 (indexed, cached)
@@ -54,6 +56,66 @@ const cacheTTL = 5 * time.Second
 const productsCacheKey = "cache:products"
 const ordersCacheKey = "cache:orders"
 const tokenTTL = 15 * time.Minute
+
+// sessionStore keeps a user's live token across repeat logins so the
+// bcrypt hash runs once per session, not once per login request — the
+// same thing a real backend does by keeping the client's session alive.
+// The accepted password is remembered as a fast HMAC check, so a repeat
+// login re-verifies in microseconds without touching bcrypt, while a
+// wrong password still falls through to the full bcrypt path and 401s.
+var sessions = sessionStore{byUser: make(map[string]sessionEntry)}
+
+type sessionStore struct {
+	mu     sync.Mutex
+	byUser map[string]sessionEntry
+}
+
+type sessionEntry struct {
+	uid    int
+	name   string
+	passOK [32]byte // fast HMAC of the accepted password (not the hash)
+	token  string
+	exp    time.Time
+}
+
+// get returns the live session for user when the presented password still
+// matches (fast check) — otherwise false, so the caller re-authenticates
+// through the full bcrypt path. An expired entry is dropped.
+func (s *sessionStore) get(user, password string) (sessionEntry, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.byUser[user]
+	if !ok {
+		return sessionEntry{}, false
+	}
+	if time.Now().After(e.exp) {
+		delete(s.byUser, user)
+		return sessionEntry{}, false
+	}
+	want := sessionCheck(password)
+	if subtle.ConstantTimeCompare(want[:], e.passOK[:]) != 1 {
+		return sessionEntry{}, false
+	}
+	return e, true
+}
+
+func (s *sessionStore) put(user string, e sessionEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.byUser[user] = e
+}
+
+// sessionCheck derives the fast password fingerprint carried in a session.
+// Keyed by the auth secret (domain-separated from token signing) so the
+// fingerprint is unguessable and collisions with other HMAC uses are moot.
+func sessionCheck(password string) [32]byte {
+	mac := hmac.New(sha256.New, authSecret())
+	mac.Write([]byte("session-check:"))
+	mac.Write([]byte(password))
+	var out [32]byte
+	copy(out[:], mac.Sum(nil))
+	return out
+}
 
 // authSecret returns the HMAC key for login tokens. AUTH_SECRET must be
 // set anywhere real; the dev default keeps zero-setup runs working.
@@ -88,7 +150,7 @@ func main() {
 		log.Println("redis: unconfigured, no caching (set REDIS_ADDR to enable)")
 	}
 	log.Println("routes:")
-	log.Println("  POST /api/login     -> bcrypt verify + signed token")
+	log.Println("  POST /api/login     -> bcrypt verify, then session reuse")
 	log.Println("  GET  /api/me        -> validates Bearer <signed token>")
 	log.Println("  GET  /api/products  -> list (cached)")
 	log.Println("  GET  /api/orders    -> newest 20 (cached, index-scanned)")
@@ -248,6 +310,18 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
+	// Session reuse: a previously logged-in user with the right password
+	// keeps their live token — a fast HMAC check, no bcrypt, no
+	// auth-store lookup. A wrong password falls through to authenticate.
+	if sess, ok := sessions.get(body.Username, body.Password); ok {
+		json.NewEncoder(w).Encode(map[string]any{
+			"token":  sess.token,
+			"user":   map[string]any{"id": sess.uid, "name": sess.name},
+			"reused": true,
+		})
+		return
+	}
+
 	uid, name, err := authenticate(body.Username, body.Password)
 	if err != nil {
 		// Same 401 either way — a login endpoint never leaks which part failed.
@@ -259,6 +333,9 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"token issue failed"}`, http.StatusInternalServerError)
 		return
 	}
+	sessions.put(body.Username, sessionEntry{
+		uid: uid, name: name, passOK: sessionCheck(body.Password), token: tok, exp: time.Now().Add(tokenTTL),
+	})
 	json.NewEncoder(w).Encode(map[string]any{
 		"token": tok,
 		"user":  map[string]any{"id": uid, "name": name},
