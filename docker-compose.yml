@@ -68,6 +68,7 @@ services:
     environment:
       POSTGRES_DSN: "postgres://barrage:barrage@postgres:5432/barrage_demo?sslmode=disable"
       REDIS_ADDR: "redis:6379" # turns on the products/orders cache (5s TTL)
+      AUTH_SECRET: "compose-demo-secret" # dev only; tokens are dev-grade
     depends_on:
       postgres:
         condition: service_healthy

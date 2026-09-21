@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -49,7 +50,7 @@ func TestOrderCreateInvalidatesCache(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	handleOrdersList(rec)
-	if !strings.Contains(rec.Body.String(), `"count":0`) {
+	if !strings.Contains(rec.Body.String(), `"orders":[]`) {
 		t.Fatalf("orders stub response wrong: %q", rec.Body.String())
 	}
 	if got := rc.Get(context.Background(), ordersCacheKey).Val(); got == "" {
@@ -72,7 +73,7 @@ func TestNoRedisSkipsCaching(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	handleOrdersList(rec)
-	if !strings.Contains(rec.Body.String(), `"count":0`) {
+	if !strings.Contains(rec.Body.String(), `"orders":[]`) {
 		t.Fatalf("unexpected stub orders response: %q", rec.Body.String())
 	}
 
@@ -81,5 +82,64 @@ func TestNoRedisSkipsCaching(t *testing.T) {
 	handleOrdersCreate(crec, create)
 	if crec.Code != http.StatusOK {
 		t.Fatalf("stub create should still succeed without redis, got %d", crec.Code)
+	}
+}
+
+// TestLoginAndTokenFlow checks the realistic auth path in stub mode: a
+// bcrypt-checked login (demo account only), a signed token that /api/me
+// validates, and a 401 on tampering or wrong credentials.
+func TestLoginAndTokenFlow(t *testing.T) {
+	rc = nil
+
+	login := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		handleLogin(rec, req)
+		return rec
+	}
+
+	// Wrong password -> 401, same error shape as unknown user.
+	if rec := login(`{"username":"alice","password":"wrong"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong password should 401, got %d", rec.Code)
+	}
+	if rec := login(`{"username":"mallory","password":"secret"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unknown user should 401, got %d", rec.Code)
+	}
+
+	// Good login -> 200 with a token.
+	rec := login(`{"username":"alice","password":"secret"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("good login should 200, got %d", rec.Code)
+	}
+	var got struct {
+		Token string `json:"token"`
+		User  struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("bad login json: %v", err)
+	}
+	if got.Token == "" || got.User.ID != 42 || got.User.Name != "alice" {
+		t.Fatalf("unexpected login payload: %+v", got)
+	}
+
+	// /api/me accepts the signed token...
+	meReq := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	meReq.Header.Set("Authorization", "Bearer "+got.Token)
+	meRec := httptest.NewRecorder()
+	handleMe(meRec, meReq)
+	if meRec.Code != http.StatusOK {
+		t.Fatalf("valid token should 200, got %d", meRec.Code)
+	}
+
+	// ...and rejects one that has been tampered with.
+	meReq2 := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	meReq2.Header.Set("Authorization", "Bearer "+got.Token+"x")
+	meRec2 := httptest.NewRecorder()
+	handleMe(meRec2, meReq2)
+	if meRec2.Code != http.StatusUnauthorized {
+		t.Fatalf("tampered token should 401, got %d", meRec2.Code)
 	}
 }

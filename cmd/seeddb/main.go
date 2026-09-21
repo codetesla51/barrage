@@ -11,7 +11,13 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
 )
+
+// bcryptCost tunes the demo's login realism against the 2-vCPU runner:
+// cost 8 is a real password hash that logins can still verify quickly.
+// Production defaults to 10-12, which is deliberately CPU-expensive.
+const bcryptCost = 8
 
 // Seeds the demo `orders` table with a large number of rows so read/write
 // queries during a load test have real work to do. Uses COPY for bulk insert.
@@ -91,4 +97,58 @@ func main() {
 		log.Fatalf("count: %v", err)
 	}
 	fmt.Printf("\rseeded %d rows in %s (total in table: %d)\n", *rows, time.Since(start).Round(time.Millisecond), count)
+
+	if err := addOrdersIndexes(db); err != nil {
+		log.Fatalf("orders index: %v", err)
+	}
+	if err := seedUsers(db); err != nil {
+		log.Fatalf("users: %v", err)
+	}
+	fmt.Println("indexes + users ready")
+}
+
+// addOrdersIndexes makes the demo's read paths index-only: newest-orders
+// uses the PK, per-customer pages use (customer, id DESC), and the
+// recent-window feed uses created_at. Without these, growing the table to
+// 1M rows would turn every read into a full scan.
+func addOrdersIndexes(db *sql.DB) error {
+	for _, stmt := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON orders (customer, id DESC)`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// seedUsers creates the login table and the demo accounts the scenario
+// profiles authenticate as. Hashes are real bcrypt (see bcryptCost).
+func seedUsers(db *sql.DB) error {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS users (
+		id         bigserial PRIMARY KEY,
+		username   text NOT NULL UNIQUE,
+		pass_hash  text NOT NULL,
+		created_at timestamptz NOT NULL DEFAULT now()
+	)`); err != nil {
+		return fmt.Errorf("create users: %w", err)
+	}
+	for _, u := range []struct{ name, pass string }{
+		{"alice", "secret"},
+		{"bob", "secret"},
+		{"carol", "secret"},
+	} {
+		hash, err := bcrypt.GenerateFromPassword([]byte(u.pass), bcryptCost)
+		if err != nil {
+			return fmt.Errorf("bcrypt %s: %w", u.name, err)
+		}
+		if _, err := db.Exec(
+			`INSERT INTO users (username, pass_hash) VALUES ($1, $2) ON CONFLICT (username) DO NOTHING`,
+			u.name, string(hash),
+		); err != nil {
+			return fmt.Errorf("insert %s: %w", u.name, err)
+		}
+	}
+	return nil
 }

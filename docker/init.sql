@@ -15,6 +15,13 @@ INSERT INTO products (name, price) VALUES
     ('gadget', 19.99),
     ('gizmo',  29.99);
 
+CREATE TABLE IF NOT EXISTS users (
+    id         bigserial PRIMARY KEY,
+    username   text NOT NULL UNIQUE,
+    pass_hash  text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS orders (
     id         serial PRIMARY KEY,
     customer   text NOT NULL,
@@ -22,4 +29,5 @@ CREATE TABLE IF NOT EXISTS orders (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at);
+-- Orders indexes are owned by seeddb (it drops/recreates the table and
+-- re-adds them); this one only matters until seeddb runs.

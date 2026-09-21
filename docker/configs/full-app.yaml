@@ -25,6 +25,7 @@ scenario:
     steps:
       - method: POST
         url: http://demoserver:8080/api/login
+        body: '{"username":"alice","password":"secret"}'
         headers:
           Content-Type: application/json
         extract:
@@ -39,6 +40,7 @@ scenario:
     steps:
       - method: POST
         url: http://demoserver:8080/api/login
+        body: '{"username":"alice","password":"secret"}'
         headers:
           Content-Type: application/json
         extract:
@@ -62,6 +64,7 @@ scenario:
     steps:
       - method: POST
         url: http://demoserver:8080/api/login
+        body: '{"username":"alice","password":"secret"}'
         headers:
           Content-Type: application/json
 
@@ -78,10 +81,10 @@ db:
     conn: postgres://barrage:barrage@postgres:5432/barrage_demo?sslmode=disable
     max_open_conns: 20
     queries:
-      - query: SELECT count(*) FROM orders
+      - query: SELECT id, customer, amount FROM orders WHERE customer = 'customer-4242' ORDER BY id DESC LIMIT 20
         weight: 2
         type: read
-      - query: SELECT id, customer, amount FROM orders ORDER BY id DESC LIMIT 20
+      - query: SELECT id, customer, amount, created_at FROM orders WHERE created_at > now() - interval '60 seconds' ORDER BY id DESC LIMIT 20
         weight: 2
         type: read
       - query: INSERT INTO orders (customer, amount) VALUES ('load', 1) RETURNING id

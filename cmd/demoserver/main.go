@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -16,38 +20,49 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	_ "github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Demo HTTP app for barrage scenario testing, backed by Postgres when
-// configured. Auth comes from the environment, never hardcoded:
+// configured. Written to behave like a real backend so the capacity tool
+// teaches real lessons:
 //
-//	POSTGRES_DSN=postgres://user:pass@localhost:5432/barrage_demo?sslmode=disable
-//	(or DATABASE_URL, or PGUSER/PGPASSWORD/PGHOST/PGPORT/PGDATABASE parts)
+//   - login verifies a bcrypt hash and issues an HMAC-signed token
+//     (AUTH_SECRET key, 15m expiry); /api/me validates it.
+//   - read routes use indexes only — the orders list hits the PRIMARY KEY
+//     and reads the newest 20 rows, never the 1M-row table.
+//   - products/orders list are served from Redis (5s TTL) when REDIS_ADDR
+//     is set; creating an order invalidates the orders key.
 //
-// Without any of those the server still runs with stub responses so
-// `go run ./cmd/demoserver` works with zero setup.
+// Without POSTGRES_DSN the server runs with stub responses so
+// `go run ./cmd/demoserver` works with zero setup (login still issues a
+// real signed token for the demo account alice/secret).
 //
 // Routes:
 //
-//	POST /api/login    -> {"token":"tok-123","user":{"id":42}}
-//	GET  /api/me       -> checks Authorization: Bearer <token>
-//	GET  /api/products -> product list (DB table when connected)
-//	GET  /api/orders   -> {"orders":[...],"count":N} (DB table when connected)
-//	POST /api/orders   -> INSERTs one row, returns {"id":N,...}
-//	GET  /api/checkout -> echoes token query param
-//	GET  /health       -> {"status":"ok","db":"connected|unconfigured"}
-//
-// Cache-offload hookup (env REDIS_ADDR, optional): the read routes
-// (products, orders list) serve from Redis with a short TTL and fall back
-// to Postgres on a miss; creating an order invalidates the orders key so
-// new rows show up promptly. Unset REDIS_ADDR = no caching, every read
-// goes to the database, exactly like the original behaviour.
+//	POST /api/login     -> {"token":"<signed>","user":{...}}  (bcrypt verify)
+//	GET  /api/me        -> validates Bearer <signed token>
+//	GET  /api/products  -> product list (indexed, cached)
+//	GET  /api/orders    -> {"orders":[...]} newest 20 (indexed, cached)
+//	POST /api/orders    -> INSERTs one row, invalidates the orders cache
+//	GET  /api/checkout  -> echoes token query param
+//	GET  /health        -> {"status":"ok","db":"connected|unconfigured"}
 var db *sql.DB
 var rc *redis.Client
 
 const cacheTTL = 5 * time.Second
 const productsCacheKey = "cache:products"
 const ordersCacheKey = "cache:orders"
+const tokenTTL = 15 * time.Minute
+
+// authSecret returns the HMAC key for login tokens. AUTH_SECRET must be
+// set anywhere real; the dev default keeps zero-setup runs working.
+func authSecret() []byte {
+	if s := strings.TrimSpace(os.Getenv("AUTH_SECRET")); s != "" {
+		return []byte(s)
+	}
+	return []byte("dev-secret-change-me")
+}
 
 func main() {
 	db = openDBFromEnv()
@@ -73,10 +88,11 @@ func main() {
 		log.Println("redis: unconfigured, no caching (set REDIS_ADDR to enable)")
 	}
 	log.Println("routes:")
-	log.Println("  POST /api/login     -> {\"token\":\"tok-123\"}")
-	log.Println("  GET  /api/me        -> needs Authorization: Bearer <token>")
-	log.Println("  GET  /api/products  -> list")
-	log.Println("  POST /api/orders    -> create")
+	log.Println("  POST /api/login     -> bcrypt verify + signed token")
+	log.Println("  GET  /api/me        -> validates Bearer <signed token>")
+	log.Println("  GET  /api/products  -> list (cached)")
+	log.Println("  GET  /api/orders    -> newest 20 (cached, index-scanned)")
+	log.Println("  POST /api/orders    -> create (invalidates list cache)")
 	log.Println("  GET  /api/checkout?token={{token}} -> echo")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
@@ -168,37 +184,131 @@ func serveCached(w http.ResponseWriter, key string, ttl time.Duration, gen func(
 	w.Write(b)
 }
 
+// issueToken signs a short-lived claim so /api/me can trust it without a
+// session store — the same shape real backends use (JWT-class mechanics).
+func issueToken(uid int, name string) (string, error) {
+	payload, err := json.Marshal(map[string]any{
+		"uid":  uid,
+		"name": name,
+		"exp":  time.Now().Add(tokenTTL).Unix(),
+	})
+	if err != nil {
+		return "", err
+	}
+	b64 := base64.RawURLEncoding.EncodeToString(payload)
+	mac := hmac.New(sha256.New, authSecret())
+	mac.Write([]byte(b64))
+	return b64 + "." + fmt.Sprintf("%x", mac.Sum(nil)), nil
+}
+
+// parseToken checks signature and expiry, returning the claim's uid+name.
+func parseToken(tok string) (int, string, error) {
+	parts := strings.Split(tok, ".")
+	if len(parts) != 2 {
+		return 0, "", fmt.Errorf("malformed token")
+	}
+	b64, sig := parts[0], parts[1]
+	mac := hmac.New(sha256.New, authSecret())
+	mac.Write([]byte(b64))
+	want := fmt.Sprintf("%x", mac.Sum(nil))
+	if subtle.ConstantTimeCompare([]byte(sig), []byte(want)) != 1 {
+		return 0, "", fmt.Errorf("bad signature")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(b64)
+	if err != nil {
+		return 0, "", err
+	}
+	var claims struct {
+		UID  int    `json:"uid"`
+		Name string `json:"name"`
+		Exp  int64  `json:"exp"`
+	}
+	if err := json.Unmarshal(raw, &claims); err != nil {
+		return 0, "", err
+	}
+	if time.Now().Unix() > claims.Exp {
+		return 0, "", fmt.Errorf("expired")
+	}
+	return claims.UID, claims.Name, nil
+}
+
+func bearerToken(r *http.Request) string {
+	return strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+}
+
 func handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	uid, name, err := authenticate(body.Username, body.Password)
+	if err != nil {
+		// Same 401 either way — a login endpoint never leaks which part failed.
+		http.Error(w, `{"error":"invalid credentials"}`, http.StatusUnauthorized)
+		return
+	}
+	tok, err := issueToken(uid, name)
+	if err != nil {
+		http.Error(w, `{"error":"token issue failed"}`, http.StatusInternalServerError)
+		return
+	}
 	json.NewEncoder(w).Encode(map[string]any{
-		"token": "tok-123",
-		"user":  map[string]any{"id": 42, "name": "alice"},
+		"token": tok,
+		"user":  map[string]any{"id": uid, "name": name},
 	})
 }
 
-func handleMe(w http.ResponseWriter, r *http.Request) {
-	auth := r.Header.Get("Authorization")
-	if auth == "" {
-		http.Error(w, `{"error":"missing auth"}`, http.StatusUnauthorized)
-		return
+// authenticate checks credentials against the users table (bcrypt). In
+// stub mode (no DB) only the demo account works. hashAndPassword stays in
+// the select so CompareHashAndPassword reads the value out of Postgres.
+func authenticate(username, password string) (int, string, error) {
+	if db == nil {
+		if username == "alice" && password == "secret" {
+			return 42, "alice", nil
+		}
+		return 0, "", fmt.Errorf("invalid credentials")
 	}
-	// expect Bearer tok-123
-	token := strings.TrimPrefix(auth, "Bearer ")
-	token = strings.TrimSpace(token)
-	if token == "" || token == "{{token}}" {
+	var (
+		uid  int
+		name string
+		hash string
+	)
+	err := db.QueryRow(
+		`SELECT id, username, pass_hash FROM users WHERE username = $1`,
+		username,
+	).Scan(&uid, &name, &hash)
+	if err == sql.ErrNoRows {
+		return 0, "", fmt.Errorf("invalid credentials")
+	}
+	if err != nil {
+		return 0, "", err
+	}
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
+		return 0, "", fmt.Errorf("invalid credentials")
+	}
+	return uid, name, nil
+}
+
+func handleMe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	tok := bearerToken(r)
+	if tok == "" || tok == "{{token}}" {
 		http.Error(w, `{"error":"bad token not interpolated"}`, http.StatusUnauthorized)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"id":    42,
-		"name":  "alice",
-		"token": token,
-	})
+	uid, name, err := parseToken(tok)
+	if err != nil {
+		http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]any{"id": uid, "name": name, "token": tok})
 }
 
 // productsList renders the products JSON, hitting the DB when connected.
@@ -210,7 +320,7 @@ func productsList() ([]byte, error) {
 			{"id": 2, "name": "gadget", "price": 19.99},
 		}
 	} else {
-		rows, err := db.Query(`SELECT id, name, price FROM products ORDER BY id`)
+		rows, err := db.Query(`SELECT id, name, price::float8 FROM products ORDER BY id`)
 		if err != nil {
 			return nil, fmt.Errorf("products query: %w", err)
 		}
@@ -218,7 +328,8 @@ func productsList() ([]byte, error) {
 		out := []map[string]any{}
 		for rows.Next() {
 			var id int
-			var name, price string
+			var name string
+			var price float64
 			if err := rows.Scan(&id, &name, &price); err != nil {
 				return nil, fmt.Errorf("products scan: %w", err)
 			}
@@ -245,16 +356,15 @@ func handleOrders(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 }
 
-// ordersList renders orders + count, hitting the DB when connected.
+// ordersList returns the newest 20 orders. The ORDER BY id DESC hits the
+// primary-key index, so it touches 20 rows — deliberately NOT a
+// `SELECT count(*)` over the 1M-row table, which is what real apps avoid.
 func ordersList() ([]byte, error) {
 	if db == nil {
-		return json.Marshal(map[string]any{"orders": []any{}, "count": 0})
+		return json.Marshal(map[string]any{"orders": []any{}})
 	}
-	var count int
-	if err := db.QueryRow(`SELECT count(*) FROM orders`).Scan(&count); err != nil {
-		return nil, fmt.Errorf("orders count: %w", err)
-	}
-	rows, err := db.Query(`SELECT id, customer, amount FROM orders ORDER BY id DESC LIMIT 20`)
+	rows, err := db.Query(
+		`SELECT id, customer, amount::float8, created_at FROM orders ORDER BY id DESC LIMIT 20`)
 	if err != nil {
 		return nil, fmt.Errorf("orders query: %w", err)
 	}
@@ -262,13 +372,20 @@ func ordersList() ([]byte, error) {
 	orders := []map[string]any{}
 	for rows.Next() {
 		var id int
-		var customer, amount string
-		if err := rows.Scan(&id, &customer, &amount); err != nil {
+		var customer string
+		var amount float64
+		var created time.Time
+		if err := rows.Scan(&id, &customer, &amount, &created); err != nil {
 			return nil, fmt.Errorf("orders scan: %w", err)
 		}
-		orders = append(orders, map[string]any{"id": id, "customer": customer, "amount": amount})
+		orders = append(orders, map[string]any{
+			"id":         id,
+			"customer":   customer,
+			"amount":     amount,
+			"created_at": created.Format(time.RFC3339),
+		})
 	}
-	return json.Marshal(map[string]any{"orders": orders, "count": count})
+	return json.Marshal(map[string]any{"orders": orders})
 }
 
 func handleOrdersList(w http.ResponseWriter) {
