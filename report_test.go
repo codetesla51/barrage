@@ -58,8 +58,17 @@ func TestRenderHTML(t *testing.T) {
 			t.Errorf("output missing %q", want)
 		}
 	}
-	if strings.Contains(out, "1700000000") {
-		t.Error("expected bucket labels to be human-readable times, not unix timestamps")
+	// the visible bucket chips are human-readable times; raw unix seconds
+	// belong only to the span-duration script, never to the surface
+	if i := strings.Index(out, "const bucketsRaw"); i < 0 {
+		t.Error("expected raw bucket seconds in the span script")
+	} else if !strings.Contains(out[i:], "1700000000") {
+		t.Error("expected raw bucket seconds in the span script")
+	} else if strings.Contains(out[:i], "1700000000") {
+		t.Error("expected visible labels to be human-readable times, not unix timestamps")
+	}
+	if !strings.Contains(out, `<span class="time-chip">`+first) {
+		t.Error("expected bucket times to render as time chips")
 	}
 	if strings.Contains(out, "No correlated spikes") {
 		t.Error("expected spike table, got empty-state message")
@@ -90,9 +99,15 @@ func TestRenderHTMLCapacityErrors(t *testing.T) {
 	}
 	out := buf.String()
 	for _, want := range []string{
-		"5xx×1800, dial_timeout×5120", // classes sort before counts
-		">—<",                         // clean level carries an empty Cause cell
-		"red dot = broken",
+		// each error class renders as its own pill carrying class + count
+		`title="5xx × 1800"`,
+		`title="dial_timeout × 5120"`,
+		"<i>×1800</i>",
+		"<i>×5120</i>",
+		">—<", // clean level carries an empty Cause cell
+		// The chart marks broken levels with a shaded band behind the curve
+		// instead of point markers, so the key text says band, not dot.
+		"shaded band = broken",
 		"ySuccess",
 	} {
 		if !strings.Contains(out, want) {
@@ -154,7 +169,7 @@ func TestRenderHTMLRunSummary(t *testing.T) {
 		"0.0%",
 		"3ms",
 		"9ms",
-		"0×100",
+		`title="0 × 100"`, // status codes render as pills: code + count
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("run summary missing %q", want)

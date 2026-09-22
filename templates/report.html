@@ -12,858 +12,1130 @@
 
 <style>
   :root {
-    --bg: #0d0d0d;
-    --panel: #101010;
-    --panel-alt: #161616;
-    --ink: #eaeaea;
-    --body: #a8a8a8;
-    --mute: #767676;
-    --faint: #4d4d4d;
-    --border: rgba(255,255,255,0.08);
-    --border-strong: rgba(255,255,255,0.15);
-    --on-ink: #0d0d0d;
-    --amber: #e8a33d;
-
-    --font-sans: 'Geist Variable', system-ui, -apple-system, sans-serif;
-    --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    color-scheme: dark;
+    --bg: #0a0a0a;
+    --tile: #151515;
+    --well: #1c1c1c;
+    --ink: #e8e8e8;
+    --mute: #8b8b8b;
+    --faint: #767676;
+    --line: rgba(255,255,255,.07);
+    --line-2: rgba(255,255,255,.15);
+    --acc: #4ad295;
+    --acc-soft: rgba(74,210,149,.14);
+    --err: #b0685f;
+    --err-soft: rgba(176,104,95,.14);
+    --s1: #9c9c9c;
+    --s2: #6f6f6f;
+    --s3: #4f4f4f;
+    --tip: #1e1e1e;
+    /* solid row tones, not washes: sticky cells must stay opaque when the
+       table scrolls sideways under them */
+    --row: #151515;
+    --row-hover: #1c1c1c;
+    --row-err: #1b1514;
+    --mono: "Geist Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: "Geist Variable", "Geist", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --r: 14px;
+    --r-in: 8px;
+    /* one fluid rhythm for the whole grid: gap, tile padding and chart
+       heights all breathe with the viewport instead of stepping at
+       breakpoints */
+    --gap: clamp(12px, 1.1vw, 18px);
+    --pad: clamp(14px, 1.2vw, 18px);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --bg: #f7f7f7;
+      --tile: #ffffff;
+      --well: #f3f3f3;
+      --ink: #111111;
+      --mute: #666666;
+      --faint: #767676;
+      --line: rgba(0,0,0,.08);
+      --line-2: rgba(0,0,0,.16);
+      --acc: #0f9a63;
+      --acc-soft: rgba(15,154,99,.12);
+      --err: #96534a;
+      --err-soft: rgba(150,83,74,.11);
+      --s1: #4a4a4a;
+      --s2: #7d7d7d;
+      --s3: #a9a9a9;
+      --tip: #ffffff;
+      --row: #ffffff;
+      --row-hover: #f2f2f2;
+      --row-err: #fbf3f2;
+    }
   }
 
-  * { box-sizing: border-box; }
+  *, *::before, *::after { box-sizing: border-box; }
 
   body {
     margin: 0;
     background: var(--bg);
     color: var(--ink);
-    font-family: var(--font-sans);
+    font-family: var(--sans);
     font-size: 14px;
-    line-height: 1.45;
-    letter-spacing: -0.01em;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
 
-  /* landing sync: blueprint grid + film grain */
-  body::before {
-    content: "";
-    position: fixed; inset: 0; z-index: 1999; pointer-events: none;
-    background-image:
-      linear-gradient(to right, rgba(255,255,255,.02) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255,255,255,.015) 1px, transparent 1px);
-    background-size: 72px 72px;
+  .shell {
+    width: 100%; max-width: min(1240px, 100%); margin: 0 auto;
+    padding: clamp(16px, 2vw, 26px) clamp(12px, 2vw, 24px) clamp(24px, 3vw, 36px);
   }
+
+  /* hard guards: whatever the data length is, nothing may escape its tile */
+  html { -webkit-text-size-adjust: 100%; }
+  img, canvas, svg, table { max-width: 100%; }
+  canvas { display: block; }
+
+  /* film grain over the whole page: inline SVG, no external asset */
   body::after {
-    content: "";
-    position: fixed; inset: 0; z-index: 2000; pointer-events: none;
-    opacity: .05; filter: contrast(120%);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+    content: ""; position: fixed; inset: 0; z-index: 60; pointer-events: none;
+    opacity: .042;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
   }
+  @media (prefers-color-scheme: light) { body::after { opacity: .03; } }
 
-  .wrap { max-width: 1200px; margin: 0 auto; padding: 0 20px 40px; }
-
-  /* ---- Top strip ---- */
+  /* ---- top bar ---- */
   .topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 52px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 14px; flex-wrap: wrap; padding-bottom: 20px;
   }
+  .brand { display: flex; align-items: baseline; gap: 12px; }
+  .wordmark { font-family: var(--mono); font-size: 14px; font-weight: 600; letter-spacing: .01em; }
+  .wordmark i { font-style: normal; color: var(--acc); }
+  .byline { font-size: 12.5px; color: var(--mute); }
+  .actions { display: flex; align-items: center; gap: 10px; }
 
-  .topbar .left { display: flex; align-items: center; gap: 10px; }
-
-  .wordmark {
-    font-family: var(--font-mono);
-    font-weight: 700; font-size: 15px; letter-spacing: .02em; color: var(--ink);
+  /* ---- buttons + pills ---- */
+  .btn {
+    font-family: var(--mono); font-size: 11px; color: var(--mute);
+    background: transparent; border: 1px solid var(--line-2); border-radius: var(--r-in);
+    padding: 6px 10px; cursor: pointer; transition: color .15s ease, border-color .15s ease;
   }
-  .wordmark .cursor { color: var(--amber); animation: wm-blink 1.2s steps(1) infinite; }
-  @keyframes wm-blink { 50% { opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) { .wordmark .cursor { animation: none; } }
+  .btn:hover { color: var(--ink); border-color: var(--faint); }
+  .btn:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 
-  .subtitle {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    color: var(--mute);
+  .pill {
+    display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 9px 2px;
+    font-family: var(--mono); font-size: 10.5px; line-height: 1.4; white-space: nowrap;
+    color: var(--mute); border: 1px solid var(--line-2); background: transparent;
   }
+  .pill.ok { color: var(--acc); background: var(--acc-soft); border-color: transparent; }
+  .pill.warn { color: var(--mute); border-style: dashed; }
+  .pill.err { color: var(--err); background: var(--err-soft); border-color: transparent; }
 
-  .status-dot-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    color: var(--mute);
+  /* a chip: pill-shaped, mono, for a single token (a runner name, a blame key) */
+  .chip {
+    display: inline-block; vertical-align: bottom; border-radius: 999px; padding: 2px 9px 3px;
+    font-family: var(--mono); font-size: 11px; line-height: 1.4; color: var(--ink);
+    background: var(--tile); border: 1px solid var(--line-2);
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  .chip.acc { color: var(--acc); background: var(--acc-soft); border-color: transparent; }
 
-  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink); }
-  .status-dot.idle { background: var(--faint); }
+  /* ---- bento grid ---- */
+  .bento { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: var(--gap); }
 
-  .export-btn {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--ink);
-    background: transparent;
-    border: 1px solid var(--border-strong);
-    border-radius: 4px;
-    padding: 4px 10px;
-    cursor: pointer;
-    transition: border-color 0.15s, color 0.15s;
-  }
-  .export-btn:hover { border-color: var(--ink); }
-
-  /* ---- Run summary ---- */
-  .run-summary { margin-bottom: 16px; }
-
-  .section-title {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--mute);
-    margin: 0 0 8px;
-  }
-
-  .summary-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1px;
-    background: var(--border);
-    border: 1px solid var(--border);
-  }
-
-  .summary-card { background: var(--panel); padding: 14px 16px; min-width: 0; }
-
-  .summary-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 12px;
-  }
-
-  .summary-name { font-weight: 600; font-size: 13px; }
-
-  .summary-status {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    padding: 2px 7px;
-    border: 1px solid var(--border-strong);
-    white-space: nowrap;
-  }
-  .summary-status.ok { color: #7dd87d; border-color: rgba(125,216,125,0.35); }
-  .summary-status.warn { color: #e0b46a; border-color: rgba(224,180,106,0.35); }
-  .summary-status.bad { color: #e07a7a; border-color: rgba(224,122,122,0.35); }
-
-  .summary-metrics {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px 18px;
-  }
-
-  .sm { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; min-width: 0; }
-
-  .sm-label {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--mute);
-    white-space: nowrap;
-  }
-
-  .sm-value {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    color: var(--ink);
-    text-align: right;
+  .tile {
+    display: flex; flex-direction: column; gap: clamp(10px, 1vw, 14px);
+    background: var(--tile); border: 1px solid var(--line);
+    border-radius: var(--r); padding: var(--pad); min-width: 0;
     overflow-wrap: anywhere;
   }
+  .tile--verdict { grid-column: span 2; grid-row: span 2; }
+  .tile--runner { grid-column: span 1; }
+  .tile--half { grid-column: span 2; }
+  .tile--quad { grid-column: span 2; }
+  .tile--wide { grid-column: span 4; }
 
-  /* ---- Story verdict ---- */
-  .story-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    padding: 16px 18px;
+  .t-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .t-title { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .01em; color: var(--ink); overflow-wrap: anywhere; min-width: 0; }
+  /* a runner name can be arbitrarily long: one line, ellipsis, full text in title */
+  .tile--runner .t-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .t-label { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+  .t-meta { font-family: var(--mono); font-size: 10.5px; color: var(--faint); text-align: right; }
+  .vh {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  /* ---- verdict tile ---- */
+  .verdict-title {
+    margin: 0; font-size: clamp(20px, 2.3vw, 25px); font-weight: 600; letter-spacing: -.02em;
+    line-height: 1.16; max-width: 30ch; overflow-wrap: anywhere;
+  }
+  .verdict-detail { margin: 0; color: var(--mute); font-size: 13.5px; line-height: 1.6; max-width: 62ch; overflow-wrap: anywhere; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; min-width: 0; }
+  .fact { min-width: 0; background: var(--well); border-radius: var(--r-in); padding: 10px 12px; }
+  .fact-key { display: block; font-family: var(--mono); font-size: 10px; color: var(--faint); }
+  .fact-val {
+    display: block; margin-top: 3px; font-family: var(--mono);
+    font-size: 12.5px; color: var(--ink); overflow-wrap: anywhere;
+  }
+  /* prose value (a sentence) reads better in sans, numbers stay mono */
+  .fact-val.prose { font-family: var(--sans); font-size: 12.5px; line-height: 1.55; color: var(--mute); }
+  .steps { display: flex; flex-direction: column; gap: 10px; }
+  .steps-list {
+    margin: 0; padding: 0; list-style: none; counter-reset: step;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .steps-list li {
+    counter-increment: step;
+    display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 8px;
+    font-size: 12.5px; line-height: 1.55; color: var(--mute);
+  }
+  .steps-list li::before {
+    content: counter(step, decimal-leading-zero);
+    font-family: var(--mono); font-size: 10.5px; color: var(--faint); padding-top: 2px;
   }
 
-  .story-detail {
-    margin: 0 0 12px;
-    font-size: 13px;
-    color: var(--body);
-    max-width: 90ch;
+  /* ---- runner tiles: number first ---- */
+  .hero { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+  .hero-num {
+    font-family: var(--mono); font-size: clamp(26px, 2.6vw, 32px); font-weight: 600;
+    letter-spacing: -.03em; line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
   }
+  .hero-num.worst { color: var(--acc); }
+  .hero-key { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
 
-  .story-facts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 28px;
-    margin-bottom: 12px;
+  /* runner numbers: one hairline meter grid — key above value, hairline between
+     cells — so six stats read as a block instead of a six-row list. auto-fit
+     means the cell count decides the columns, no breakpoints involved. */
+  .strip--stats { grid-template-columns: repeat(auto-fit, minmax(78px, 1fr)); }
+  .strip--stats .cell { padding: 9px 11px; gap: 2px; }
+  .strip--stats .cell-val { font-size: clamp(12px, 1.05vw, 13.5px); font-weight: 500; letter-spacing: 0; }
+  .strip--stats .cell-val .u { font-size: 10px; }
+
+  /* status codes: pills on one wrapping row, never a paragraph */
+  .note { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+  .note-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; flex-wrap: wrap; }
+  .u { font-style: normal; font-weight: 400; font-size: 10.5px; color: var(--faint); }
+
+  /* ---- stat strip: auto-fit so any cell count reflows at any width ---- */
+  .strip {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 1px;
+    background: var(--line); border-radius: var(--r-in); overflow: hidden;
   }
-
-  .story-fact { display: flex; gap: 10px; align-items: baseline; }
-
-  .story-steps {
-    margin: 0;
-    padding-left: 18px;
-    display: grid;
-    gap: 6px;
-    color: var(--body);
-    font-size: 12.5px;
-    max-width: 100ch;
+  .strip .cell { background: var(--well); padding: 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .cell-key { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+  .cell-val {
+    font-family: var(--mono); font-size: clamp(17px, 1.7vw, 20px); font-weight: 600; letter-spacing: -.02em;
+    line-height: 1.1; color: var(--ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
   }
+  .cell-val.sm { font-size: 13px; font-weight: 500; }
+  .cell-sub { font-family: var(--mono); font-size: 10px; color: var(--faint); }
 
-  /* ---- Metric grid ---- */
-  .metric-grid {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 1px;
-    background: var(--border);
-    border: 1px solid var(--border);
-    margin-bottom: 16px;
+  /* ---- chart wells: heights scale with the viewport, never with the data ---- */
+  .well { background: var(--well); border-radius: var(--r-in); padding: clamp(8px, .9vw, 12px); min-width: 0; }
+  .chart-box { position: relative; width: 100%; }
+  .chart-box.cap { height: clamp(190px, 22vw, 260px); }
+  .chart-box.spike { height: clamp(160px, 17vw, 210px); }
+  .chart-box.tl { height: clamp(150px, 16vw, 200px); }
+  /* ---- inline key: lines not dots, no legend boxes ---- */
+  .key { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+  .key-item { display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10.5px; color: var(--mute); }
+  .key-note { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+  .key-line { width: 16px; border-top: 2px solid var(--mute); border-radius: 2px; }
+  .key-line.k0 { border-top-color: var(--acc); }
+  .key-line.k1 { border-top-color: var(--s1); }
+  .key-line.k2 { border-top-color: var(--s2); border-top-style: dashed; }
+  .key-line.k3 { border-top-color: var(--s3); border-top-style: dashed; }
+  .key-square { width: 10px; height: 10px; border-radius: 3px; background: var(--s1); }
+  .key-square.acc { background: var(--acc); }
+  .key-square.hollow { background: transparent; border: 1.5px solid var(--s1); }
+
+  /* ---- tables: scroll, never grow the tile ---- */
+  .table-wrap {
+    overflow: auto; max-height: 280px; min-width: 0; max-width: 100%;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
   }
-
-  .metric-tile {
-    background: var(--panel);
-    padding: 14px 16px;
+  .table-wrap::-webkit-scrollbar { width: 10px; height: 10px; }
+  .table-wrap::-webkit-scrollbar-thumb {
+    background: var(--line-2); border-radius: 999px;
+    border: 3px solid transparent; background-clip: content-box;
   }
-
-  .metric-tile .label {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--mute);
-    margin-bottom: 8px;
-  }
-
-  .metric-tile .value {
-    font-family: var(--font-mono);
-    font-size: 26px;
-    font-weight: 600;
-    letter-spacing: -0.5px;
-    color: var(--ink);
-    line-height: 1;
-  }
-
-  .metric-tile .value.sub-value {
-    font-size: 15px;
-    font-weight: 500;
-    color: var(--body);
-    margin-top: 6px;
-  }
-
-  .metric-tile .unit {
-    font-size: 13px;
-    color: var(--mute);
-    font-weight: 400;
-    margin-left: 2px;
-  }
-
-  /* ---- Panel grid (chart + table) ---- */
-  .panel-grid {
-    display: grid;
-    grid-template-columns: 1.1fr 1.4fr;
-    gap: 1px;
-    background: var(--border);
-    border: 1px solid var(--border);
-  }
-
-  .panel {
-    background: var(--panel);
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
-
-  .panel-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .panel-header h2 {
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin: 0;
-    color: var(--body);
-  }
-
-  .panel-header .meta {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--mute);
-  }
-
-  /* chart panel */
-  .chart-body { padding: 16px; flex: 1; display: flex; flex-direction: column; }
-
-  .legend { display: flex; gap: 16px; margin-bottom: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--body); }
-
-  .legend-item { display: flex; align-items: center; gap: 5px; }
-
-  .legend-dot { width: 7px; height: 7px; border-radius: 2px; }
-
-  .chart-container { position: relative; flex: 1; min-height: 220px; width: 100%; }
-
-  /* table panel */
-  .table-scroll { overflow: auto; max-height: 340px; }
-
+  .table-wrap::-webkit-scrollbar-track { background: transparent; }
+  .table-wrap.tall { max-height: 520px; }
   table { width: 100%; border-collapse: collapse; }
-
-  th {
-    position: sticky;
-    top: 0;
-    text-align: left;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--mute);
-    font-weight: 400;
-    background: var(--panel-alt);
-    padding: 8px 16px;
-    border-bottom: 1px solid var(--border);
+  thead th {
+    position: sticky; top: 0; z-index: 1; background: var(--tile);
+    text-align: left; font-family: var(--mono); font-size: 10px; font-weight: 500;
+    color: var(--faint); padding: 6px 12px; border-bottom: 1px solid var(--line);
+    white-space: nowrap;
   }
-
-  td {
-    padding: 9px 16px;
-    font-size: 12.5px;
-    border-bottom: 1px solid var(--border);
-    color: var(--body);
+  /* row tone lives on the <tr> as a variable so a sticky first cell can paint
+     the same solid color the rest of the row uses */
+  tbody tr { --row-bg: var(--row); }
+  tbody tr:hover { --row-bg: var(--row-hover); }
+  tbody tr.is-broken { --row-bg: var(--row-err); }
+  tbody td {
+    padding: 8px 12px; border-bottom: 1px solid var(--line);
+    font-family: var(--mono); font-size: 11.5px; color: var(--mute);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+    background: var(--row-bg);
   }
-
-  tbody tr:last-child td { border-bottom: none; }
-  tbody tr:hover { background: var(--panel-alt); }
-
-  td.mono { font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
-
-  .lat-cell { display: flex; align-items: center; gap: 7px; }
-
-  .lat-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { color: var(--ink); }
+  th.num, td.num { text-align: right; }
+  td.num { color: var(--ink); }
+  th.verd, td.verd { text-align: center; }
 
   .bottleneck-chip {
-    display: inline-flex;
-    align-items: center;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    padding: 2px 7px;
-    border: 1px solid var(--border-strong);
+    display: inline-block; vertical-align: bottom; border-radius: 6px; padding: 2px 7px 3px;
+    font-family: var(--mono); font-size: 10px;
+    max-width: 20ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: var(--mute); border: 1px solid var(--line-2); background: transparent;
+  }
+  .bottleneck-chip.http { color: var(--acc); background: var(--acc-soft); border-color: transparent; }
+  .bottleneck-chip.is-masked { border-style: dashed; }
+  .bottleneck-chip.ok { color: var(--acc); background: var(--acc-soft); border-color: transparent; }
+  .bottleneck-chip.err { color: var(--err); background: var(--err-soft); border-color: transparent; }
+
+  /* ---- empty state ---- */
+  .tile--empty { align-items: center; text-align: center; gap: 6px; padding: 34px 20px; }
+  .empty-title { margin: 0; font-size: 14px; font-weight: 600; }
+  .empty-text { margin: 0; color: var(--mute); font-size: 12.5px; max-width: 46ch; }
+
+  /* ---- verdict sparkline + run meta ---- */
+  .v-meta { font-family: var(--mono); font-size: 10.5px; color: var(--faint); margin-left: auto; margin-right: 10px; overflow-wrap: anywhere; }
+  .spark { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+  .spark-cap { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+  .chart-box.spark { height: 132px; }
+  /* the verdict tile spans two grid rows, so its spare height lives between
+     the chart caption and the facts. Let the chart grow instead: the graph
+     takes the slack, the caption, facts and next-steps stay tightly packed. */
+  .tile--verdict .spark { flex: 1; min-height: 0; }
+  .tile--verdict .spark .well { flex: 1; min-height: 0; display: flex; }
+  .tile--verdict .chart-box.spark { height: 100%; min-height: 132px; }
+
+  /* ---- closing summary ---- */
+  .summary-line { margin: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .summary-line .lead { font-size: clamp(12.5px, 1.5vw, 13.5px); color: var(--ink); overflow-wrap: anywhere; }
+
+  /* ---- causes, blame pills, capped rows ---- */
+  tbody tr.is-capped { display: none; }
+  /* cause stays prose-width so pills can wrap instead of stretching the table */
+  td.cause { white-space: normal; min-width: 190px; max-width: 360px; }
+  .dash { color: var(--faint); }
+
+  /* phones: the first column stays put while the rest scrolls under it. Needs a
+     scroll container, so it rides on .table-wrap's overflow. */
+  @media (max-width: 780px) {
+    thead th:first-child, tbody td:first-child {
+      position: sticky; left: 0;
+      box-shadow: inset -1px 0 0 var(--line);
+    }
+    thead th:first-child { z-index: 2; }
+    tbody td:first-child { z-index: 1; }
   }
 
-  .bottleneck-chip.http { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
-  .bottleneck-chip.db { background: transparent; color: var(--mute); }
-  .bottleneck-chip.redis { background: transparent; color: #e0524d; border-color: rgba(224,82,77,0.4); }
-
-  /* ---- Empty state ---- */
-  .empty-panel {
-    padding: 60px 20px;
-    text-align: center;
-    background: var(--panel);
-    border: 1px solid var(--border);
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+  .tag {
+    max-width: 100%; border-radius: 6px; padding: 2px 7px 3px;
+    font-family: var(--mono); font-size: 10px; line-height: 1.45;
+    color: var(--mute); background: var(--well); border: 1px solid var(--line);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-
-  .empty-panel .mark {
-    font-family: var(--font-mono);
-    font-size: 20px;
-    color: var(--faint);
-    margin-bottom: 10px;
+  .tag i { font-style: normal; opacity: .55; }
+  /* ellipsis lives on the name span, never on the count: a clipped ×5120 would
+     be worse than a clipped error class */
+  .tag .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* status codes: code in ink, count muted, one pill per code */
+  .tag.code { display: inline-flex; align-items: baseline; gap: 5px; }
+  .tag.code b { font-weight: 600; color: var(--ink); }
+  /* failing error class: muted red pill, count dimmed, full text on hover */
+  .tag.err {
+    display: inline-flex; align-items: baseline; gap: 5px; max-width: 30ch;
+    color: var(--err); background: var(--err-soft); border-color: transparent;
   }
-
-  .empty-panel h3 { font-size: 14px; font-weight: 600; margin: 0 0 6px; color: var(--ink); }
-
-  .empty-panel p {
-    color: var(--mute);
-    font-size: 12.5px;
-    max-width: 320px;
-    margin: 0 auto;
+  /* blame: dashed pill with a hollow dot, no loud color */
+  .tag.blame {
+    max-width: 24ch; display: inline-flex; align-items: center; gap: 6px;
+    border-style: dashed; color: var(--mute);
   }
+  .tag.blame::before {
+    content: ""; width: 5px; height: 5px; border-radius: 50%;
+    border: 1px solid currentColor; opacity: .8; flex: 0 0 auto;
+  }
+  .tag.warn { border-style: dashed; }
+  /* a wall-clock value in a table or stat: mono, tabular, on a well so it
+     reads as a designed token, not bare text */
+  .time-chip {
+    display: inline-block; font-family: var(--mono); font-size: 11px;
+    font-variant-numeric: tabular-nums; color: var(--ink); letter-spacing: .02em;
+    background: var(--well); border: 1px solid var(--line); border-radius: 6px;
+    padding: 1px 8px 2px; white-space: nowrap; vertical-align: bottom;
+  }
+  dd.tags { justify-content: flex-end; }
+  .cause-note { font-family: var(--mono); font-size: 10px; color: var(--faint); }
 
-  /* ---- Footer ---- */
+  .table-more { display: flex; justify-content: center; padding-top: 10px; }
+  .table-more .btn { font-size: 10.5px; }
+
+  /* ---- footer ---- */
   footer {
-    margin-top: 16px;
-    padding-top: 12px;
-    border-top: 1px solid var(--border);
-    display: flex;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 6px;
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--faint);
+    display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: 10.5px; color: var(--faint);
   }
 
-  /* ---- Responsive ---- */
-  @media (max-width: 900px) {
-    .metric-grid { grid-template-columns: repeat(3, 1fr); }
-    .panel-grid { grid-template-columns: 1fr; }
-    .summary-grid { grid-template-columns: 1fr; }
+  /* ---- responsive ladder: 4 cols -> 2 -> 1, driven by fluid tokens above so
+     each step only has to change the column count ---- */
+  @media (min-width: 1560px) {
+    .shell { max-width: min(1360px, 100%); }
   }
-
-  @media (max-width: 560px) {
-    .wrap { padding: 0 12px 32px; }
-    .metric-grid { grid-template-columns: repeat(2, 1fr); }
-    .metric-tile .value { font-size: 21px; }
-    th, td { padding: 7px 10px; font-size: 11.5px; }
+  @media (max-width: 1040px) {
+    .bento { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .tile--verdict { grid-column: span 2; grid-row: auto; }
+    .tile--half, .tile--quad { grid-column: span 2; grid-row: auto; }
+    .tile--wide { grid-column: span 2; }
+    .t-meta { text-align: left; }
+    .v-meta { margin-right: 0; }
   }
-
+  @media (max-width: 820px) {
+    .tile--quad .strip--stats { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
+    .table-wrap.tall { max-height: 420px; }
+  }
+  @media (max-width: 640px) {
+    .bento { grid-template-columns: minmax(0,1fr); }
+    .tile--verdict, .tile--runner, .tile--half, .tile--quad, .tile--wide { grid-column: span 1; grid-row: auto; }
+    .t-head { flex-wrap: wrap; }
+    .t-meta { text-align: left; }
+    .v-meta { flex-basis: 100%; margin: 0; }
+    .table-wrap { max-height: 340px; }
+    .chart-box.cap { height: 210px; }
+    .chart-box.spike { height: 180px; }
+    .verdict-title { max-width: none; }
+    .facts { gap: 8px; }
+    .fact { flex-basis: 100%; }
+  }
+  @media (max-width: 460px) {
+    .strip { grid-template-columns: repeat(auto-fit, minmax(86px, 1fr)); }
+    .strip .cell { padding: 10px; }
+    .strip--stats { grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); }
+    .strip--stats .cell { padding: 8px 9px; }
+    .tag.err { max-width: 22ch; }
+    footer { flex-direction: column; gap: 4px; }
+  }
+  @media (max-width: 380px) {
+    .hero-num { font-size: 24px; }
+    .verdict-title { font-size: 19px; }
+    .t-label, .t-meta, .v-meta { font-size: 10px; }
+  }
   @media (prefers-reduced-motion: reduce) {
-    * { animation: none !important; transition: none !important; }
+    * { transition: none !important; }
   }
 </style>
 </head>
 <body>
-<div class="wrap">
+
+<script>
+  // shared chart chrome. colors come from CSS vars, so both themes work.
+  window.BG = (function () {
+    const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    const font = () => ({ family: css('--mono'), size: 10 });
+
+    function tip(callbacks) {
+      return {
+        backgroundColor: css('--tip'),
+        titleColor: css('--ink'),
+        bodyColor: css('--mute'),
+        borderColor: css('--line-2'),
+        borderWidth: 1,
+        cornerRadius: 8,
+        padding: { top: 8, right: 10, bottom: 8, left: 10 },
+        caretSize: 0,
+        displayColors: false,
+        titleFont: { family: css('--mono'), size: 11, weight: '500' },
+        bodyFont: { family: css('--mono'), size: 11 },
+        titleMarginBottom: 4,
+        callbacks: callbacks || {}
+      };
+    }
+
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function num(v, decimals) {
+      return v.toLocaleString(undefined, {
+        minimumFractionDigits: decimals || 0,
+        maximumFractionDigits: decimals || 0
+      });
+    }
+
+    // Duration formatting for counter frames only: the exact server-rendered
+    // text is restored when the count finishes, so rounding here can't drift.
+    function fmtMs(v) {
+      const n = v < 10 ? Math.round(v * 10) / 10 : Math.round(v);
+      if (n >= 1000) {
+        return (Math.round((n / 1000) * 100) / 100) + 's';
+      }
+      return n + 'ms';
+    }
+
+    // count a number up into el. Liveliness without moving the layout.
+    function count(el, to, opts) {
+      if (!el) return;
+      const o = opts || {};
+      const fmt = o.format || ((v) => num(v, o.decimals));
+      // server-rendered tokens (data-count) restore their exact text after
+      // the count; JS-computed cells end on the computed value
+      const finalText = el.hasAttribute('data-count') ? el.textContent : fmt(to);
+      if (reducedMotion || !window.requestAnimationFrame) {
+        el.textContent = finalText;
+        return;
+      }
+      const dur = o.ms || 700;
+      const t0 = performance.now();
+      function frame(now) {
+        const t = Math.min(1, (now - t0) / dur);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = fmt(to * eased);
+        if (t < 1) {
+          requestAnimationFrame(frame);
+        } else {
+          el.textContent = finalText;
+        }
+      }
+      requestAnimationFrame(frame);
+    }
+
+    // count every element the server marked: data-count + optional data-unit
+    function countAll(root) {
+      (root || document).querySelectorAll('[data-count]').forEach(function (el) {
+        const to = parseFloat(el.dataset.count);
+        if (isNaN(to)) return;
+        const fmt = el.dataset.unit === 'ms'
+          ? fmtMs
+          : (v) => num(v, el.dataset.decimals ? Number(el.dataset.decimals) : 0);
+        count(el, to, { format: fmt });
+      });
+    }
+
+    // Keep long tables from eating the page: render the first N rows, park the
+    // rest behind a button. Layout-only, no data is dropped.
+    function capRows(wrap, limit) {
+      const body = wrap.querySelector('tbody');
+      if (!body || body.rows.length <= limit) return;
+      const rows = Array.from(body.rows);
+      const hidden = rows.slice(limit);
+      let open = false;
+
+      const more = document.createElement('div');
+      more.className = 'table-more';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn';
+
+      function paint() {
+        hidden.forEach(function (r) { r.classList.toggle('is-capped', !open); });
+        btn.textContent = open
+          ? 'show fewer'
+          : 'show all ' + rows.length + ' rows (' + hidden.length + ' hidden)';
+      }
+      btn.addEventListener('click', function () { open = !open; paint(); });
+      more.appendChild(btn);
+      wrap.parentNode.insertBefore(more, wrap.nextSibling);
+      paint();
+    }
+
+    function capAll() {
+      document.querySelectorAll('[data-cap]').forEach(function (wrap) {
+        capRows(wrap, parseInt(wrap.dataset.cap, 10) || 50);
+      });
+    }
+    function xAxis(overrides) {
+      const ticks = Object.assign({
+        color: css('--faint'), font: font(), padding: 6,
+        maxRotation: 0, autoSkip: true, maxTicksLimit: 8
+      }, overrides || {});
+      return { grid: { display: false }, border: { display: true, color: css('--line') }, ticks: ticks };
+    }
+
+    function yAxis(unit) {
+      return {
+        beginAtZero: true,
+        border: { display: true, color: css('--line') },
+        grid: { color: css('--line'), drawTicks: false },
+        ticks: { color: css('--faint'), font: font(), padding: 8, maxTicksLimit: 5, callback: (v) => v + unit }
+      };
+    }
+
+    Chart.defaults.font.family = css('--mono');
+    Chart.defaults.font.size = 10;
+    Chart.defaults.color = css('--faint');
+    Chart.defaults.animation = false;
+
+    return {
+      css: css, font: font, tip: tip, xAxis: xAxis, yAxis: yAxis,
+      num: num, fmtMs: fmtMs, count: count, countAll: countAll, capAll: capAll
+    };
+  })();
+</script>
+
+<div class="shell">
 
   <div class="topbar">
-    <div class="left">
-      <span class="wordmark">barrage<span class="cursor">_</span></span>
-      <span class="subtitle">/ correlation report</span>
+    <div class="brand">
+      <span class="wordmark">barrage<i>_</i></span>
+      <span class="byline">correlation report</span>
     </div>
-    <div class="status-dot-row">
-      {{if .Spikes}}
-        <span class="status-dot"></span> {{len .Spikes}} flagged
-      {{else}}
-        <span class="status-dot idle"></span> clean run
-      {{end}}
-      <button type="button" class="export-btn" id="exportBtn" title="Download this run as JSON">Export JSON</button>
+    <div class="actions">
+      {{if .Spikes}}<span class="pill err">{{len .Spikes}} flagged</span>{{else}}<span class="pill ok">clean run</span>{{end}}
+      <button type="button" class="btn" id="exportBtn" title="Download this run as JSON">Export JSON</button>
     </div>
   </div>
 
-  {{if .Story.Title}}
-  <section class="run-summary">
-    <h2 class="section-title">verdict</h2>
-    <div class="story-card">
-      <div class="summary-header">
-        <span class="summary-name">{{.Story.Title}}</span>
-        <span class="summary-status {{if eq .Story.Tone "ok"}}ok{{else}}bad{{end}}">{{.Story.Tone}}</span>
+  <div class="bento">
+
+    {{if .Story.Title}}
+    <section class="tile tile--verdict">
+      <div class="t-head">
+        <span class="t-label">verdict</span>
+        <span class="v-meta">{{if .Duration}}{{.Duration}} run{{end}}{{if .Ramp}} · {{.Ramp}} ramp{{end}}{{if .Concurrency}} · {{.Concurrency}} users{{end}}</span>
+        <span class="pill {{if eq .Story.Tone "ok"}}ok{{else}}err{{end}}">{{.Story.Tone}}</span>
       </div>
-      <p class="story-detail">{{.Story.Detail}}</p>
+      <h1 class="verdict-title">{{.Story.Title}}</h1>
+      <p class="verdict-detail">{{.Story.Detail}}</p>
+      {{if or .CapacitySearch .Timeline.Series}}
+      <figure class="spark">
+        <div class="well"><div class="chart-box spark"><canvas id="verdictChart"></canvas></div></div>
+        <figcaption class="spark-cap">
+          <span class="key-item"><span class="key-line k0"></span>{{if .CapacitySearch}}p99 by concurrency{{else}}p99 over the run{{end}}</span>
+          {{if .CapacitySearch}}<span class="key-note">shaded = broken</span>{{else}}<span class="key-note">{{.Story.Bottleneck}}</span>{{end}}
+        </figcaption>
+      </figure>
+      {{end}}
       {{if or .Story.Bottleneck .Story.Capacity}}
-      <div class="story-facts">
-        {{if .Story.Bottleneck}}<span class="story-fact"><span class="sm-label">bottleneck</span><span class="sm-value">{{.Story.Bottleneck}}</span></span>{{end}}
-        {{if .Story.Capacity}}<span class="story-fact"><span class="sm-label">capacity</span><span class="sm-value">{{.Story.Capacity}}</span></span>{{end}}
+      <div class="facts">
+        {{if .Story.Bottleneck}}<div class="fact"><span class="fact-key">bottleneck</span><span class="fact-val"><span class="chip acc" title="{{.Story.Bottleneck}}">{{.Story.Bottleneck}}</span></span></div>{{end}}
+        {{if .Story.Capacity}}<div class="fact"><span class="fact-key">capacity</span><span class="fact-val prose">{{.Story.Capacity}}</span></div>{{end}}
       </div>
       {{end}}
       {{if .Story.NextSteps}}
-      <ul class="story-steps">
-        {{range .Story.NextSteps}}
-        <li>{{.}}</li>
+      <div class="steps">
+        <span class="t-label">next</span>
+        <ol class="steps-list">
+          {{range .Story.NextSteps}}<li>{{.}}</li>{{end}}
+        </ol>
+      </div>
+      {{end}}
+    </section>
+
+    {{if or .CapacitySearch .Timeline.Series}}
+    <script>
+      (function () {
+        const el = document.getElementById('verdictChart');
+        if (!el) return;
+        const css = BG.css;
+        const broken = [{{if .CapacitySearch}}{{range $i, $s := .CapacitySearch.Steps}}{{if $s.Broken}}{{$i}},{{end}}{{end}}{{end}}];
+
+        // sparkline: the verdict tile's own graph, axes stripped to nothing
+        const bands = {
+          id: 'sparkBands',
+          beforeDatasetsDraw(chart) {
+            if (!broken.length) return;
+            const area = chart.chartArea;
+            const step = (area.right - area.left) / Math.max(1, chart.data.labels.length);
+            const ctx = chart.ctx;
+            ctx.save();
+            ctx.fillStyle = css('--err-soft');
+            broken.forEach(function (i) {
+              const cx = chart.scales.x.getPixelForValue(i);
+              const left = Math.max(area.left, cx - step / 2);
+              const right = Math.min(area.right, cx + step / 2);
+              ctx.fillRect(left, area.top, right - left, area.bottom - area.top);
+            });
+            ctx.restore();
+          }
+        };
+
+        new Chart(el, {
+          type: 'line',
+          plugins: [bands],
+          data: {
+            labels: [{{if .CapacitySearch}}{{range .CapacitySearch.Steps}}{{.Concurrency}},{{end}}{{else}}{{range .Timeline.Labels}}"{{.}}",{{end}}{{end}}],
+            datasets: [
+              {
+                label: 'p99',
+                data: [{{if .CapacitySearch}}{{range .CapacitySearch.Steps}}{{.P99.Milliseconds}},{{end}}{{else}}{{range $i, $s := .Timeline.Series}}{{if or (eq $s.Name $.Story.Bottleneck) (and (eq $.Story.Bottleneck "") (eq $i 0))}}{{range $s.P99}}{{if lt . 0}}null,{{else}}{{.}},{{end}}{{end}}{{end}}{{end}}{{end}}],
+                borderColor: css('--acc'),
+                backgroundColor: 'rgba(0,0,0,0)',
+                tension: 0.3,
+                pointRadius: 0,
+                pointHitRadius: 12,
+                borderWidth: 2,
+                spanGaps: false
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { display: false },
+              sparkBands: {},
+              tooltip: BG.tip({ label: (c) => c.formattedValue + 'ms' })
+            },
+            scales: {
+              x: { display: false },
+              y: {
+                beginAtZero: true,
+                border: { display: false },
+                grid: { color: css('--line'), drawTicks: false },
+                ticks: { display: false },
+                maxTicksLimit: 3
+              }
+            },
+            layout: { padding: { top: 6, bottom: 2 } }
+          }
+        });
+      })();
+    </script>
+    {{end}}
+    {{end}}
+
+    <h2 class="vh">run summary</h2>
+    {{range $i, $r := .Runners}}
+    <section class="tile tile--runner{{if eq (len $.Runners) 1}} tile--quad{{else if eq (len $.Runners) 2}} tile--half{{else if and (eq (len $.Runners) 3) (eq $i 2)}} tile--half{{end}}">
+      <div class="t-head">
+        <h3 class="t-title" title="{{.Name}}">{{.Name}}</h3>
+        <span class="pill {{if ge .Success 90.0}}ok{{else if ge .Success 50.0}}warn{{else}}err{{end}}">{{printf "%.1f" .Success}}% ok</span>
+      </div>
+      <div class="hero">
+        <span class="hero-num{{if eq .Name $.Story.Bottleneck}} worst{{end}}" data-count="{{.P99.Milliseconds}}" data-unit="ms">{{formatDuration .P99}}</span>
+        <span class="hero-key">p99</span>
+      </div>
+      <div class="strip strip--stats">
+        <div class="cell"><span class="cell-key">requests</span><span class="cell-val sm" data-count="{{.Requests}}">{{.Requests}}</span></div>
+        <div class="cell"><span class="cell-key">p50</span><span class="cell-val sm" data-count="{{.P50.Milliseconds}}" data-unit="ms">{{formatDuration .P50}}</span></div>
+        <div class="cell"><span class="cell-key">mean</span><span class="cell-val sm" data-count="{{.Mean.Milliseconds}}" data-unit="ms">{{formatDuration .Mean}}</span></div>
+        <div class="cell"><span class="cell-key">max</span><span class="cell-val sm" data-count="{{.Max.Milliseconds}}" data-unit="ms">{{formatDuration .Max}}</span></div>
+        <div class="cell"><span class="cell-key">rate</span><span class="cell-val sm"><span data-count="{{.Rate}}" data-decimals="1">{{printf "%.1f" .Rate}}</span><i class="u">/s</i></span></div>
+        <div class="cell"><span class="cell-key">throughput</span><span class="cell-val sm"><span data-count="{{.Throughput}}" data-decimals="1">{{printf "%.1f" .Throughput}}</span><i class="u">/s</i></span></div>
+      </div>
+      {{if .StatusCodes}}
+      <div class="note">
+        <span class="cell-key">status codes</span>
+        <div class="tags">
+          {{range $code, $count := .StatusCodes}}<span class="tag code" title="{{$code}} × {{$count}}"><b>{{$code}}</b><i>×{{$count}}</i></span>{{end}}
+        </div>
+      </div>
+      {{end}}
+    </section>
+    {{end}}
+    {{if .CapacitySearch}}
+    <section class="tile tile--wide">
+      <div class="t-head">
+        <h2 class="t-title">capacity sweep — concurrency vs p99</h2>
+        <span class="t-meta">{{if .CapacitySearch.BreakAt}}broke at {{.CapacitySearch.BreakAt}} · {{end}}shaded band = broken · dashed = success %</span>
+      </div>
+      <div class="key">
+        <span class="key-item"><span class="key-line k0"></span>p99</span>
+        <span class="key-item"><span class="key-line k2"></span>success %</span>
+        <span class="key-note">left axis ms · right axis % (dashed)</span>
+      </div>
+      <div class="well"><div class="chart-box cap"><canvas id="capacityChart"></canvas></div></div>
+      <div class="t-head">
+        <span class="t-label">sweep steps</span>
+        <span class="t-meta">coarse double, then fine fill</span>
+      </div>
+      <div class="table-wrap tall" data-cap="60">
+        <table>
+          <thead>
+            <tr>
+              <th class="num">Concurrency</th>
+              <th class="num">Requests</th>
+              <th class="num">P99</th>
+              <th class="num">Success</th>
+              <th class="verd">Verdict</th>
+              <th>Cause</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .CapacitySearch.Steps}}
+            <tr class="{{if .Broken}}is-broken{{end}}">
+              <td class="num">{{.Concurrency}}</td>
+              <td class="num">{{.Requests}}</td>
+              <td class="num">{{formatDuration .P99}}</td>
+              <td class="num">{{percent .Success}}%</td>
+              <td class="verd">{{if .Broken}}<span class="bottleneck-chip err">broken</span>{{else}}<span class="bottleneck-chip ok">ok</span>{{end}}</td>
+              <td class="cause">
+                {{if or .ScenarioErrs .BrokenBy}}<span class="tags">
+                  {{range $class, $count := .ScenarioErrs}}<span class="tag err" title="{{$class}} × {{$count}}"><span class="nm">{{$class}}</span><i>×{{$count}}</i></span>{{end}}
+                  {{range .BrokenBy}}<span class="tag blame" title="blame: {{.}}"><span class="nm">{{.}}</span></span>{{end}}
+                </span>
+                {{else}}<span class="dash">—</span>{{end}}
+              </td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      <div class="key">
+        <span class="key-item"><span class="tag err"><span class="nm">class</span><i>×count</i></span>scenario failures at that level</span>
+        <span class="key-item"><span class="tag blame"><span class="nm">runner</span></span>blamed for the break</span>
+        <span class="key-note">shaded row = level broke · hover a pill for the full name</span>
+      </div>
+    </section>
+    <script>
+      (function () {
+        const css = BG.css;
+        const brokenAt = [];
+        {{range $i, $s := .CapacitySearch.Steps}}{{if $s.Broken}}brokenAt.push({{$i}});{{end}}{{end}}
+
+        // broken concurrency levels get a faint band behind the curve: no markers, no dots
+        const bands = {
+          id: 'bands',
+          beforeDatasetsDraw(chart) {
+            const idx = chart.options.plugins.bands.indices || [];
+            if (!idx.length) return;
+            const area = chart.chartArea;
+            const step = (area.right - area.left) / Math.max(1, chart.data.labels.length);
+            const ctx = chart.ctx;
+            ctx.save();
+            ctx.fillStyle = css('--err-soft');
+            idx.forEach(function (i) {
+              const cx = chart.scales.x.getPixelForValue(i);
+              const left = Math.max(area.left, cx - step / 2);
+              const right = Math.min(area.right, cx + step / 2);
+              ctx.fillRect(left, area.top, right - left, area.bottom - area.top);
+            });
+            ctx.restore();
+          }
+        };
+
+        new Chart(document.getElementById('capacityChart'), {
+          type: 'line',
+          plugins: [bands],
+          data: {
+            labels: [{{range .CapacitySearch.Steps}}"{{.Concurrency}}",{{end}}],
+            datasets: [
+              {
+                label: 'p99',
+                data: [{{range .CapacitySearch.Steps}}{{.P99.Milliseconds}},{{end}}],
+                borderColor: css('--acc'),
+                backgroundColor: 'rgba(0,0,0,0)',
+                tension: 0.25,
+                pointRadius: 0,
+                pointHitRadius: 10,
+                borderWidth: 2
+              },
+              {
+                label: 'success',
+                data: [{{range .CapacitySearch.Steps}}{{percent .Success}},{{end}}],
+                borderColor: css('--s2'),
+                borderDash: [6, 5],
+                backgroundColor: 'rgba(0,0,0,0)',
+                tension: 0.25,
+                pointRadius: 0,
+                pointHitRadius: 10,
+                borderWidth: 2,
+                yAxisID: 'ySuccess'
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { display: false },
+              bands: { indices: brokenAt },
+              tooltip: BG.tip({
+                title: (items) => 'concurrency ' + items[0].label,
+                label: (c) => c.datasetIndex === 0 ? 'p99 ' + c.formattedValue + ' ms' : 'success ' + c.formattedValue + ' %'
+              })
+            },
+            scales: {
+              x: Object.assign(BG.xAxis(), {
+                title: { display: true, text: 'concurrency', color: css('--faint'), font: BG.font(), padding: { top: 6 } }
+              }),
+              y: BG.yAxis('ms'),
+              ySuccess: {
+                position: 'right',
+                beginAtZero: true,
+                suggestedMax: 100,
+                border: { display: true, color: css('--line'), dash: [4, 4] },
+                grid: { display: false },
+                ticks: { color: css('--faint'), font: BG.font(), padding: 8, maxTicksLimit: 5, callback: (v) => v + '%' }
+              }
+            }
+          }
+        });
+      })();
+    </script>
+    {{end}}
+    {{if .Spikes}}
+    <section class="tile tile--wide">
+      <div class="t-head">
+        <h2 class="t-title">correlated spikes</h2>
+        <span class="t-meta" id="spikeMeta">same-bucket match · p99 ms</span>
+      </div>
+      <div class="strip">
+        <div class="cell"><span class="cell-key">spikes</span><span class="cell-val">{{len .Spikes}}</span></div>
+        <div class="cell"><span class="cell-key">peak http p99</span><span class="cell-val" id="peakHttp">—</span></div>
+        <div class="cell"><span class="cell-key">peak storage p99</span><span class="cell-val" id="peakStorage">—</span></div>
+        <div class="cell"><span class="cell-key">span</span><span class="cell-val" id="spanDur">—</span><span class="cell-sub" id="spanRange">—</span></div>
+        <div class="cell"><span class="cell-key">usual bottleneck</span><span class="cell-val" id="bottleneckLean">—</span><span class="cell-sub" id="worstMoment">—</span></div>
+      </div>
+      <div class="key">
+        <span class="key-item"><span class="key-square acc"></span>http p99</span>
+        <span class="key-item"><span class="key-square"></span>storage p99</span>
+        <span class="key-item"><span class="key-square hollow"></span>masked</span>
+      </div>
+      <div class="well"><div class="chart-box spike"><canvas id="spikeChart"></canvas></div></div>
+      <div class="t-head">
+        <span class="t-label">spike detail</span>
+        <span class="t-meta">same-bucket match</span>
+      </div>
+      <div class="table-wrap tall" data-cap="40">
+        <table>
+          <thead>
+            <tr>
+              <th>Bucket</th>
+              <th>Runner</th>
+              <th class="num">HTTP</th>
+              <th class="num">Storage</th>
+              <th>Bottleneck</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Spikes}}
+            <tr>
+              <td><span class="time-chip">{{formatBucketTime .BucketIndex}}</span></td>
+              <td>{{titleName .Runner}}</td>
+              <td class="num">{{formatDuration .HTTPLatency}}</td>
+              <td class="num">{{formatDuration .StorageLatency}}</td>
+              <td>
+                {{if .Masked}}<span class="bottleneck-chip {{.Runner}} is-masked" title="{{titleName .Runner}} (masked)">{{titleName .Runner}} (masked)</span>
+                {{else if gt .HTTPLatency .StorageLatency}}<span class="bottleneck-chip http">HTTP</span>
+                {{else if gt .StorageLatency .HTTPLatency}}<span class="bottleneck-chip {{.Runner}}" title="{{titleName .Runner}}">{{titleName .Runner}}</span>
+                {{else}}<span class="bottleneck-chip {{.Runner}}" title="{{titleName .Runner}}">EVEN</span>{{end}}
+              </td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <script>
+      (function () {
+        const css = BG.css;
+        const labels = [{{range .Spikes}}"{{formatBucketTime .BucketIndex}}",{{end}}];
+        const httpData = [{{range .Spikes}}{{.HTTPLatency.Milliseconds}},{{end}}];
+        const storageData = [{{range .Spikes}}{{.StorageLatency.Milliseconds}},{{end}}];
+        const runner = [{{range .Spikes}}"{{.Runner}}",{{end}}];
+        const masked = [{{range .Spikes}}{{.Masked}},{{end}}];
+
+        const bucketsRaw = [{{range .Spikes}}{{.BucketIndex}},{{end}}];
+        const peakHttp = Math.max(...httpData);
+        const peakStorage = Math.max(...storageData);
+        BG.count(document.getElementById('peakHttp'), peakHttp, { format: BG.fmtMs });
+        BG.count(document.getElementById('peakStorage'), peakStorage, { format: BG.fmtMs });
+        // span stat: duration from raw bucket clock, range as a start–end line
+        const spanDurEl = document.getElementById('spanDur');
+        const spanRangeEl = document.getElementById('spanRange');
+        if (labels.length > 1 && bucketsRaw.length > 1) {
+          BG.count(spanDurEl, Math.max(0, bucketsRaw[bucketsRaw.length - 1] - bucketsRaw[0]), { format: (v) => v + 's' });
+          spanRangeEl.textContent = labels[0] + ' – ' + labels[labels.length - 1];
+        } else {
+          spanDurEl.textContent = '—';
+          spanRangeEl.textContent = labels[0] || '—';
+        }
+
+        let httpWins = 0;
+        const storageWins = { db: 0, redis: 0 };
+        let worstIdx = 0, worstScore = -1;
+        for (let i = 0; i < labels.length; i++) {
+          if (masked[i]) storageWins[runner[i]]++;
+          else if (httpData[i] > storageData[i]) httpWins++;
+          else if (storageData[i] > httpData[i]) storageWins[runner[i]]++;
+          const score = Math.max(httpData[i], storageData[i]);
+          if (score > worstScore) { worstScore = score; worstIdx = i; }
+        }
+        const storageTotal = storageWins.db + storageWins.redis;
+        let lean = 'Even';
+        if (httpWins !== storageTotal) {
+          lean = httpWins > storageTotal
+            ? 'HTTP'
+            : (storageWins.db >= storageWins.redis ? 'DB' : 'Redis');
+        }
+        document.getElementById('bottleneckLean').textContent = lean;
+        document.getElementById('worstMoment').textContent =
+          'worst: ' + labels[worstIdx];
+
+        // Hundreds of spikes must not turn the chart into a hairbrush: draw the
+        // most recent bars, but say so out loud. Every number above still covers
+        // the full spike list, and the table below still holds every row.
+        const MAX_BARS = 64;
+        let win = 0;
+        if (labels.length > MAX_BARS) {
+          win = labels.length - MAX_BARS;
+          document.getElementById('spikeMeta').textContent =
+            'last ' + MAX_BARS + ' of ' + labels.length + ' buckets · same-bucket match';
+        }
+        const cLabels = labels.slice(win);
+        const cHttp = httpData.slice(win);
+        const cStorage = storageData.slice(win);
+        const cMasked = masked.slice(win);
+
+        new Chart(document.getElementById('spikeChart'), {
+          type: 'bar',
+          data: {
+            labels: cLabels,
+            datasets: [
+              {
+                label: 'http',
+                data: cHttp,
+                backgroundColor: css('--acc'),
+                borderRadius: 3,
+                borderSkipped: false,
+                barPercentage: 0.6,
+                categoryPercentage: 0.6
+              },
+              {
+                label: 'storage',
+                data: cStorage,
+                backgroundColor: cStorage.map((_, i) => (cMasked[i] ? 'rgba(0,0,0,0)' : css('--s1'))),
+                borderColor: css('--s1'),
+                borderWidth: cStorage.map((_, i) => (cMasked[i] ? 1.5 : 0)),
+                borderRadius: 3,
+                borderSkipped: false,
+                barPercentage: 0.6,
+                categoryPercentage: 0.6
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { display: false },
+              tooltip: BG.tip({
+                label: (c) => c.dataset.label + ' p99 ' + c.formattedValue + ' ms'
+              })
+            },
+            scales: {
+              x: BG.xAxis({ callback: (v) => (v && String(v).length === 8 ? v.slice(0, 5) : v) }),
+              y: BG.yAxis('ms')
+            }
+          }
+        });
+      })();
+    </script>
+    {{else}}
+    <section class="tile tile--wide tile--empty">
+      <h2 class="empty-title">No spikes</h2>
+      <p class="empty-text">DB and Redis P99 never crossed their thresholds during this run.</p>
+    </section>
+    {{end}}
+    {{if .Timeline.Series}}
+    <section class="tile tile--wide">
+      <div class="t-head">
+        <h2 class="t-title">latency timeline</h2>
+        <span class="t-meta">p99 · ms per bucket</span>
+      </div>
+      <div class="key">
+        {{range $i, $s := .Timeline.Series}}
+        <span class="key-item"><span class="key-line k{{if lt $i 3}}{{$i}}{{else}}3{{end}}"></span>{{$s.Name}}</span>
         {{end}}
-      </ul>
-      {{end}}
-    </div>
-  </section>
-  {{end}}
-
-  <section class="run-summary">
-    <h2 class="section-title">run summary</h2>
-    <div class="summary-grid">
-      {{range .Runners}}
-      <div class="summary-card">
-        <div class="summary-header">
-          <span class="summary-name">{{.Name}}</span>
-          <span class="summary-status {{if ge .Success 90.0}}ok{{else if ge .Success 50.0}}warn{{else}}bad{{end}}">{{printf "%.1f" .Success}}%</span>
-        </div>
-        <div class="summary-metrics">
-          <div class="sm"><span class="sm-label">requests</span><span class="sm-value">{{.Requests}}</span></div>
-          <div class="sm"><span class="sm-label">p50</span><span class="sm-value">{{formatDuration .P50}}</span></div>
-          <div class="sm"><span class="sm-label">p99</span><span class="sm-value">{{formatDuration .P99}}</span></div>
-          <div class="sm"><span class="sm-label">max</span><span class="sm-value">{{formatDuration .Max}}</span></div>
-          <div class="sm"><span class="sm-label">mean</span><span class="sm-value">{{formatDuration .Mean}}</span></div>
-          <div class="sm"><span class="sm-label">rate</span><span class="sm-value">{{printf "%.1f" .Rate}}/s</span></div>
-          <div class="sm"><span class="sm-label">throughput</span><span class="sm-value">{{printf "%.1f" .Throughput}}/s</span></div>
-          {{if .StatusCodes}}
-          <div class="sm"><span class="sm-label">status</span><span class="sm-value">{{formatStatusCodes .StatusCodes}}</span></div>
-          {{end}}
-        </div>
       </div>
-      {{end}}
-    </div>
-  </section>
-
-  {{if .CapacitySearch}}
-  <section>
-    <h2 class="section-title">capacity sweep — concurrency vs p99</h2>
-    <div class="panel-grid">
-      <div class="panel">
-        <div class="panel-header">
-          <h2>p99 by concurrency</h2>
-          <span class="meta">{{if .CapacitySearch.BreakAt}}broke at {{.CapacitySearch.BreakAt}} · {{end}}red dot = broken · dashed = success %</span>
-        </div>
-        <div class="chart-body">
-          <div class="chart-container">
-            <canvas id="capacityChart"></canvas>
-          </div>
-        </div>
-      </div>
-      <div class="panel">
-        <div class="panel-header">
-          <h2>sweep steps</h2>
-          <span class="meta">coarse double, then fine fill</span>
-        </div>
-        <div class="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Concurrency</th>
-                <th>Requests</th>
-                <th>P99</th>
-                <th>Success</th>
-                <th>Verdict</th>
-                <th>Cause</th>
-              </tr>
-            </thead>
-            <tbody>
-              {{range .CapacitySearch.Steps}}
-              <tr>
-                <td class="mono">{{.Concurrency}}</td>
-                <td class="mono">{{.Requests}}</td>
-                <td class="mono">{{formatDuration .P99}}</td>
-                <td class="mono">{{percent .Success}}%</td>
-                <td>{{if .Broken}}<span class="bottleneck-chip redis">broken</span>{{else}}<span class="bottleneck-chip db">ok</span>{{end}}</td>
-                <td class="mono">{{if .ScenarioErrs}}{{formatErrCounts .ScenarioErrs}}{{else if .BrokenBy}}{{join .BrokenBy ", "}}{{else}}—{{end}}</td>
-              </tr>
-              {{end}}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-    <script>
-      new Chart(document.getElementById('capacityChart'), {
-        type: 'line',
-        data: {
-          labels: [{{range .CapacitySearch.Steps}}"{{.Concurrency}}",{{end}}],
-          datasets: [
-            {
-              label: 'P99 (ms)',
-              data: [{{range .CapacitySearch.Steps}}{{.P99.Milliseconds}},{{end}}],
-              borderColor: '#fafafa',
-              backgroundColor: 'rgba(0,0,0,0)',
-              tension: 0.25,
-              pointRadius: 3,
-              borderWidth: 1.5,
-              // broken levels get red points so the knee reads off the curve
-              pointBackgroundColor: [{{range .CapacitySearch.Steps}}{{if .Broken}}'#e0524d'{{else}}'#fafafa'{{end}},{{end}}]
-            },
-            {
-              label: 'Success (%)',
-              data: [{{range .CapacitySearch.Steps}}{{percent .Success}},{{end}}],
-              borderColor: 'rgba(233,191,106,0.75)',
-              borderDash: [4, 4],
-              backgroundColor: 'rgba(0,0,0,0)',
-              tension: 0.25,
-              pointRadius: 1,
-              borderWidth: 1,
-              yAxisID: 'ySuccess'
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: {
-              title: { display: true, text: 'concurrency', font: { family: 'JetBrains Mono', size: 9 }, color: '#767676' },
-              grid: { display: false },
-              ticks: { font: { family: 'JetBrains Mono', size: 9 }, color: '#767676' }
-            },
-            y: {
-              beginAtZero: true,
-              grid: { color: 'rgba(255,255,255,0.06)' },
-              ticks: {
-                font: { family: 'JetBrains Mono', size: 9 },
-                color: '#767676',
-                callback: (v) => v + 'ms'
-              }
-            },
-            ySuccess: {
-              position: 'right',
-              beginAtZero: true,
-              suggestedMax: 100,
-              grid: { display: false },
-              ticks: {
-                font: { family: 'JetBrains Mono', size: 9 },
-                color: '#767676',
-                callback: (v) => v + '%'
-              }
-            }
-          }
-        }
-      });
-    </script>
-  </section>
-  {{end}}
-
-  {{if .Spikes}}
-
-    <div class="metric-grid" id="metricGrid">
-      <div class="metric-tile">
-        <div class="label">Correlated Spikes</div>
-        <div class="value">{{len .Spikes}}</div>
-      </div>
-      <div class="metric-tile">
-        <div class="label">Peak HTTP P99</div>
-        <div class="value" id="peakHttp">—</div>
-      </div>
-      <div class="metric-tile">
-        <div class="label">Peak Storage P99</div>
-        <div class="value" id="peakStorage">—</div>
-      </div>
-      <div class="metric-tile">
-        <div class="label">Span</div>
-        <div class="value" id="timeSpan" style="font-size:16px;">—</div>
-      </div>
-      <div class="metric-tile">
-        <div class="label">Usual Bottleneck</div>
-        <div class="value" id="bottleneckLean">—</div>
-        <div class="value sub-value" id="worstMoment">—</div>
-      </div>
-    </div>
-
-    <div class="panel-grid">
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Latency at correlated buckets</h2>
-          <span class="meta">p99 · ms</span>
-        </div>
-        <div class="chart-body">
-          <div class="legend">
-            <span class="legend-item"><span class="legend-dot" style="background:var(--ink)"></span>HTTP</span>
-            <span class="legend-item"><span class="legend-dot" style="background:var(--mute)"></span>DB</span>
-            <span class="legend-item"><span class="legend-dot" style="background:#e0524d"></span>Redis</span>
-          </div>
-          <div class="chart-container">
-            <canvas id="spikeChart"></canvas>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Spike detail</h2>
-          <span class="meta">same-bucket match</span>
-        </div>
-        <div class="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Bucket</th>
-                <th>Runner</th>
-                <th>HTTP</th>
-                <th>Storage</th>
-                <th>Bottleneck</th>
-              </tr>
-            </thead>
-            <tbody>
-              {{range .Spikes}}
-              <tr>
-                <td class="mono">{{formatBucketTime .BucketIndex}}</td>
-                <td class="mono">{{titleName .Runner}}</td>
-                <td class="mono">
-                  <span class="lat-cell">
-                    <span class="lat-dot" style="background:var(--ink)"></span>
-                    {{formatDuration .HTTPLatency}}
-                  </span>
-                </td>
-                <td class="mono">
-                  <span class="lat-cell">
-                    <span class="lat-dot" style="background:{{storageColor .Runner}}"></span>
-                    {{formatDuration .StorageLatency}}
-                  </span>
-                </td>
-                <td>
-                  {{if .Masked}}
-                    <span class="bottleneck-chip {{.Runner}}">{{titleName .Runner}} (masked)</span>
-                  {{else if gt .HTTPLatency .StorageLatency}}
-                    <span class="bottleneck-chip http">HTTP</span>
-                  {{else if gt .StorageLatency .HTTPLatency}}
-                    <span class="bottleneck-chip {{.Runner}}">{{titleName .Runner}}</span>
-                  {{else}}
-                    <span class="bottleneck-chip {{.Runner}}">EVEN</span>
-                  {{end}}
-                </td>
-              </tr>
-              {{end}}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+      <div class="well"><div class="chart-box tl"><canvas id="timelineChart"></canvas></div></div>
+    </section>
 
     <script>
-      const labels = [{{range .Spikes}}"{{formatBucketTime .BucketIndex}}",{{end}}];
-      const httpData = [{{range .Spikes}}{{.HTTPLatency.Milliseconds}},{{end}}];
-      const storageData = [{{range .Spikes}}{{.StorageLatency.Milliseconds}},{{end}}];
-      const runner = [{{range .Spikes}}"{{.Runner}}",{{end}}];
-      const masked = [{{range .Spikes}}{{.Masked}},{{end}}];
+      (function () {
+        // one accent for the first series; grays + dash patterns for the rest
+        function tStyle(i) {
+          const styles = [
+            { color: BG.css('--acc'), dash: [] },
+            { color: BG.css('--s1'), dash: [] },
+            { color: BG.css('--s2'), dash: [6, 5] },
+            { color: BG.css('--s3'), dash: [12, 6] }
+          ];
+          return styles[Math.min(i, styles.length - 1)];
+        }
+        function tSeries(name, data, i) {
+          const s = tStyle(i);
+          return {
+            label: name,
+            data: data,
+            borderColor: s.color,
+            borderDash: s.dash,
+            backgroundColor: 'rgba(0,0,0,0)',
+            tension: 0.25,
+            pointRadius: 0,
+            pointHitRadius: 10,
+            borderWidth: 2,
+            spanGaps: false
+          };
+        }
 
-      const storageColors = {
-        db: '#606060',
-        redis: '#e0524d'
-      };
+        const tLabels = [{{range .Timeline.Labels}}"{{.}}",{{end}}];
+        const tDatasets = [];
+        {{range $i, $s := .Timeline.Series}}
+        tDatasets.push(tSeries("{{$s.Name}}", [{{range $s.P99}}{{if lt . 0}}null,{{else}}{{.}},{{end}}{{end}}], {{$i}}));
+        {{end}}
 
-      const peakHttp = Math.max(...httpData);
-      const peakStorage = Math.max(...storageData);
-      document.getElementById('peakHttp').textContent = peakHttp + 'ms';
-      document.getElementById('peakStorage').textContent = peakStorage + 'ms';
-      document.getElementById('timeSpan').textContent =
-        labels.length > 1 ? labels[0] + '–' + labels[labels.length - 1] : labels[0];
-
-      let httpWins = 0;
-      const storageWins = { db: 0, redis: 0 };
-      let worstIdx = 0, worstScore = -1;
-      for (let i = 0; i < labels.length; i++) {
-        if (masked[i]) storageWins[runner[i]]++;
-        else if (httpData[i] > storageData[i]) httpWins++;
-        else if (storageData[i] > httpData[i]) storageWins[runner[i]]++;
-        const score = Math.max(httpData[i], storageData[i]);
-        if (score > worstScore) { worstScore = score; worstIdx = i; }
-      }
-      const storageTotal = storageWins.db + storageWins.redis;
-      let lean = 'Even';
-      if (httpWins !== storageTotal) {
-        lean = httpWins > storageTotal
-          ? 'HTTP'
-          : (storageWins.db >= storageWins.redis ? 'DB' : 'Redis');
-      }
-      document.getElementById('bottleneckLean').textContent = lean;
-      document.getElementById('worstMoment').textContent =
-        'worst: ' + labels[worstIdx];
-
-      new Chart(document.getElementById('spikeChart'), {
-        type: 'bar',
-        data: {
-          labels: labels,
-          datasets: [
-            {
-              label: 'HTTP P99 (ms)',
-              data: httpData,
-              backgroundColor: '#fafafa',
-              borderRadius: 2,
-              barPercentage: 0.6,
-              categoryPercentage: 0.6
+        new Chart(document.getElementById('timelineChart'), {
+          type: 'line',
+          data: {
+            labels: tLabels,
+            datasets: tDatasets
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { display: false },
+              tooltip: BG.tip({
+                label: (c) => c.dataset.label + ' ' + c.formattedValue + 'ms'
+              })
             },
-            {
-              label: 'Storage P99 (ms)',
-              data: storageData,
-              backgroundColor: storageData.map((_, i) => storageColors[runner[i]] || '#767676'),
-              borderRadius: 2,
-              barPercentage: 0.6,
-              categoryPercentage: 0.6
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: {
-              grid: { display: false },
-              ticks: { font: { family: 'JetBrains Mono', size: 9 }, color: '#767676' }
-            },
-            y: {
-              beginAtZero: true,
-              grid: { color: 'rgba(255,255,255,0.06)' },
-              ticks: {
-                font: { family: 'JetBrains Mono', size: 9 },
-                color: '#767676',
-                callback: (v) => v + 'ms'
-              }
+            scales: {
+              x: BG.xAxis({ callback: (v) => (v && String(v).length === 8 ? v.slice(0, 5) : v) }),
+              y: BG.yAxis('ms')
             }
           }
-        }
-      });
+        });
+      })();
     </script>
+    {{end}}
 
-  {{else}}
 
-    <div class="empty-panel">
-      <div class="mark">·</div>
-      <h3>No spikes</h3>
-      <p>DB and Redis P99 never crossed their thresholds during this run.</p>
-    </div>
 
-  {{end}}
-
-  {{if .Timeline.Series}}
-  <section>
-    <h2 class="section-title">latency timeline</h2>
-    <div class="panel">
-      <div class="panel-header">
-        <h2>p99 latency by bucket</h2>
-        <span class="meta">p99 · ms</span>
+    {{if .Runners}}
+    <section class="tile tile--wide tile--summary">
+      <div class="t-head">
+        <h2 class="t-title">the run in numbers</h2>
+        <span class="t-meta">{{if .Duration}}{{.Duration}} run{{end}}{{if .Ramp}} · {{.Ramp}} ramp{{end}}{{if .Concurrency}} · {{.Concurrency}} users{{end}}</span>
       </div>
-      <div class="chart-body">
-        <div class="legend">
-          {{range .Timeline.Series}}
-          <span class="legend-item"><span class="legend-dot" style="background:{{timelineColor .Name}}"></span>{{.Name}}</span>
-          {{end}}
-        </div>
-        <div class="chart-container">
-          <canvas id="timelineChart"></canvas>
-        </div>
+      <div class="strip">
+        <div class="cell"><span class="cell-key">requests</span><span class="cell-val" data-count="{{.Story.TotalRequests}}">{{.Story.TotalRequests}}</span></div>
+        <div class="cell"><span class="cell-key">runners</span><span class="cell-val" data-count="{{len .Runners}}">{{len .Runners}}</span></div>
+        <div class="cell"><span class="cell-key">spikes</span><span class="cell-val" data-count="{{len .Spikes}}">{{len .Spikes}}</span></div>
+        {{if .Duration}}<div class="cell"><span class="cell-key">duration</span><span class="cell-val sm">{{.Duration}}</span></div>{{end}}
+        {{if .Ramp}}<div class="cell"><span class="cell-key">ramp</span><span class="cell-val sm">{{.Ramp}}</span></div>{{end}}
+        {{if .Concurrency}}<div class="cell"><span class="cell-key">peak users</span><span class="cell-val" data-count="{{.Concurrency}}">{{.Concurrency}}</span></div>{{end}}
       </div>
-    </div>
+      <p class="summary-line">
+        <span class="pill {{if eq .Story.Tone "ok"}}ok{{else}}err{{end}}">{{.Story.Tone}}</span>
+        <span class="lead">{{.Story.Title}}</span>
+      </p>
+    </section>
+    {{end}}
 
-    <script>
-      const tLabels = [{{range .Timeline.Labels}}"{{.}}",{{end}}];
-      const tDatasets = [];
-      {{range .Timeline.Series}}
-      tDatasets.push({
-        label: "{{.Name}}",
-        data: [{{range .P99}}{{if lt . 0}}null,{{else}}{{.}},{{end}}{{end}}],
-        borderColor: "{{timelineColor .Name}}",
-        backgroundColor: 'rgba(0,0,0,0)',
-        tension: 0.25,
-        pointRadius: 2,
-        borderWidth: 1.5,
-        spanGaps: false
-      });
-      {{end}}
-
-      new Chart(document.getElementById('timelineChart'), {
-        type: 'line',
-        data: {
-          labels: tLabels,
-          datasets: tDatasets
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: {
-              grid: { display: false },
-              ticks: {
-                font: { family: 'JetBrains Mono', size: 9 },
-                color: '#767676',
-                maxRotation: 45,
-                autoSkip: true,
-                maxTicksLimit: 12
-              }
-            },
-            y: {
-              beginAtZero: true,
-              grid: { color: 'rgba(255,255,255,0.06)' },
-              ticks: {
-                font: { family: 'JetBrains Mono', size: 9 },
-                color: '#767676',
-                callback: (v) => v + 'ms'
-              }
-            }
-          }
-        }
-      });
-    </script>
-  </section>
-  {{end}}
+  </div>
 
   <footer>
     <span>generated by barrage</span>
@@ -887,6 +1159,10 @@
     URL.revokeObjectURL(a.href);
     a.remove();
   });
+
+  // last: cap any overlong table, then let every marked number count itself up
+  BG.capAll();
+  BG.countAll();
 </script>
 </body>
 </html>

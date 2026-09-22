@@ -124,7 +124,19 @@ jobs:
               --jq '.artifacts[] | select(.name == "tunnel-url") | .id' | head -1 || true)
             if [ -n "$id" ]; then
               gh run download "$GITHUB_RUN_ID" -n tunnel-url >/dev/null
-              echo "got the tunnel URL"
+              # gh version differences: artifact may land at ./tunnel-url.txt or ./tunnel-url/tunnel-url.txt
+              if [ -f tunnel-url/tunnel-url.txt ]; then
+                echo "got the tunnel URL at tunnel-url/tunnel-url.txt"
+              elif [ -f tunnel-url.txt ]; then
+                mkdir -p tunnel-url
+                mv tunnel-url.txt tunnel-url/tunnel-url.txt
+                echo "got the tunnel URL (moved from ./tunnel-url.txt)"
+              else
+                echo "tunnel-url artifact missing after download:" >&2
+                ls -R . >&2 || true
+                exit 1
+              fi
+              cat tunnel-url/tunnel-url.txt
               exit 0
             fi
             if [ $((i % 10)) -eq 0 ]; then
@@ -139,7 +151,15 @@ jobs:
 
       - name: confirm the separated target
         run: |
-          url=$(cat tunnel-url/tunnel-url.txt)
+          if [ -f tunnel-url/tunnel-url.txt ]; then
+            url=$(cat tunnel-url/tunnel-url.txt)
+          elif [ -f tunnel-url.txt ]; then
+            url=$(cat tunnel-url.txt)
+          else
+            echo "tunnel-url.txt not found at either location" >&2
+            ls -R . >&2
+            exit 1
+          fi
           echo "load firehose will hit $url from its own runner VM"
 
       - name: build the barrage image
@@ -149,7 +169,13 @@ jobs:
         run: |
           set -euo pipefail
           [ -f "docker/configs/$PROFILE" ] || { echo "no such profile: $PROFILE" >&2; exit 1; }
-          url=$(cat tunnel-url/tunnel-url.txt)
+          if [ -f tunnel-url/tunnel-url.txt ]; then
+            url=$(cat tunnel-url/tunnel-url.txt)
+          elif [ -f tunnel-url.txt ]; then
+            url=$(cat tunnel-url.txt)
+          else
+            echo "tunnel-url.txt not found" >&2; ls -R . >&2; exit 1
+          fi
           host=${url#https://}
           sed "s#http://demoserver:8080#https://${host}#g" "docker/configs/$PROFILE" > /tmp/remote-profile.yaml
           grep -c "trycloudflare" /tmp/remote-profile.yaml
