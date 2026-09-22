@@ -15,39 +15,6 @@ correlated view of the API, the database, and the cache — and a report that
 flags exactly which bucket a storage layer spiked in, and whether the
 application was affected or not.
 
-```
-$ barrage run -c config.yaml
-
-     ________  ________  ________  ________  ________  ________  _______
-    |\   __  \|\   __  \|\   __  \|\   __  \|\   __  \|\  ____\|\  ___ \
-    \ \  \|\ /\ \  \|\  \ \  \|\  \ \  \|\  \ \  \|\  \ \  \___|\ \   __/|
-     \ \   __  \ \   __  \ \   _  _\ \   _  _\ \   __  \ \  \  __\ \  \_|/__
-      \ \  \|\  \ \  \ \  \ \  \\  \\ \  \\  \\ \  \ \  \ \  \|\  \ \  \_|\ \
-       \ \_______\ \__\ \__\ \__\\ _\\ \__\\ _\\ \__\ \__\ \_______\ \_______\
-        \|_______|\|__|\|__|\|__|\|__|\|__|\|__|\|__|\|__\|_______|\|_______|
-
-barrage v0.6.3
-duration 15s · bucket 1s · concurrency 10 · ramp 3s
-rates    http 10/s · db 5/s · redis 20/s
-
-[barrage] done ·  │ http 135 0 err │ db 67 0 err │ redis 269 0 err
-RUNNER  REQUESTS  SUCCESS  RATE    MEAN     P50      P95       P99       MAX      STATUS
-http    135       100.0%   9.5/s   927µs    509µs    2.5ms     4.4ms     6.6ms    200×135
-db      67        100.0%   4.5/s   12.9ms   5.5ms    69.0ms    136.2ms   136.2ms
-redis   269       100.0%   17.9/s  797µs    396µs    2.3ms     3.5ms     10.6ms
-
-correlated spikes
-TIME      RUNNER  HTTP_P99  STORAGE_P99   NOTE
-20:52:22  db      <100ms    136.2ms       db-only
-Report written to report.html
-```
-
-![Barrage HTML Report](./docs/todo-api-run-1.png)
-
-![Barrage HTML Report — latency timeline](./docs/todo-api-run-2.png)
-
-*A 3-minute heavy run against the TodoAPI stack (Gin + Postgres + Redis): `GET /api/todos` over HTTP at 120/s, a weighted read/write query mix against Postgres at 80/s, and Redis commands at 300/s, with a 60s ramp and concurrency 50 — generator, app, Postgres, and Redis all on the same machine, so treat the absolute numbers as relative, not as production capacity. With the app's rate limiter left at production settings it absorbed nearly the whole HTTP burst as 429s — the API stayed flat at ~5ms p50 while the real load landed on the data stores. With the limiter boosted, every request reached the backend and latency dropped straight through to the database: Postgres saturates and drags HTTP P99 to multi-second territory, while Redis stays under 100ms P99. One bottleneck, three correlated curves.*
-
 ## Contents
 
 - [Quickstart](#quickstart)
@@ -110,6 +77,27 @@ embedded in the page.
 ## Commands
 
 ### `barrage run`
+
+A 15s run against local targets:
+
+```
+$ barrage run -c config.yaml
+
+barrage v0.6.3
+duration 15s · bucket 1s · concurrency 10 · ramp 3s
+rates    http 10/s · db 5/s · redis 20/s
+
+[barrage] done ·  │ http 135 0 err │ db 67 0 err │ redis 269 0 err
+RUNNER  REQUESTS  SUCCESS  RATE    MEAN     P50      P95       P99       MAX      STATUS
+http    135       100.0%   9.5/s   927µs    509µs    2.5ms     4.4ms     6.6ms    200×135
+db      67        100.0%   4.5/s   12.9ms   5.5ms    69.0ms    136.2ms   136.2ms
+redis   269       100.0%   17.9/s  797µs    396µs    2.3ms     3.5ms     10.6ms
+
+correlated spikes
+TIME      RUNNER  HTTP_P99  STORAGE_P99   NOTE
+20:52:22  db      <100ms    136.2ms       db-only
+Report written to report.html
+```
 
 ```
 $ barrage run --help
@@ -273,6 +261,8 @@ number. For a real one, generate load from a separate machine.
 ![Latency timeline](./docs/todo-api-run-2.png)
 
 ![Correlated spikes table](./docs/todo-api-run-1.png)
+
+*What those two screenshots show: a 3-minute heavy run against the TodoAPI stack (Gin + Postgres + Redis) — `GET /api/todos` over HTTP at 120/s, a weighted read/write query mix against Postgres at 80/s, and Redis commands at 300/s, with a 60s ramp and concurrency 50, generator and stack on the same machine. With the app's rate limiter at production settings it absorbed nearly the whole HTTP burst as 429s — the API stayed flat at ~5ms p50 while the real load landed on the data stores. With the limiter boosted, every request reached the backend: Postgres saturates and drags HTTP P99 to multi-second territory, while Redis stays under 100ms P99. One bottleneck, three correlated curves.*
 
 The JSON export mirrors this structure: `generated_at`, `duration`, `ramp`,
 `concurrency`, per-runner metrics (latencies in milliseconds), correlated spikes
