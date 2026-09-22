@@ -199,6 +199,32 @@ func TestRenderHTMLNoSpikes(t *testing.T) {
 	}
 }
 
+func TestRenderHTMLSweepNoRunners(t *testing.T) {
+	// a capacity sweep carries no per-runner aggregates: the runners tile
+	// must say so plainly instead of implying data went missing
+	data := ReportData{
+		CapacitySearch: &CapacityResult{
+			BreakAt: 20,
+			LastOK:  10,
+			Steps: []CapacityStep{
+				{Concurrency: 10, Requests: 1000, P99: 50 * time.Millisecond, Success: 1.0},
+				{Concurrency: 20, Requests: 200, P99: 150 * time.Millisecond, Success: 0.2, Broken: true, BrokenBy: []string{"scenario"}},
+			},
+		},
+	}
+	var buf bytes.Buffer
+	if err := RenderHTML(data, testTemplatePath, &buf); err != nil {
+		t.Fatalf("RenderHTML returned error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Sweep mode reports per-level results") {
+		t.Error("expected sweep-specific runners empty state")
+	}
+	if strings.Contains(out, "nothing to correlate yet") {
+		t.Error("sweep must not show the flat-run empty state")
+	}
+}
+
 func TestRenderHTMLTimeline(t *testing.T) {
 	data := ReportData{
 		Timeline: TimelineChart{

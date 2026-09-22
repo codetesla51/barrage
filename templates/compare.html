@@ -681,8 +681,9 @@
     <section class="tile tile--wide">
       <div class="t-head">
         <h2 class="t-title">per-runner p99</h2>
-        <span class="t-meta">{{len .Runners}} runners · ms</span>
+        {{if .Runners}}<span class="t-meta">{{len .Runners}} runners · ms</span>{{else}}<span class="t-meta">no runners</span>{{end}}
       </div>
+      {{if .Runners}}
       <div class="table-wrap tall" data-cap="50">
         <table>
           <thead>
@@ -707,14 +708,18 @@
           </tbody>
         </table>
       </div>
+      {{else}}
+      <div class="empty-text">No runners in either run — nothing to compare yet.</div>
+      {{end}}
     </section>
 
     <h2 class="vh">correlated spikes</h2>
     <section class="tile tile--wide">
       <div class="t-head">
         <h2 class="t-title">correlated spikes</h2>
-        <span class="t-meta">{{len .Spikes}} compared · same-bucket match</span>
+        {{if .Spikes}}<span class="t-meta">{{len .Spikes}} compared · same-bucket match</span>{{else}}<span class="t-meta">no spikes</span>{{end}}
       </div>
+      {{if .Spikes}}
       <div class="table-wrap tall" data-cap="40">
         <table>
           <thead>
@@ -749,6 +754,9 @@
           </tbody>
         </table>
       </div>
+      {{else}}
+      <div class="empty-text">No spikes on either side — nothing to compare yet.</div>
+      {{end}}
     </section>
 
     {{if .Timeline.Series}}
@@ -821,6 +829,11 @@
         });
       })();
     </script>
+    {{else}}
+    <section class="tile tile--wide tile--empty">
+      <h2 class="empty-title">No timeline</h2>
+      <p class="empty-text">Neither run recorded per-bucket data — nothing to overlay yet.</p>
+    </section>
     {{end}}
 
   </div>

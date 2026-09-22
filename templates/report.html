@@ -759,6 +759,11 @@
       })();
     </script>
     {{end}}
+    {{else}}
+    <section class="tile tile--wide tile--empty">
+      <h2 class="empty-title">No verdict</h2>
+      <p class="empty-text">The run produced no verdict — no story was built for this data.</p>
+    </section>
     {{end}}
 
     <h2 class="vh">run summary</h2>
@@ -798,6 +803,8 @@
         </table>
       </div>
       <div class="key"><span class="key-note">p99 bold · p50/mean sub · bottleneck acc</span></div>
+      {{else if .CapacitySearch}}
+      <div class="empty-text">Sweep mode reports per-level results in the capacity sweep below — no per-runner summary.</div>
       {{else}}
       <div class="empty-text">No runners reported for this run — nothing to correlate yet.</div>
       {{end}}
@@ -943,6 +950,11 @@
         });
       })();
     </script>
+    {{else}}
+    <section class="tile tile--wide tile--empty">
+      <h2 class="empty-title">No capacity sweep</h2>
+      <p class="empty-text">This was a flat run, not a sweep — add a capacity block to the config to search for the break point.</p>
+    </section>
     {{end}}
     {{if .Spikes}}
     <section class="tile tile--wide">
@@ -1191,16 +1203,21 @@
         });
       })();
     </script>
+    {{else}}
+    <section class="tile tile--wide tile--empty">
+      <h2 class="empty-title">No timeline</h2>
+      <p class="empty-text">No per-bucket data was recorded — buckets only fill while runners are running.</p>
+    </section>
     {{end}}
 
 
 
-    {{if .Runners}}
     <section class="tile tile--wide tile--summary">
       <div class="t-head">
         <h2 class="t-title">the run in numbers</h2>
         <span class="t-meta">{{if .Duration}}{{.Duration}} run{{end}}{{if .Ramp}} · {{.Ramp}} ramp{{end}}{{if .Concurrency}} · {{.Concurrency}} users{{end}}</span>
       </div>
+      {{if or .Runners .CapacitySearch .Spikes .Story.Title}}
       <div class="strip">
         <div class="cell"><span class="cell-key">requests</span><span class="cell-val" data-count="{{.Story.TotalRequests}}">{{.Story.TotalRequests}}</span></div>
         <div class="cell"><span class="cell-key">runners</span><span class="cell-val" data-count="{{len .Runners}}">{{len .Runners}}</span></div>
@@ -1209,12 +1226,16 @@
         {{if .Ramp}}<div class="cell"><span class="cell-key">ramp</span><span class="cell-val sm">{{.Ramp}}</span></div>{{end}}
         {{if .Concurrency}}<div class="cell"><span class="cell-key">peak users</span><span class="cell-val" data-count="{{.Concurrency}}">{{.Concurrency}}</span></div>{{end}}
       </div>
+      {{if .Story.Title}}
       <p class="summary-line">
         <span class="pill {{if eq .Story.Tone "ok"}}ok{{else}}err{{end}}">{{.Story.Tone}}</span>
         <span class="lead">{{.Story.Title}}</span>
       </p>
+      {{end}}
+      {{else}}
+      <div class="empty-text">Nothing to total — no runners, no sweep and no spikes were recorded for this run.</div>
+      {{end}}
     </section>
-    {{end}}
 
   </div>
 
