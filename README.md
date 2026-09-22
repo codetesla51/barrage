@@ -28,7 +28,7 @@ $ barrage run -c config.yaml
        \ \_______\ \__\ \__\ \__\\ _\\ \__\\ _\\ \__\ \__\ \_______\ \_______\
         \|_______|\|__|\|__\|__|\|__|\|__|\|__|\|__|\|__\|_______|\|_______|
 
-barrage v0.6.1
+barrage v0.6.2
 duration 15s · bucket 1s · concurrency 10 · ramp 3s
 rates    http 10/s · db 5/s · redis 20/s
 
@@ -221,7 +221,7 @@ curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh
 
 That grabs a prebuilt binary from GitHub releases — no Go toolchain needed.
 Pin a version or change the target dir with
-`bash -s -- --version v0.6.1 --dir ~/.local/bin`, or build from source with
+`bash -s -- --version v0.6.2 --dir ~/.local/bin`, or build from source with
 `--from-source`. See `./install.sh --help` for all flags.
 
 Or build from source (requires Go 1.25 or later):
@@ -243,7 +243,7 @@ runs require no backing services.
 Cutting a release is one command — no hunting for the version string:
 
 ```sh
-./scripts/release.sh v0.6.1
+./scripts/release.sh v0.6.2
 ```
 
 It bumps the version everywhere (the `internal/version` source of truth, the
@@ -599,7 +599,7 @@ changed who was blamed:
 
 The tails at the last good level tell the same story in one line: **103ms →
 75–89ms → 22–96ms → 41–64ms → 74ms**, with success held at 98–100% throughout —
-every break was a latency crossing, never an error storm. The v0.6.1 error
+every break was a latency crossing, never an error storm. The v0.6.2 error
 buckets on the 12–13 run back that up: zero `dial_timeout`/`connection_refused`/
 `conn_reset` on any level — the app stayed reachable from first level to last.
 
@@ -682,7 +682,7 @@ $ barrage run -c examples/scenario-login.yaml
        \ \_______\ \__\ \__\ \__\\ _\\ \__\\ _\\ \__\ \__\ \_______\ \_______\
         \|_______|\|__|\|__\|__|\|__|\|__|\|__|\|__|\|__\|_______|\|_______|
 
-barrage v0.6.1
+barrage v0.6.2
 duration 10s · bucket 1s · concurrency 10 · ramp 0s
 rates    login-flow 3 steps w=1
 
