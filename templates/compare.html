@@ -23,8 +23,10 @@
     --line-2: rgba(255,255,255,.15);
     --acc: #4ad295;
     --acc-soft: rgba(74,210,149,.14);
-    --err: #b0685f;
-    --err-soft: rgba(176,104,95,.14);
+    --err: #cd8378;
+    --err-soft: rgba(205,131,120,.14);
+    --warn: #d9b45f;
+    --warn-soft: rgba(217,180,95,.14);
     --s1: #9c9c9c;
     --s2: #6f6f6f;
     --s3: #4f4f4f;
@@ -55,10 +57,12 @@
       --faint: #767676;
       --line: rgba(0,0,0,.08);
       --line-2: rgba(0,0,0,.16);
-      --acc: #0f9a63;
-      --acc-soft: rgba(15,154,99,.12);
-      --err: #96534a;
-      --err-soft: rgba(150,83,74,.11);
+      --acc: #10b981;
+      --acc-soft: rgba(16,185,129,.12);
+      --err: #c05f4e;
+      --err-soft: rgba(192,95,78,.11);
+      --warn: #9a7b14;
+      --warn-soft: rgba(154,123,20,.12);
       --s1: #4a4a4a;
       --s2: #7d7d7d;
       --s3: #a9a9a9;
@@ -125,7 +129,7 @@
     color: var(--mute); border: 1px solid var(--line-2); background: transparent;
   }
   .pill.ok { color: var(--acc); background: var(--acc-soft); border-color: transparent; }
-  .pill.warn { color: var(--mute); border-style: dashed; }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
   .pill.err { color: var(--err); background: var(--err-soft); border-color: transparent; }
 
   /* a chip: pill-shaped, mono, for a single token (a runner name, a blame key) */
@@ -267,6 +271,11 @@
   .key-square { width: 10px; height: 10px; border-radius: 3px; background: var(--s1); }
   .key-square.acc { background: var(--acc); }
   .key-square.hollow { background: transparent; border: 1.5px solid var(--s1); }
+  .key-line.dash { border-top-style: dashed; }
+  .key-dot-hollow {
+    width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+    background: transparent; border: 1.5px solid var(--s1);
+  }
 
   /* ---- tables: scroll, never grow the tile ---- */
   .table-wrap {
@@ -304,8 +313,11 @@
   tbody tr:hover td { color: var(--ink); }
   th.num, td.num { text-align: right; }
   td.num { color: var(--ink); }
-  td.num.acc { color: var(--acc); }
-  td.num.acc strong { color: var(--acc); font-weight: 600; }
+  td.num.acc, td.num .acc { color: var(--acc); }
+  td.num.acc strong, td.num .acc strong { color: var(--acc); font-weight: 600; }
+  /* latency cell: p99 on its own line, p50/mean sub stacked underneath so the
+     column stays narrow instead of stretching on one nowrap line */
+  td.num .cell-sub { display: block; margin-top: 1px; }
   th.verd, td.verd { text-align: center; }
 
   .bottleneck-chip {
@@ -387,7 +399,7 @@
     content: ""; width: 5px; height: 5px; border-radius: 50%;
     border: 1px solid currentColor; opacity: .8; flex: 0 0 auto;
   }
-  .tag.warn { border-style: dashed; }
+  .tag.warn { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
   /* a wall-clock value in a table or stat: mono, tabular, on a well so it
      reads as a designed token, not bare text */
   .time-chip {
@@ -600,6 +612,30 @@
     Chart.defaults.font.size = 10;
     Chart.defaults.color = css('--faint');
     Chart.defaults.animation = false;
+
+    // minimal glow: line datasets draw with a soft shadow in their own
+    // color. Bar charts are skipped. One global registration, no per-chart
+    // edits, both themes work since the color comes from the dataset.
+    if (typeof Chart !== 'undefined' && Chart.register) {
+      Chart.register({
+        id: 'lineGlow',
+        beforeDatasetDraw(chart, args) {
+          const ds = chart.data.datasets[args.index];
+          if (chart.config.type === 'line' && ds && typeof ds.borderColor === 'string') {
+            const ctx = chart.ctx;
+            ctx.save();
+            ctx.shadowColor = ds.borderColor;
+            ctx.shadowBlur = 4;
+          }
+        },
+        afterDatasetDraw(chart, args) {
+          const ds = chart.data.datasets[args.index];
+          if (chart.config.type === 'line' && ds && typeof ds.borderColor === 'string') {
+            chart.ctx.restore();
+          }
+        }
+      });
+    }
 
     return {
       css: css, font: font, tip: tip, xAxis: xAxis, yAxis: yAxis,

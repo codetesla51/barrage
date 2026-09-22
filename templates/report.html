@@ -23,8 +23,10 @@
     --line-2: rgba(255,255,255,.15);
     --acc: #4ad295;
     --acc-soft: rgba(74,210,149,.14);
-    --err: #b0685f;
-    --err-soft: rgba(176,104,95,.14);
+    --err: #cd8378;
+    --err-soft: rgba(205,131,120,.14);
+    --warn: #d9b45f;
+    --warn-soft: rgba(217,180,95,.14);
     --s1: #9c9c9c;
     --s2: #6f6f6f;
     --s3: #4f4f4f;
@@ -55,10 +57,12 @@
       --faint: #767676;
       --line: rgba(0,0,0,.08);
       --line-2: rgba(0,0,0,.16);
-      --acc: #0f9a63;
-      --acc-soft: rgba(15,154,99,.12);
-      --err: #96534a;
-      --err-soft: rgba(150,83,74,.11);
+      --acc: #10b981;
+      --acc-soft: rgba(16,185,129,.12);
+      --err: #c05f4e;
+      --err-soft: rgba(192,95,78,.11);
+      --warn: #9a7b14;
+      --warn-soft: rgba(154,123,20,.12);
       --s1: #4a4a4a;
       --s2: #7d7d7d;
       --s3: #a9a9a9;
@@ -125,7 +129,7 @@
     color: var(--mute); border: 1px solid var(--line-2); background: transparent;
   }
   .pill.ok { color: var(--acc); background: var(--acc-soft); border-color: transparent; }
-  .pill.warn { color: var(--mute); border-style: dashed; }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
   .pill.err { color: var(--err); background: var(--err-soft); border-color: transparent; }
 
   /* a chip: pill-shaped, mono, for a single token (a runner name, a blame key) */
@@ -267,6 +271,11 @@
   .key-square { width: 10px; height: 10px; border-radius: 3px; background: var(--s1); }
   .key-square.acc { background: var(--acc); }
   .key-square.hollow { background: transparent; border: 1.5px solid var(--s1); }
+  .key-line.dash { border-top-style: dashed; }
+  .key-dot-hollow {
+    width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+    background: transparent; border: 1.5px solid var(--s1);
+  }
 
   /* ---- tables: scroll, never grow the tile ---- */
   .table-wrap {
@@ -304,8 +313,11 @@
   tbody tr:hover td { color: var(--ink); }
   th.num, td.num { text-align: right; }
   td.num { color: var(--ink); }
-  td.num.acc { color: var(--acc); }
-  td.num.acc strong { color: var(--acc); font-weight: 600; }
+  td.num.acc, td.num .acc { color: var(--acc); }
+  td.num.acc strong, td.num .acc strong { color: var(--acc); font-weight: 600; }
+  /* latency cell: p99 on its own line, p50/mean sub stacked underneath so the
+     column stays narrow instead of stretching on one nowrap line */
+  td.num .cell-sub { display: block; margin-top: 1px; }
   th.verd, td.verd { text-align: center; }
 
   .bottleneck-chip {
@@ -387,7 +399,7 @@
     content: ""; width: 5px; height: 5px; border-radius: 50%;
     border: 1px solid currentColor; opacity: .8; flex: 0 0 auto;
   }
-  .tag.warn { border-style: dashed; }
+  .tag.warn { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
   /* a wall-clock value in a table or stat: mono, tabular, on a well so it
      reads as a designed token, not bare text */
   .time-chip {
@@ -595,6 +607,30 @@
     Chart.defaults.color = css('--faint');
     Chart.defaults.animation = false;
 
+    // minimal glow: line datasets draw with a soft shadow in their own
+    // color. Bar charts are skipped. One global registration, no per-chart
+    // edits, both themes work since the color comes from the dataset.
+    if (typeof Chart !== 'undefined' && Chart.register) {
+      Chart.register({
+        id: 'lineGlow',
+        beforeDatasetDraw(chart, args) {
+          const ds = chart.data.datasets[args.index];
+          if (chart.config.type === 'line' && ds && typeof ds.borderColor === 'string') {
+            const ctx = chart.ctx;
+            ctx.save();
+            ctx.shadowColor = ds.borderColor;
+            ctx.shadowBlur = 4;
+          }
+        },
+        afterDatasetDraw(chart, args) {
+          const ds = chart.data.datasets[args.index];
+          if (chart.config.type === 'line' && ds && typeof ds.borderColor === 'string') {
+            chart.ctx.restore();
+          }
+        }
+      });
+    }
+
     return {
       css: css, font: font, tip: tip, xAxis: xAxis, yAxis: yAxis,
       num: num, fmtMs: fmtMs, count: count, countAll: countAll, capAll: capAll
@@ -737,7 +773,7 @@
           <thead>
             <tr>
               <th>Runner</th>
-              <th class="num">Success</th>
+              <th class="num">Succ</th>
               <th class="num">Reqs</th>
               <th class="num">Latency</th>
               <th class="num">Rate</th>
@@ -789,7 +825,7 @@
               <th class="num">Concurrency</th>
               <th class="num">Requests</th>
               <th class="num">P99</th>
-              <th class="num">Success</th>
+              <th class="num">Succ</th>
               <th class="verd">Verdict</th>
               <th>Cause</th>
             </tr>
@@ -922,9 +958,9 @@
         <div class="cell"><span class="cell-key">usual bottleneck</span><span class="cell-val" id="bottleneckLean">—</span><span class="cell-sub" id="worstMoment">—</span></div>
       </div>
       <div class="key">
-        <span class="key-item"><span class="key-square acc"></span>http p99</span>
-        <span class="key-item"><span class="key-square"></span>storage p99</span>
-        <span class="key-item"><span class="key-square hollow"></span>masked</span>
+        <span class="key-item"><span class="key-line k0"></span>http p99</span>
+        <span class="key-item"><span class="key-line k1 dash"></span>storage p99</span>
+        <span class="key-item"><span class="key-dot-hollow"></span>masked</span>
       </div>
       <div class="well"><div class="chart-box spike"><canvas id="spikeChart"></canvas></div></div>
       <div class="t-head">
@@ -938,7 +974,7 @@
               <th>Bucket</th>
               <th>Runner</th>
               <th class="num">HTTP</th>
-              <th class="num">Storage</th>
+              <th class="num">Store</th>
               <th>Bottleneck</th>
             </tr>
           </thead>
@@ -1008,44 +1044,54 @@
           'worst: ' + labels[worstIdx];
 
         // Hundreds of spikes must not turn the chart into a hairbrush: draw the
-        // most recent bars, but say so out loud. Every number above still covers
+        // most recent points, but say so out loud. Every number above still covers
         // the full spike list, and the table below still holds every row.
-        const MAX_BARS = 64;
+        const MAX_PTS = 64;
         let win = 0;
-        if (labels.length > MAX_BARS) {
-          win = labels.length - MAX_BARS;
+        if (labels.length > MAX_PTS) {
+          win = labels.length - MAX_PTS;
           document.getElementById('spikeMeta').textContent =
-            'last ' + MAX_BARS + ' of ' + labels.length + ' buckets · same-bucket match';
+            'last ' + MAX_PTS + ' of ' + labels.length + ' buckets · same-bucket match';
         }
         const cLabels = labels.slice(win);
         const cHttp = httpData.slice(win);
         const cStorage = storageData.slice(win);
         const cMasked = masked.slice(win);
 
+        // masked buckets stay on the storage curve but get a hollow dot, so no
+        // value is ever hidden and masked moments still stand out
+        const maskR = cMasked.map((m) => (m ? 4 : 0));
+
         new Chart(document.getElementById('spikeChart'), {
-          type: 'bar',
+          type: 'line',
           data: {
             labels: cLabels,
             datasets: [
               {
                 label: 'http',
                 data: cHttp,
-                backgroundColor: css('--acc'),
-                borderRadius: 3,
-                borderSkipped: false,
-                barPercentage: 0.6,
-                categoryPercentage: 0.6
+                borderColor: css('--acc'),
+                backgroundColor: 'rgba(0,0,0,0)',
+                tension: 0.25,
+                pointRadius: 0,
+                pointHitRadius: 10,
+                borderWidth: 2,
+                spanGaps: false
               },
               {
                 label: 'storage',
                 data: cStorage,
-                backgroundColor: cStorage.map((_, i) => (cMasked[i] ? 'rgba(0,0,0,0)' : css('--s1'))),
                 borderColor: css('--s1'),
-                borderWidth: cStorage.map((_, i) => (cMasked[i] ? 1.5 : 0)),
-                borderRadius: 3,
-                borderSkipped: false,
-                barPercentage: 0.6,
-                categoryPercentage: 0.6
+                borderDash: [5, 4],
+                backgroundColor: 'rgba(0,0,0,0)',
+                tension: 0.25,
+                pointRadius: maskR,
+                pointBackgroundColor: 'rgba(0,0,0,0)',
+                pointBorderColor: css('--s1'),
+                pointBorderWidth: 1.5,
+                pointHitRadius: 10,
+                borderWidth: 2,
+                spanGaps: false
               }
             ]
           },
