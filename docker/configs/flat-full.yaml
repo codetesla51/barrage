@@ -1,0 +1,99 @@
+# Flat full — same load as full-app.yaml but as a single 20s run (no capacity sweep)
+# so you get per-runner tables + correlated spikes + latency timeline, not just
+# the sweep chart. All three on one clock: scenario (5 journeys) + db + redis.
+duration: 20s
+bucket_width: 1s
+ramp: 3s
+concurrency: 20
+
+scenario:
+  - name: browse                 # the reading crowd
+    weight: 45
+    steps:
+      - method: GET
+        url: http://demoserver:8080/api/products
+      - method: GET
+        url: http://demoserver:8080/api/orders
+
+  - name: account-check          # returning users checking their session
+    weight: 15
+    steps:
+      - method: POST
+        url: http://demoserver:8080/api/login
+        body: '{"username":"alice","password":"secret"}'
+        headers:
+          Content-Type: application/json
+        extract:
+          token: $.token
+      - method: GET
+        url: http://demoserver:8080/api/me
+        headers:
+          Authorization: Bearer {{token}}
+
+  - name: checkout-flow          # the buyers: auth -> order -> checkout
+    weight: 25
+    steps:
+      - method: POST
+        url: http://demoserver:8080/api/login
+        body: '{"username":"alice","password":"secret"}'
+        headers:
+          Content-Type: application/json
+        extract:
+          token: $.token
+      - method: GET
+        url: http://demoserver:8080/api/me
+        headers:
+          Authorization: Bearer {{token}}
+      - method: POST
+        url: http://demoserver:8080/api/orders
+        body: '{"amount":1}'
+        headers:
+          Content-Type: application/json
+      - method: GET
+        url: http://demoserver:8080/api/checkout?token={{token}}
+        headers:
+          Authorization: Bearer {{token}}
+
+  - name: login-only             # auth hits that go no further
+    weight: 10
+    steps:
+      - method: POST
+        url: http://demoserver:8080/api/login
+        body: '{"username":"alice","password":"secret"}'
+        headers:
+          Content-Type: application/json
+
+  - name: health-ping            # ops probes
+    weight: 5
+    steps:
+      - method: GET
+        url: http://demoserver:8080/health
+
+db:
+  rate: 40            # flat run, not scaled by sweep level
+  target:
+    driver: postgres
+    conn: postgres://barrage:barrage@postgres:5432/barrage_demo?sslmode=disable
+    max_open_conns: 20
+    queries:
+      - query: SELECT id, customer, amount FROM orders WHERE customer = 'customer-4242' ORDER BY id DESC LIMIT 20
+        weight: 2
+        type: read
+      - query: SELECT id, customer, amount, created_at FROM orders WHERE created_at > now() - interval '60 seconds' ORDER BY id DESC LIMIT 20
+        weight: 2
+        type: read
+      - query: INSERT INTO orders (customer, amount) VALUES ('load', 1) RETURNING id
+        weight: 1
+        type: write
+
+redis:
+  rate: 100
+  target:
+    addr: redis:6379
+    queries:
+      - query: PING
+        weight: 3
+      - query: SET sess:demo ok
+        weight: 1
+      - query: INCR demo:hits
+        weight: 2
