@@ -218,6 +218,7 @@ func RenderHTML(data ReportData, templatePath string, w io.Writer) error {
 		"formatDuration":    formatDuration,
 		"formatBucketTime":  formatBucketTime,
 		"formatStatusCodes": formatStatusCodes,
+		"formatErrCounts":   formatErrCounts,
 		"timelineColor":     timelineColor,
 		"reportJSON":        reportJSON,
 		"titleName":         titleName,
@@ -276,6 +277,22 @@ func formatStatusCodes(codes map[string]int) string {
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {
 		parts = append(parts, fmt.Sprintf("%s×%d", k, codes[k]))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// formatErrCounts renders a per-level scenario-failure histogram as
+// "class×count" pairs sorted by class, e.g. "5xx×1800, dial_timeout×5120".
+// Empty for a level where no steps failed.
+func formatErrCounts(counts map[string]uint64) string {
+	keys := make([]string, 0, len(counts))
+	for k := range counts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s×%d", k, counts[k]))
 	}
 	return strings.Join(parts, ", ")
 }

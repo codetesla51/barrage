@@ -66,6 +66,41 @@ func TestRenderHTML(t *testing.T) {
 	}
 }
 
+func TestRenderHTMLCapacityErrors(t *testing.T) {
+	data := testReportData()
+	data.CapacitySearch = &CapacityResult{
+		BreakAt: 8,
+		LastOK:  5,
+		Steps: []CapacityStep{
+			{Concurrency: 5, Requests: 1000, P99: 50 * time.Millisecond, Success: 1.0},
+			{
+				Concurrency:  8,
+				Requests:     200,
+				P99:          150 * time.Millisecond,
+				Success:      0.2,
+				Broken:       true,
+				BrokenBy:     []string{"scenario"},
+				ScenarioErrs: map[string]uint64{"dial_timeout": 5120, "5xx": 1800},
+			},
+		},
+	}
+	var buf bytes.Buffer
+	if err := RenderHTML(data, testTemplatePath, &buf); err != nil {
+		t.Fatalf("RenderHTML returned error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"5xx×1800, dial_timeout×5120", // classes sort before counts
+		">—<",                         // clean level carries an empty Cause cell
+		"red dot = broken",
+		"ySuccess",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q", want)
+		}
+	}
+}
+
 func TestRenderHTMLMaskedChip(t *testing.T) {
 	data := testReportData()
 	data.Spikes = []CorrelatedSpike{

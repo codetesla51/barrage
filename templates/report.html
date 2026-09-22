@@ -492,7 +492,7 @@
       <div class="panel">
         <div class="panel-header">
           <h2>p99 by concurrency</h2>
-          <span class="meta">ms · {{if .CapacitySearch.BreakAt}}broke at {{.CapacitySearch.BreakAt}}{{else}}held to {{.CapacitySearch.LastOK}}{{end}}</span>
+          <span class="meta">{{if .CapacitySearch.BreakAt}}broke at {{.CapacitySearch.BreakAt}} · {{end}}red dot = broken · dashed = success %</span>
         </div>
         <div class="chart-body">
           <div class="chart-container">
@@ -525,7 +525,7 @@
                 <td class="mono">{{formatDuration .P99}}</td>
                 <td class="mono">{{percent .Success}}%</td>
                 <td>{{if .Broken}}<span class="bottleneck-chip redis">broken</span>{{else}}<span class="bottleneck-chip db">ok</span>{{end}}</td>
-                <td class="mono">{{if .BrokenBy}}{{join .BrokenBy ", "}}{{else}}—{{end}}</td>
+                <td class="mono">{{if .ScenarioErrs}}{{formatErrCounts .ScenarioErrs}}{{else if .BrokenBy}}{{join .BrokenBy ", "}}{{else}}—{{end}}</td>
               </tr>
               {{end}}
             </tbody>
@@ -538,15 +538,30 @@
         type: 'line',
         data: {
           labels: [{{range .CapacitySearch.Steps}}"{{.Concurrency}}",{{end}}],
-          datasets: [{
-            label: 'P99 (ms)',
-            data: [{{range .CapacitySearch.Steps}}{{.P99.Milliseconds}},{{end}}],
-            borderColor: '#fafafa',
-            backgroundColor: 'rgba(0,0,0,0)',
-            tension: 0.25,
-            pointRadius: 3,
-            borderWidth: 1.5
-          }]
+          datasets: [
+            {
+              label: 'P99 (ms)',
+              data: [{{range .CapacitySearch.Steps}}{{.P99.Milliseconds}},{{end}}],
+              borderColor: '#fafafa',
+              backgroundColor: 'rgba(0,0,0,0)',
+              tension: 0.25,
+              pointRadius: 3,
+              borderWidth: 1.5,
+              // broken levels get red points so the knee reads off the curve
+              pointBackgroundColor: [{{range .CapacitySearch.Steps}}{{if .Broken}}'#e0524d'{{else}}'#fafafa'{{end}},{{end}}]
+            },
+            {
+              label: 'Success (%)',
+              data: [{{range .CapacitySearch.Steps}}{{percent .Success}},{{end}}],
+              borderColor: 'rgba(233,191,106,0.75)',
+              borderDash: [4, 4],
+              backgroundColor: 'rgba(0,0,0,0)',
+              tension: 0.25,
+              pointRadius: 1,
+              borderWidth: 1,
+              yAxisID: 'ySuccess'
+            }
+          ]
         },
         options: {
           responsive: true,
@@ -565,6 +580,17 @@
                 font: { family: 'JetBrains Mono', size: 9 },
                 color: '#767676',
                 callback: (v) => v + 'ms'
+              }
+            },
+            ySuccess: {
+              position: 'right',
+              beginAtZero: true,
+              suggestedMax: 100,
+              grid: { display: false },
+              ticks: {
+                font: { family: 'JetBrains Mono', size: 9 },
+                color: '#767676',
+                callback: (v) => v + '%'
               }
             }
           }
