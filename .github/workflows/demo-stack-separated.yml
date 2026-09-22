@@ -1,0 +1,157 @@
+# Separated-box capacity validation — the decisive run.
+#
+# The single-box demo-stack workflow proves shape and culprit, but its load
+# generator shares a VM with the app, so a heavy firehose can starve the app
+# under test. This is the fix: the demo stack runs on one runner VM and the
+# load comes from a second runner VM through a cloudflared quick tunnel
+# (https, no account, no inbound port needed).
+#
+# Structure:
+#   app job  — builds + starts the compose stack, opens a quick tunnel to
+#              demoserver:8080, publishes the URL as an artifact, then holds
+#              the runner parked while the load runs (a job that completes
+#              tears its runner down, killing the stack mid-sweep), and
+#              tears the stack down when the window is over.
+#   load job — waits for the tunnel-URL artifact, builds only the barrage
+#              image, rewrites the profile's demoserver:8080 URLs to the
+#              tunnel host, fires the capacity sweep against it, and uploads
+#              ./reports/ as usual.
+#
+# Honesty: "separate machines" is VM-level. GitHub schedules parallel jobs
+# on distinct runner VMs, but the underlying hardware is shared cloud
+# capacity — numbers stay relative, like every other runner run. The
+# cloudflared edge also adds a latency floor (round trip on every request)
+# that lands evenly on every level, so the sweep shape still reads. If the
+# hold window undershoots and the tunnel dies mid-sweep, the errors buckets
+# (v0.6.1+) label it: a dial_timeout/conn_reset flood instead of a 5xx story.
+name: separated stack validation (tunnel)
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: config in docker/configs/ to run against the stack
+        required: false
+        default: real-app.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: validate compose file
+        run: docker compose -f docker-compose.yml config --quiet
+
+      - name: build the stack images
+        # seeddb + demoserver share one Dockerfile build (barrage is built on
+        # the load job's runner, not here).
+        run: docker compose -f docker-compose.yml build seeddb demoserver
+
+      - name: bring the stack up
+        run: docker compose -f docker-compose.yml up -d --wait postgres redis seeddb demoserver
+
+      - name: open a cloudflared quick tunnel to the app
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -o /tmp/cloudflared
+          chmod +x /tmp/cloudflared
+          # demoserver publishes 8080 on the host, so the tunnel needs no
+          # docker network juggling; nohup keeps it alive after this step.
+          nohup /tmp/cloudflared tunnel --url http://127.0.0.1:8080 \
+            --no-autoupdate >/tmp/tunnel.log 2>&1 &
+          for i in $(seq 1 60); do
+            url=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1 || true)
+            if [ -n "$url" ]; then
+              # prove the app answers through TLS + the edge before handing off
+              curl -fsS "$url/health" >/dev/null
+              echo "tunnel up at $url"
+              echo "$url" > tunnel-url.txt
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "cloudflared never printed a quick-tunnel URL:" >&2
+          tail -20 /tmp/tunnel.log >&2 || true
+          exit 1
+
+      - name: publish the tunnel URL for the load job
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunnel-url
+          path: tunnel-url.txt
+          if-no-files-found: error
+
+      - name: hold the stack until the load job is done
+        # Completing this job would tear the runner down with the stack and
+        # tunnel still serving the sweep. Park the VM through the load job's
+        # wait+build+run window. If it ever undershoots, the load run's
+        # errors buckets show the cut (dial_timeout/conn_reset) rather than
+        # a 5xx story, so the failure stays legible.
+        run: sleep 900
+
+      - name: tear the stack down
+        if: always()
+        run: docker compose -f docker-compose.yml down -v
+
+  load:
+    runs-on: ubuntu-latest
+    env:
+      PROFILE: ${{ inputs.profile }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: pull the tunnel URL
+        uses: actions/download-artifact@v4
+        with:
+          name: tunnel-url
+          path: tunnel-url
+          # the app job publishes this mid-run; wait for it instead of
+          # racing the app job's build
+          wait-for-artifacts: true
+          wait-for-artifacts-retry-interval: 10
+          wait-for-artifacts-max-retries: 60
+
+      - name: confirm the separated target
+        run: |
+          url=$(cat tunnel-url/tunnel-url.txt)
+          echo "load firehose will hit $url from its own runner VM"
+
+      - name: build the barrage image
+        run: docker compose -f docker-compose.yml build barrage
+
+      - name: rewrite the profile's URLs to the tunnel
+        run: |
+          set -euo pipefail
+          [ -f "docker/configs/$PROFILE" ] || { echo "no such profile: $PROFILE" >&2; exit 1; }
+          url=$(cat tunnel-url/tunnel-url.txt)
+          host=${url#https://}
+          sed "s#http://demoserver:8080#https://${host}#g" "docker/configs/$PROFILE" > /tmp/remote-profile.yaml
+          grep -c "trycloudflare" /tmp/remote-profile.yaml
+
+      - name: run the sweep from this separate runner
+        # --no-deps: the stack lives on the app job's VM, not here.
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.yml run --no-deps --rm \
+            -v "/tmp/remote-profile.yaml:/remote-profile.yaml:ro" \
+            barrage run -c /remote-profile.yaml --no-progress \
+            --json /out/results.json --report /out/report.html
+
+      - name: show run summary
+        run: |
+          ls -la reports/
+          echo '---- results.json (content) ----'
+          head -15 reports/results.json
+
+      - name: upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-reports
+          path: reports/
+          if-no-files-found: error

@@ -633,6 +633,21 @@ all on a 2-vCPU GitHub runner with the same journey mix:
 5. **Every break here was latency, not errors** — success held 98–100%.
    A "broken" level means the P99 crossed the threshold, not that requests
    failed.
+6. **Label the failure, don't guess it (v0.6.1).** Capacity-step exports
+   carry an `errors` map bucketed by cause (`5xx`/`4xx` from HTTP answers;
+   `dial_timeout`/`read_timeout`/`connection_refused`/`conn_reset`/
+   `transport`/`timeout` from the client stack). A run that breaks with a
+   `dial_timeout`/`connection_refused` flood is an *unreachable* app —
+   shared-box/network fabric — not an app verdict. A knee with clean buckets
+   is a real latency crossing. Example from the session-reuse runs: a 0%
+   success level previously written off as "9,639 err" was in fact the app
+   unreachable; the next run with buckets clean across levels broke at 12→13
+   users with p99 climbing 19ms→1s — a genuine app-latency knee.
+7. **Separated runs exist now.** `.github/workflows/demo-stack-separated.yml`
+   moves the load to a second runner VM through a cloudflared quick tunnel
+   (no account) for the decisive whole-app figure. Same caveat as below —
+   VM-level separation, numbers still relative — but removes the shared-box
+   blast radius that killed old single-box runs at high firehose rates.
 
 ### GitHub-runner numbers are RELATIVE — say so
 

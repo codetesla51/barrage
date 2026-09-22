@@ -620,6 +620,30 @@ resource allocation is **not guaranteed between runs**. Consequences:
   pinned hardware, and repeat. Same-machine sweeps prove shape and culprit —
   not scale.
 
+### Separated-box runs (cloudflared tunnel)
+
+The single-box workflow proves shape and culprit; this removes the last
+shared-box doubt. [`.github/workflows/demo-stack-separated.yml`](.github/workflows/demo-stack-separated.yml)
+runs the stack on one runner VM and the load on a *second* runner VM, joined
+by a free cloudflared quick tunnel (no account, no inbound port):
+
+```sh
+gh workflow run demo-stack-separated.yml -f profile=real-app.yaml
+```
+
+Read the `demo-reports` artifact exactly like the single-box runs — the
+`capacity_search.steps[].errors` buckets name *what* broke each level. Two
+caveats keep the numbers honest:
+
+- **VM-level, not node-level, separation.** GitHub schedules the jobs on
+  distinct runner VMs; the underlying hardware is still shared cloud
+  capacity, so results stay relative.
+- **The tunnel adds a latency floor** — every request round-trips through
+  cloudflare's edge — that applies evenly to every level, so the sweep
+  *shape* still reads. If the app job's hold window ever runs out mid-sweep,
+  the errors buckets show the cut unmistakably: a `dial_timeout`/`conn_reset`
+  flood instead of a `5xx`/latency story.
+
 ## Example configs
 
 Ready-to-run profiles live in [`examples/`](examples/), all targeting the demo
