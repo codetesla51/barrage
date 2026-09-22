@@ -3,6 +3,6 @@
 // local/go-run builds report whatever the source declares.
 package version
 
-// Version is the current released version, e.g. "v0.6.0". Bump it with
+// Version is the current released version, e.g. "v0.6.1". Bump it with
 // scripts/release.sh, never by hand across the repo.
-var Version = "v0.6.0"
+var Version = "v0.6.1"
