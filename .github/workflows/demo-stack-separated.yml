@@ -112,11 +112,14 @@ jobs:
 
       - name: wait for and pull the tunnel URL
         # download-artifact@v4 has no wait-for-artifacts input and the app
-        # job publishes mid-run, so poll the API until the artifact exists
-        # (gh is preinstalled and authed on hosted runners), then fetch it.
+        # job publishes mid-run, so poll the API until the artifact exists,
+        # then fetch it. gh is preinstalled on hosted runners but needs the
+        # job token handed to it explicitly.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          for i in $(seq 1 90); do
+          for i in $(seq 1 60); do
             id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
               --jq '.artifacts[] | select(.name == "tunnel-url") | .id' | head -1 || true)
             if [ -n "$id" ]; then
@@ -124,9 +127,14 @@ jobs:
               echo "got the tunnel URL"
               exit 0
             fi
+            if [ $((i % 10)) -eq 0 ]; then
+              echo "still waiting for the tunnel-url artifact ($i/60) ..."
+            fi
             sleep 10
           done
           echo "tunnel-url artifact never appeared" >&2
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" >&2 \
+            --jq '.artifacts[].name' || true
           exit 1
 
       - name: confirm the separated target
