@@ -14,6 +14,7 @@ type ScenarioStats struct {
 	Requests   uint64
 	Success    float64
 	Errors     []string
+	ErrCounts  map[string]uint64 // failing steps bucketed by classifyStep
 	P50        time.Duration
 	P95        time.Duration
 	P99        time.Duration
@@ -181,6 +182,7 @@ func buildScenarioStats(results []ScenarioResult, runStart time.Time, bucketWidt
 	var successN uint64
 	var sum time.Duration
 	errSeen := make(map[string]bool)
+	errCounts := make(map[string]uint64)
 
 	for _, sr := range results {
 		latencies = append(latencies, sr.Duration)
@@ -188,6 +190,13 @@ func buildScenarioStats(results []ScenarioResult, runStart time.Time, bucketWidt
 		if isScenarioSuccess(sr) {
 			successN++
 		} else {
+			// Bucket every failing step (same failures ScenErr counts), then
+			// keep the readable first-failure sample below.
+			for _, st := range sr.Steps {
+				if st.Err != nil || st.StatusCode >= 400 {
+					errCounts[classifyStep(st)]++
+				}
+			}
 			// collect first error from failed steps
 			for _, st := range sr.Steps {
 				if st.Err != nil {
@@ -208,6 +217,10 @@ func buildScenarioStats(results []ScenarioResult, runStart time.Time, bucketWidt
 				}
 			}
 		}
+	}
+
+	if len(errCounts) > 0 {
+		stats.ErrCounts = errCounts
 	}
 
 	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })

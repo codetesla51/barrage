@@ -35,10 +35,13 @@ type CapacityStep struct {
 	Success     float64       // 0-1, worst success across runners that ran
 	Broken      bool
 	BrokenBy    []string // runners that broke the level, e.g. ["db"]
-	HTTPP99     time.Duration
-	DBP99       time.Duration
-	RedisP99    time.Duration
-	ScenarioP99 time.Duration
+	// ScenarioErrs buckets failing scenario steps at this level (keys from
+	// classifyStep) so the export answers "what failed" per level.
+	ScenarioErrs map[string]uint64
+	HTTPP99      time.Duration
+	DBP99        time.Duration
+	RedisP99     time.Duration
+	ScenarioP99  time.Duration
 }
 
 // CapacityResult is the whole sweep: one point per level plus the verdict.
@@ -287,6 +290,7 @@ func runCapacityStep(cfg OrchestratorConfig, db *sql.DB, rdb *redis.Client, conc
 	var httpReq, dbReq, redisReq, scenReq uint64
 	var httpSucc, dbSucc, redisSucc, scenSucc float64
 	var httpOK, dbOK, redisOK, scenOK bool
+	var scenErrs map[string]uint64
 	var firstErr error
 	var mu sync.Mutex
 	fail := func(err error) {
@@ -355,6 +359,7 @@ func runCapacityStep(cfg OrchestratorConfig, db *sql.DB, rdb *redis.Client, conc
 				}
 				mu.Lock()
 				scenP99, scenReq, scenSucc, scenOK = st.P99, st.Requests, st.Success, true
+				scenErrs = st.ErrCounts
 				mu.Unlock()
 				return
 			}
@@ -375,6 +380,12 @@ func runCapacityStep(cfg OrchestratorConfig, db *sql.DB, rdb *redis.Client, conc
 				if a.Stats.P99 > worst {
 					worst = a.Stats.P99
 				}
+				for class, n := range a.Stats.ErrCounts {
+					if scenErrs == nil {
+						scenErrs = make(map[string]uint64)
+					}
+					scenErrs[class] += n
+				}
 			}
 			mu.Lock()
 			scenP99, scenReq, scenOK = worst, total, len(aggs) > 0
@@ -390,11 +401,12 @@ func runCapacityStep(cfg OrchestratorConfig, db *sql.DB, rdb *redis.Client, conc
 	}
 
 	step := &CapacityStep{
-		Concurrency: conc,
-		HTTPP99:     httpP99,
-		DBP99:       dbP99,
-		RedisP99:    redisP99,
-		ScenarioP99: scenP99,
+		Concurrency:  conc,
+		HTTPP99:      httpP99,
+		DBP99:        dbP99,
+		RedisP99:     redisP99,
+		ScenarioP99:  scenP99,
+		ScenarioErrs: scenErrs,
 	}
 	var total uint64
 	worst := time.Duration(0)

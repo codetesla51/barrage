@@ -3,13 +3,16 @@ package barrage
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/tidwall/gjson"
@@ -23,6 +26,46 @@ type StepResult struct {
 	Duration   time.Duration
 	Body       []byte
 	Err        error
+}
+
+// classifyStep buckets a failed step so reports say what actually went wrong
+// instead of just "N errors". Transport failures (st.Err) are split by
+// cause; HTTP answers are split by status class. Call only on failing steps
+// (Err set, or status >= 400).
+func classifyStep(st StepResult) string {
+	if st.Err != nil {
+		return classifyErr(st.Err)
+	}
+	if st.StatusCode >= 500 {
+		return "5xx"
+	}
+	return "4xx"
+}
+
+// classifyErr peels the client error down to its cause. http.Client wraps
+// everything in *url.Error; errors.As unwraps it for us. Timeout wins over
+// everything else because a timed-out dial and a refused dial share the
+// same *net.OpError shape.
+func classifyErr(err error) string {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		timeout := opErr.Timeout()
+		switch {
+		case opErr.Op == "dial" && timeout:
+			return "dial_timeout"
+		case opErr.Op == "dial" && errors.Is(opErr.Err, syscall.ECONNREFUSED):
+			return "connection_refused"
+		case timeout:
+			return "read_timeout" // read/write stalled after the dial succeeded
+		case errors.Is(opErr.Err, syscall.ECONNRESET):
+			return "conn_reset"
+		}
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "timeout"
+	}
+	return "transport"
 }
 
 // Request is a single HTTP request for a scenario step.

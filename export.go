@@ -24,13 +24,17 @@ type JSONReport struct {
 }
 
 // JSONCapacityStep is one capacity-sweep level in the JSON export.
+// Errors, when present, buckets that level's failing scenario steps by
+// classifyStep: dial_timeout, read_timeout, connection_refused, conn_reset,
+// timeout, transport, 5xx, 4xx.
 type JSONCapacityStep struct {
-	Concurrency int      `json:"concurrency"`
-	Requests    uint64   `json:"requests"`
-	P99MS       int64    `json:"p99_ms"`
-	Success     float64  `json:"success_percent"`
-	Broken      bool     `json:"broken"`
-	BrokenBy    []string `json:"broken_by,omitempty"`
+	Concurrency int               `json:"concurrency"`
+	Requests    uint64            `json:"requests"`
+	P99MS       int64             `json:"p99_ms"`
+	Success     float64           `json:"success_percent"`
+	Broken      bool              `json:"broken"`
+	BrokenBy    []string          `json:"broken_by,omitempty"`
+	Errors      map[string]uint64 `json:"errors,omitempty"`
 }
 
 // JSONCapacity is the capacity-sweep curve in the JSON export.
@@ -162,6 +166,7 @@ func BuildJSON(data ReportData) ([]byte, error) {
 				Success:     float64(s.Success) * 100,
 				Broken:      s.Broken,
 				BrokenBy:    s.BrokenBy,
+				Errors:      s.ScenarioErrs,
 			})
 		}
 		report.CapacitySearch = jc

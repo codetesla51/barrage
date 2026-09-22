@@ -216,6 +216,12 @@ journeys absorbed it.
 - `P50` fine, `P95/P99` bad → classic storage tail (missing index,
   lock contention, big SCAN). Check which weighted query dominates the
   slow buckets with `-v`.
+- `capacity_search.steps[].errors` → *what* failed at a level, bucketed
+  by cause: `5xx`/`4xx` are HTTP answers, `dial_timeout`/`read_timeout`/
+  `connection_refused`/`conn_reset`/`transport`/`timeout` come from the
+  client stack (stdlib `errors.As` peeling `*url.Error`). A level whose
+  failures are all `dial_timeout`/`connection_refused` is an unreachable
+  app (shared-box/network), not necessarily an app verdict.
 - Timeline `-1` → no request in that bucket (gap before ramp produced
   hits). Never read it as 0ms latency.
 - First-bucket spike only → cold start / connection warm-up, not a

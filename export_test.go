@@ -63,6 +63,52 @@ func TestExportJSON(t *testing.T) {
 	}
 }
 
+func TestExportJSONCapacityErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.json")
+	data := ReportData{
+		CapacitySearch: &CapacityResult{
+			BreakAt: 8,
+			LastOK:  5,
+			Steps: []CapacityStep{
+				{Concurrency: 5, Requests: 1000, P99: 50 * time.Millisecond, Success: 1.0},
+				{
+					Concurrency:  8,
+					Requests:     200,
+					P99:          150 * time.Millisecond,
+					Success:      0.2,
+					Broken:       true,
+					BrokenBy:     []string{"scenario"},
+					ScenarioErrs: map[string]uint64{"dial_timeout": 5120, "5xx": 1800},
+				},
+			},
+		},
+	}
+	if err := ExportJSON(data, path); err != nil {
+		t.Fatalf("ExportJSON returned error: %v", err)
+	}
+	buf, _ := os.ReadFile(path)
+	var got JSONReport
+	if err := json.Unmarshal(buf, &got); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if got.CapacitySearch == nil || len(got.CapacitySearch.Steps) != 2 {
+		t.Fatalf("capacity search = %+v", got.CapacitySearch)
+	}
+	if got.CapacitySearch.Steps[0].Errors != nil {
+		t.Errorf("clean level should omit errors, got %v", got.CapacitySearch.Steps[0].Errors)
+	}
+	gotErrs := got.CapacitySearch.Steps[1].Errors
+	want := map[string]uint64{"dial_timeout": 5120, "5xx": 1800}
+	if len(gotErrs) != len(want) {
+		t.Errorf("errors = %v, want %v", gotErrs, want)
+	}
+	for class, n := range want {
+		if gotErrs[class] != n {
+			t.Errorf("errors[%q] = %d, want %d", class, gotErrs[class], n)
+		}
+	}
+}
+
 func TestExportJSONEmptyRun(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "run.json")
 	if err := ExportJSON(ReportData{}, path); err != nil {

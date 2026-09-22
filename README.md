@@ -538,7 +538,10 @@ The JSON export mirrors this structure: `generated_at`, `duration`, `ramp`,
 `concurrency`, per-runner metrics (latencies in milliseconds), correlated spikes
 (each with `runner`, `http_p99_ms`, `storage_p99_ms`, and `masked`), the
 timeline, and — when the run was a capacity sweep — the `capacity_search`
-curve (per-level concurrency/requests/p99/success, `break_at`, `last_ok`). In
+curve (per-level concurrency/requests/p99/success, `break_at`, `last_ok`).
+Capacity steps also carry an `errors` map when scenario steps failed at that
+level (e.g. `{"dial_timeout": 5120, "5xx": 1800}`), so the breaking run's
+story answers what failed, not just how much. In
 the timeline's `p99_ms` series, `-1` marks a bucket where that runner had no
 request (e.g. before the ramp produced its first hit); the report chart renders
 these as gaps, not as a latency of -1ms.
