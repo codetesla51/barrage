@@ -15,8 +15,6 @@ correlated view of the API, the database, and the cache — and a report that
 flags exactly which bucket a storage layer spiked in, and whether the
 application was affected or not.
 
-Here is what a run looks like:
-
 ```
 $ barrage run -c config.yaml
 
@@ -26,7 +24,7 @@ $ barrage run -c config.yaml
      \ \   __  \ \   __  \ \   _  _\ \   _  _\ \   __  \ \  \  __\ \  \_|/__
       \ \  \|\  \ \  \ \  \ \  \\  \\ \  \\  \\ \  \ \  \ \  \|\  \ \  \_|\ \
        \ \_______\ \__\ \__\ \__\\ _\\ \__\\ _\\ \__\ \__\ \_______\ \_______\
-        \|_______|\|__|\|__\|__|\|__|\|__|\|__|\|__|\|__\|_______|\|_______|
+        \|_______|\|__|\|__|\|__|\|__|\|__|\|__|\|__|\|__\|_______|\|_______|
 
 barrage v0.6.3
 duration 15s · bucket 1s · concurrency 10 · ramp 3s
@@ -50,41 +48,169 @@ Report written to report.html
 
 *A 3-minute heavy run against the TodoAPI stack (Gin + Postgres + Redis): `GET /api/todos` over HTTP at 120/s, a weighted read/write query mix against Postgres at 80/s, and Redis commands at 300/s, with a 60s ramp and concurrency 50 — generator, app, Postgres, and Redis all on the same machine, so treat the absolute numbers as relative, not as production capacity. With the app's rate limiter left at production settings it absorbed nearly the whole HTTP burst as 429s — the API stayed flat at ~5ms p50 while the real load landed on the data stores. With the limiter boosted, every request reached the backend and latency dropped straight through to the database: Postgres saturates and drags HTTP P99 to multi-second territory, while Redis stays under 100ms P99. One bottleneck, three correlated curves.*
 
-## Getting started (30 seconds)
+## Contents
+
+- [Quickstart](#quickstart)
+- [Commands](#commands)
+  - [`barrage run`](#barrage-run)
+  - [`barrage compare`](#barrage-compare)
+  - [Capacity sweep](#capacity-sweep)
+- [The report](#the-report)
+- [Concepts](#concepts)
+  - [Spike correlation](#spike-correlation)
+  - [Scenarios vs plain HTTP](#scenarios-vs-plain-http)
+  - [Rate, concurrency, and ramp](#rate-concurrency-and-ramp)
+  - [Live progress](#live-progress)
+- [Configuration](#configuration)
+- [Demo stack](#demo-stack)
+  - [Profiles](#profiles)
+  - [Case studies: the demo-stack progression](#case-studies-the-demo-stack-progression)
+  - [Separated-box runs (cloudflared tunnel)](#separated-box-runs-cloudflared-tunnel)
+- [When to use Barrage (and when not)](#when-to-use-barrage-and-when-not)
+- [Development](#development)
+- [Agents](#agents)
+
+## Quickstart
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash
+```
+
+That grabs a prebuilt binary from GitHub releases — no Go toolchain needed.
+Pin a version or change the target dir with
+`bash -s -- --version v0.6.3 --dir ~/.local/bin`, or build from source with
+`--from-source` (requires Go 1.25 or later). See `./install.sh --help` for all
+flags. Or build from source directly:
+
+```sh
+git clone https://github.com/codetesla51/barrage && cd barrage
+go build -o barrage ./cmd/barrage
+# fallback without a checkout:
+# go install github.com/codetesla51/barrage/cmd/barrage@latest
+```
+
+The DB runner supports **Postgres**, **MySQL**, and **SQLite** out of the box;
+because it sits on `database/sql`, any other driver can be linked in by adding
+a blank import and registering its name. HTTP-only runs require no backing
+services.
+
+Then point `config.yaml` at your targets (see [Configuration](#configuration))
+and run:
+
+```sh
 barrage run                      # runs config.yaml, writes report.html
 barrage run -o                   # ...and opens the report in your browser
 barrage run --no-report --json results.json   # for CI, no browser needed
 barrage compare --baseline base.json --current new.json   # diff two runs
 ```
 
-Point `config.yaml` at your targets first (see [Configuration](#configuration)).
 The report is self-contained: Chart.js loads from a CDN, but all run data is
 embedded in the page.
 
-## What Barrage does
+## Commands
 
-### Find where latency comes from
+### `barrage run`
 
-**Three runners, one clock.** HTTP (via [vegeta](https://github.com/tsenart/vegeta)),
-DB, and Redis run concurrently and record their latencies into the same time
-buckets, so results are directly comparable — that is the core of the tool.
+```
+$ barrage run --help
 
-**Spike correlation.** Every bucket where a storage runner's (DB or Redis) P99
-crossed its threshold is flagged — including in **scenario mode**, where the
-app-side reference is synthesized from the worst per-bucket journey latency.
-Two outcomes:
+Flags:
+  -b, --bucket-width duration             override the bucket width from the config
+      --capacity                          sweep concurrency (double, then fine fill) to find the break point
+      --capacity-max-concurrency int      cap for the capacity sweep
+      --capacity-step-duration duration   per-level burst time for the capacity sweep (default 10s)
+      --concurrency int                   worker count for the db/redis pools and http attackers
+  -c, --config string                     path to the config file (default "config.yaml")
+      --db-threshold duration             DB spike threshold for correlation (default 100ms)
+  -d, --duration duration                 override the run duration from the config
+      --http-threshold duration           HTTP spike threshold for correlation (default 100ms)
+      --json string                       also write a JSON summary of the run to this path
+      --no-progress                       disable the live progress view (plain log lines instead)
+      --no-report                         skip writing the HTML report
+  -o, --open                              open the report in a browser after the run
+      --ramp duration                     ramp the rate from 0 up to full over this duration
+      --redis-threshold duration          Redis spike threshold for correlation (default 100ms)
+      --report string                 path for the HTML report (default "report.html")
+  -v, --verbose                       print per-bucket detail
+```
 
-- **correlated** — HTTP and the storage runner both crossed their thresholds,
-  so the latency jumped together. A verdict names the bottleneck (`HTTP`, `DB`,
-  or `Redis`, `EVEN` if they match).
-- **masked** — the storage runner spiked while HTTP stayed under its threshold.
-  This surfaces a storage bottleneck that does not yet back up the application.
+Examples:
 
-HTTP-only buckets are deliberately not flagged: a slow endpoint that leaves the
-data stores idle is an application problem, not a storage problem.
+```sh
+barrage run -c staging.yaml --duration 1m --ramp 10s --concurrency 50
+barrage run --http-threshold 150ms --db-threshold 250ms --redis-threshold 80ms  # adjust spike thresholds
+barrage run --no-report --json results.json                 # for CI pipelines
+barrage version                                            # print the version
+```
+
+Every `--` flag overrides its config counterpart.
+
+A scenario run looks like this: the `rates` line names each journey with its
+step count and weight, the runner column carries the scenario name, and there
+is no STATUS column content (scenarios record success as 2xx-per-step, not
+status histograms) — the header still prints, the cells are empty.
+
+```
+$ barrage run -c examples/scenario-login.yaml
+
+barrage v0.6.3
+duration 10s · bucket 1s · concurrency 10 · ramp 0s
+rates    login-flow 3 steps w=1
+
+[barrage] done ·  │ scen 32,989 3 err
+RUNNER      REQUESTS  SUCCESS  RATE      MEAN        P50         P95         P99          MAX           STATUS
+login-flow  32989     100.0%   3298.9/s  3.030392ms  2.272002ms  8.125266ms  11.957243ms  35.747684ms
+Report written to report.html
+```
+
+### `barrage compare`
+
+`barrage compare` diffs two runs produced by `barrage run --json`, so an earlier
+baseline can be checked against a later run — the missing piece for CI gating
+and regression checking across releases.
+
+Runners present only in one side are labeled **NEW** (or counted as fixed) —
+they never show as regressions just because the baseline didn't have them, so
+renaming or adding scenarios mid-project doesn't produce false alarms. Spike
+diffs match by ordinal position per runner rather than wall-clock timestamps,
+since two runs never share a clock.
+
+```
+$ barrage compare --baseline base.json --current new.json --fail-on 100ms
+
+comparing base.json -> new.json (fail-on 100ms)
+RUNNER  BASELINE_P99  CURRENT_P99  CHANGE  VERDICT
+DB      80ms          100ms        +25%    ok
+HTTP    30ms          70ms         +133%   REGRESSION
+Redis   20ms          22ms         +10%    ok
+```
+
+Flags:
+
+```
+      --baseline string      path to the baseline JSON report
+      --current string       path to the current JSON report
+      --fail-on duration     fail (exit non-zero) if a runner regresses above this latency budget (default 100ms)
+  -o, --open                 open the report in a browser after comparing
+      --report string        path for the HTML comparison report (default "compare.html", empty skips it)
+```
+
+How it works:
+
+- **Per-runner diff.** Each runner's P99 is compared baseline→current with a
+  percentage change. A runner is flagged **REGRESSION** when its current P99
+  exceeds the `--fail-on` budget while its baseline was at or under it, so a
+  runner that was already slow isn't re-flagged every run. Any regression makes
+  `barrage compare` exit non-zero — the signal CI uses to gate a deployment.
+- **Spike diff.** Each correlated spike in both runs is classified as **new**,
+  **fixed**, **worsened**, **improved**, or **unchanged**, so you can see both
+  newly-introduced storage bottlenecks and ones that were resolved.
+- **Overlaid timeline.** Both runs' per-bucket P99 latencies are aligned onto
+  one label axis in the HTML report (baseline dashed, current solid), so you can
+  see *where* in the run latency drifted.
+- **Exit code as CI gate.** Combined with `barrage run --no-report --json
+  baseline.json` and `--fail-on`, you can make an unstaged regression fail a
+  pipeline before it ships.
 
 ### Capacity sweep
 
@@ -126,17 +252,125 @@ point you find is the machine's, not the system's. Good enough for
 comparing configs and finding the culprit layer; not a production capacity
 number. For a real one, generate load from a separate machine.
 
-### Capacity finder
+## The report
 
-The story-style report answers "at how many users does my app struggle?" It
-maps each time bucket to an estimated active-user count (growing linearly
-during ramp, flat after), then scans for the first **sustained** jump — worst
-journey P99 exceeding 2× its median for 3+ consecutive buckets. You get either
-a strain point (`~N users — where it starts straining`) or a clean `no strain
-up to ~N users`, plus the concurrency to re-test at next. The latency chart
-plots active users on a second axis with the ramp window shaded.
+`report.html` contains:
 
-### Live run progress
+- **Verdict** — one plain-words line (broke at N users / clean run), the
+  bottleneck, and next steps. Always rendered; empty runs explain why.
+- **Run summary** — requests, success %, P50/P95/P99/max/mean, rate, throughput,
+  and the HTTP status-code histogram for each runner.
+- **Correlated spikes** — a table of flagged buckets (runner, per-bucket P99
+  values, bottleneck verdict) and an overall "bottleneck lean" readout.
+- **Latency timeline** — every runner's per-bucket P99 on a shared x-axis so
+  storage and HTTP latency can be compared directly.
+- **Capacity sweep** (sweep runs only) — concurrency vs P99 with the break
+  point, per-level verdicts, and the error buckets naming what failed.
+- **Export JSON button** — in the top bar; downloads the run as the same JSON
+  the `--json` flag writes, so a report opened in a browser can still feed a
+  dashboard or a CI comparison.
+
+![Latency timeline](./docs/todo-api-run-2.png)
+
+![Correlated spikes table](./docs/todo-api-run-1.png)
+
+The JSON export mirrors this structure: `generated_at`, `duration`, `ramp`,
+`concurrency`, per-runner metrics (latencies in milliseconds), correlated spikes
+(each with `runner`, `http_p99_ms`, `storage_p99_ms`, and `masked`), the
+timeline, and — when the run was a capacity sweep — the `capacity_search`
+curve (per-level concurrency/requests/p99/success, `break_at`, `last_ok`).
+Capacity steps also carry an `errors` map when scenario steps failed at that
+level (e.g. `{"dial_timeout": 5120, "5xx": 1800}`), so the breaking run's
+story answers what failed, not just how much. In
+the timeline's `p99_ms` series, `-1` marks a bucket where that runner had no
+request (e.g. before the ramp produced its first hit); the report chart renders
+these as gaps, not as a latency of -1ms.
+
+## Concepts
+
+### Spike correlation
+
+1. All runners' buckets are aligned by their unix start time
+   (`HTTPBucket.Start.Unix()` == storage `Bucket.Start`).
+2. Each storage runner — DB and Redis — is checked independently against the
+   HTTP run. A bucket is flagged when the storage runner's **P99 exceeds its
+   threshold**, and the spike is either **correlated** (HTTP also crossed
+   `http-threshold`, labeled with a bottleneck verdict) or **masked** (storage
+   spiked while HTTP stayed under its own).
+3. Masked spikes are still reported so a storage bottleneck that does not yet
+   back up the application is surfaced. The CLI marks them `db-only` /
+   `redis-only`, the HTML report tags them `DB (masked)` / `Redis (masked)`,
+   and the JSON export sets `masked: true`. A bucket where both DB and Redis
+   spike produces two rows.
+
+Thresholds default to 100ms each and apply per runner (`--http-threshold`,
+`--db-threshold`, `--redis-threshold`). In scenario mode the app-side
+reference is synthesized from the worst per-bucket journey latency.
+
+HTTP-only buckets are deliberately not flagged: a slow endpoint that leaves the
+data stores idle is an application problem, not a storage problem.
+
+### Scenarios vs plain HTTP
+
+`scenario:` runs sequential HTTP steps per virtual user — it *is* your HTTP
+load, in journey form instead of single shots. Each VU picks one scenario
+once at launch (weighted by `weight`), then loops it until `duration`
+expires. `extract` maps a var name to a JSON path (`$.token`,
+`$.user.id` via gjson); the value is stored per VU and `{{var}}` is
+interpolated into later step `url`, `body`, and `headers`. Missing vars stay
+as `{{var}}` so misconfig is visible; non-JSON or missing paths leave the
+var unset.
+
+`scenario:` cannot be combined with `http:` — and that is deliberate, not a
+limitation. Correlation needs exactly one app-side reference timeline per
+bucket: either the `http` runner's P99, or the worst journey P99 synthesized
+from scenarios. Two app curves would double-count rates, progress, and every
+verdict. To mix plain hits with flows, model the plain hit as a one-step
+scenario. Note `rate` also means different things per runner (`http`/`db`/
+`redis` are paced per-second targets; scenario throughput emerges from VUs
+looping). Scenarios can run alongside `db`/`redis` — buckets use the same
+`Start.Unix()/bucket_width` scheme so timelines align.
+
+### Rate, concurrency, and ramp
+
+- `rate` is the *target* rate. If `concurrency` is too small to keep up, the
+  pool backs up and throughput settles below target. This is intentional: a
+  real load test should expose the target's limits rather than silently
+  serializing requests.
+- `concurrency` for HTTP maps to vegeta's `MaxWorkers`; unset (0) lets vegeta
+  scale workers on its own. For DB and Redis it is the pool size; 0 selects the
+  default of 10 workers. The run header reports which mode is in effect.
+- `ramp` schedules hits so the rate grows linearly from 0 to full across the
+  window (a 3s ramp at 2000/s fires roughly 3000 requests during the ramp, then
+  holds 2000/s). With no `ramp`, the full rate applies from the first request.
+- **Weighted mixed queries.** One query is picked per request, weighted, so a
+  config can mix reads and writes the way real traffic does.
+- **Read/write routing.** Each DB query's `type` field is authoritative
+  (`read` runs through `Query`, `write` through `Exec`); untyped queries fall
+  back to a heuristic on the SQL text.
+- **Real parallelism.** Requests are submitted to a worker pool, so `rate` is
+  not a serial request stream.
+
+Engines per runner:
+
+| Runner | Engine | Parallelism |
+|---|---|---|
+| HTTP | vegeta attacker | vegeta workers (bounded by `concurrency`) |
+| DB | `database/sql` + [pond](https://github.com/alitto/pond) worker pool | `concurrency` workers |
+| Redis | go-redis client + pond worker pool | `concurrency` workers |
+
+The DB and Redis runners pace requests at `rate` per second, submitting each to
+a pool capped at `concurrency` workers. Results carry the submission timestamp,
+so buckets reflect when load was generated, not when responses completed.
+
+A command still in flight when the run ends is aborted rather than counted
+against the target: DB reads abort cleanly (no side effects) and are not
+failures, while DB **write** errors still surface since the write may have
+executed server-side. Redis commands aborted at shutdown before the server
+answers (`context canceled`) are likewise not failures; any other Redis error
+is a real failure.
+
+### Live progress
 
 Runs are no longer silent. Barrage prints one structured status line every 5s:
 
@@ -145,113 +379,8 @@ Runs are no longer silent. Barrage prints one structured status line every 5s:
 ```
 
 with thousands separators, an mm:ss clock, and semantic colors (amber counts,
-red error counts). A totals line lands when the run completes.
-
-### Generate realistic load
-
-- **Weighted mixed queries.** One query is picked per request, weighted, so a
-  config can mix reads and writes the way real traffic does.
-- **Read/write routing.** Each DB query's `type` field is authoritative
-  (`read` runs through `Query`, `write` through `Exec`); untyped queries fall
-  back to a heuristic on the SQL text.
-- **Rate ramp.** Rates grow linearly from 0 to full over a configurable window,
-  emulating a gradual warm-up instead of hitting the target at full force from
-  the first request.
-- **Real parallelism.** Requests are submitted to a worker pool, so `rate` is
-  not a serial request stream. See [Configuration](#configuration) for how
-  `rate`, `concurrency`, and `ramp` interact.
-
-### Export results
-
-- **HTML report** — run summary, correlated spikes, and a full-run latency
-  timeline, self-contained in one file.
-- **JSON export** — the same data in machine-readable form, for dashboards and
-  CI comparison.
-- **CLI tables** — aligned per-runner summary and per-bucket tables in the
-  terminal.
-
-## Why not k6, Vegeta, JMeter, or Locust?
-
-Those tools excel at **generating** load. Barrage is built around
-**interpreting** it:
-
-- **k6, JMeter, Locust** — script complex user journeys and report rich
-  metrics, but each generator runs independently. Correlating an API slowdown
-  with the database or cache behind it is left to you.
-- **Vegeta** — a focused, high-performance HTTP load generator. It tells you
-  how the endpoint behaved, not why.
-
-Barrage is narrower on purpose: it generates HTTP, database, and Redis load in
-one process and aligns every layer onto one timeline. Where a typical load
-tester reports a single latency curve, Barrage reports three — and tells you
-which layer spiked.
-
-| Feature | Barrage | Typical Load Tester |
-|---|---|---|
-| HTTP load | Yes | Yes |
-| DB load | Yes | Usually no |
-| Redis load | Yes | Usually no |
-| Scenario user journeys | Yes | Varies |
-| Correlate latency | Yes | No |
-| Compare runs / CI gate | Yes | No |
-| HTML report | Yes | Varies |
-
-## When to use Barrage
-
-- Investigating why an API is slow (is it the app, the database, or the cache?).
-- Testing database bottlenecks: missing indexes, connection-pool limits,
-  query plans.
-- Comparing infrastructure changes before/after a migration or tuning pass.
-- Performance regression testing across releases: run a baseline, change the
-  code or infra, run again, and `barrage compare` the two JSON exports — with
-  `--fail-on`, a regression fails the pipeline.
-
-## When Barrage is not the right tool
-
-- **Browser/E2E testing** — no browser, no DOM, no UI assertions.
-- **WebSocket / streaming traffic**.
-- **Distributed cloud load** — it runs from one process; scale vertically, not
-  across regions.
-
-## Install
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash
-```
-
-That grabs a prebuilt binary from GitHub releases — no Go toolchain needed.
-Pin a version or change the target dir with
-`bash -s -- --version v0.6.3 --dir ~/.local/bin`, or build from source with
-`--from-source`. See `./install.sh --help` for all flags.
-
-Or build from source (requires Go 1.25 or later):
-
-```sh
-git clone https://github.com/codetesla51/barrage && cd barrage
-go build -o barrage ./cmd/barrage
-# fallback without a checkout:
-# go install github.com/codetesla51/barrage/cmd/barrage@latest
-```
-
-Requires Go 1.25 or later for source builds only. The DB runner supports **Postgres**, **MySQL**, and
-**SQLite** out of the box; because it sits on `database/sql`, any other driver
-can be linked in by adding a blank import and registering its name. HTTP-only
-runs require no backing services.
-
-## Releasing
-
-Cutting a release is one command — no hunting for the version string:
-
-```sh
-./scripts/release.sh v0.6.3
-```
-
-It bumps the version everywhere (the `internal/version` source of truth, the
-install pin in `install.sh`, and the README/SKILL examples), runs the
-build/vet/test/gofmt gate, commits as `chore(release)`, tags, and pushes. CI
-then cross-compiles the platform binaries and publishes the GitHub release
-with generated notes. The binary's embedded version always comes from the git
-tag (ldflags), so the package-var default only shows for local `go run` builds.
+red error counts). A totals line lands when the run completes. Pass
+`--no-progress` for plain log lines (CI default in the reference workflows).
 
 ## Configuration
 
@@ -333,16 +462,6 @@ scenario:
 
 ### Field reference
 
-- `rate` is the *target* rate. If `concurrency` is too small to keep up, the
-  pool backs up and throughput settles below target. This is intentional: a
-  real load test should expose the target's limits rather than silently
-  serializing requests.
-- `concurrency` for HTTP maps to vegeta's `MaxWorkers`; unset (0) lets vegeta
-  scale workers on its own. For DB and Redis it is the pool size; 0 selects the
-  default of 10 workers. The run header reports which mode is in effect.
-- `ramp` schedules hits so the rate grows linearly from 0 to full across the
-  window (a 3s ramp at 2000/s fires roughly 3000 requests during the ramp, then
-  holds 2000/s). With no `ramp`, the full rate applies from the first request.
 - `type` on each DB query is authoritative for read/write routing: `read` runs
   through `Query`, `write` through `Exec`. If omitted, routing falls back to
   detecting the SQL text (SELECT / SHOW / EXPLAIN / WITH → read; any query
@@ -368,183 +487,11 @@ scenario:
   means *zero* idle connections, not unlimited. Values below `-1` are
   rejected. Otherwise, set `max_open_conns` at or below the database's
   `max_connections` or the errors you measure are the tool's, not the target's.
-- `scenario:` runs sequential HTTP steps per virtual user — it *is* your HTTP
-  load, in journey form instead of single shots. Each VU picks one scenario
-  once at launch (weighted by `weight`), then loops it until `duration`
-  expires. `extract` maps a var name to a JSON path (`$.token`,
-  `$.user.id` via gjson); the value is stored per VU and `{{var}}` is
-  interpolated into later step `url`, `body`, and `headers`. Missing vars stay
-  as `{{var}}` so misconfig is visible; non-JSON or missing paths leave the
-  var unset.
-- `scenario:` cannot be combined with `http:` — and that is deliberate, not a
-  limitation. Correlation needs exactly one app-side reference timeline per
-  bucket: either the `http` runner's P99, or the worst journey P99 synthesized
-  from scenarios. Two app curves would double-count rates, progress, and every
-  verdict. To mix plain hits with flows, model the plain hit as a one-step
-  scenario. Note `rate` also means different things per runner (`http`/`db`/
-  `redis` are paced per-second targets; scenario throughput emerges from VUs
-  looping). Scenarios can run alongside `db`/`redis` — buckets use the same
-  `Start.Unix()/bucket_width` scheme so timelines align.
 - `capacity:` replaces a single run with a search: `max_concurrency` caps it,
   `step_duration` (default 10s) sizes each level's burst. Start is the run's
   `concurrency`. While it runs, `ramp:` and `duration:` are ignored — bursts
   force the inner ramp off and use `step_duration` instead. `auto_ramp:` is
   accepted as a deprecated alias for `capacity:`.
-
-## CLI
-
-```
-$ barrage run --help
-
-Flags:
-  -b, --bucket-width duration             override the bucket width from the config
-      --capacity                          sweep concurrency (double, then fine fill) to find the break point
-      --capacity-max-concurrency int      cap for the capacity sweep
-      --capacity-step-duration duration   per-level burst time for the capacity sweep (default 10s)
-      --concurrency int                   worker count for the db/redis pools and http attackers
-  -c, --config string                     path to the config file (default "config.yaml")
-      --db-threshold duration             DB spike threshold for correlation (default 100ms)
-  -d, --duration duration                 override the run duration from the config
-      --http-threshold duration           HTTP spike threshold for correlation (default 100ms)
-      --json string                       also write a JSON summary of the run to this path
-      --no-progress                       disable the live progress view (plain log lines instead)
-      --no-report                         skip writing the HTML report
-  -o, --open                              open the report in a browser after the run
-      --ramp duration                     ramp the rate from 0 up to full over this duration
-      --redis-threshold duration          Redis spike threshold for correlation (default 100ms)
-      --report string                 path for the HTML report (default "report.html")
-  -v, --verbose                       print per-bucket detail
-```
-
-Examples:
-
-```sh
-barrage run -c staging.yaml --duration 1m --ramp 10s --concurrency 50
-barrage run --http-threshold 150ms --db-threshold 250ms --redis-threshold 80ms  # adjust spike thresholds
-barrage run --no-report --json results.json                 # for CI pipelines
-barrage version                                            # print the version
-```
-
-### Compare runs
-
-`barrage compare` diffs two runs produced by `barrage run --json`, so an earlier
-baseline can be checked against a later run — the missing piece for CI gating
-and regression checking across releases.
-
-Runners present only in one side are labeled **NEW** (or counted as fixed) —
-they never show as regressions just because the baseline didn't have them, so
-renaming or adding scenarios mid-project doesn't produce false alarms. Spike
-diffs match by ordinal position per runner rather than wall-clock timestamps,
-since two runs never share a clock.
-
-```
-$ barrage compare --baseline base.json --current new.json --fail-on 100ms
-
-comparing base.json -> new.json (fail-on 100ms)
-RUNNER  BASELINE_P99  CURRENT_P99  CHANGE  VERDICT
-DB      80ms          100ms        +25%    ok
-HTTP    30ms          70ms         +133%   REGRESSION
-Redis   20ms          22ms         +10%    ok
-```
-
-Flags:
-
-```
-  -b, --baseline string      path to the baseline JSON report
-  -c, --current string       path to the current JSON report
-      --fail-on duration     fail (exit non-zero) if a runner regresses above this latency budget (default 100ms)
-  -o, --open                 open the report in a browser after comparing
-      --report string        path for the HTML comparison report (default "compare.html")
-```
-
-How it works:
-
-- **Per-runner diff.** Each runner's P99 is compared baseline→current with a
-  percentage change. A runner is flagged **REGRESSION** when its current P99
-  exceeds the `--fail-on` budget while its baseline was at or under it, so a
-  runner that was already slow isn't re-flagged every run. Any regression makes
-  `barrage compare` exit non-zero — the signal CI used to gate a deployment.
-- **Spike diff.** Each correlated spike in both runs is matched by
-  (runner, bucket time) and classified as **new**, **fixed**, **worsened**,
-  **improved**, or **unchanged**, so you can see both newly-introduced storage
-  bottlenecks and ones that were resolved.
-- **Overlaid timeline.** Both runs' per-bucket P99 latencies are aligned onto
-  one label axis in the HTML report (baseline dashed, current solid), so you can
-  see *where* in the run latency drifted.
-- **Exit code as CI gate.** Combined with `barrage run --no-report --json
-  baseline.json` and `--fail-on`, you can make an unstaged regression fail a
-  pipeline before it ships.
-
-Every `--` flag overrides its config counterpart.
-
-## How it works
-
-### Runners
-
-| Runner | Engine | Parallelism |
-|---|---|---|
-| HTTP | vegeta attacker | vegeta workers (bounded by `concurrency`) |
-| DB | `database/sql` + [pond](https://github.com/alitto/pond) worker pool | `concurrency` workers |
-| Redis | go-redis client + pond worker pool | `concurrency` workers |
-
-The DB and Redis runners pace requests at `rate` per second, submitting each to
-a pool capped at `concurrency` workers. Results carry the submission timestamp,
-so buckets reflect when load was generated, not when responses completed.
-
-A command still in flight when the run ends is aborted rather than counted
-against the target: DB reads abort cleanly (no side effects) and are not
-failures, while DB **write** errors still surface since the write may have
-executed server-side. Redis commands aborted at shutdown before the server
-answers (`context canceled`) are likewise not failures; any other Redis error
-is a real failure.
-
-### Spike correlation
-
-1. All runners' buckets are aligned by their unix start time
-   (`HTTPBucket.Start.Unix()` == storage `Bucket.Start`).
-2. Each storage runner — DB and Redis — is checked independently against the
-   HTTP run. A bucket is flagged when the storage runner's **P99 exceeds its
-   threshold**, and the spike is either **correlated** (HTTP also crossed
-   `http-threshold`, labeled with a bottleneck verdict) or **masked** (storage
-   spiked while HTTP stayed under its own).
-3. Masked spikes are still reported so a storage bottleneck that does not yet
-   back up the application is surfaced. The CLI marks them `db-only` /
-   `redis-only`, the HTML report tags them `DB (masked)` / `Redis (masked)`,
-   and the JSON export sets `masked: true`. A bucket where both DB and Redis
-   spike produces two rows.
-
-Thresholds default to 100ms each and apply per runner (`--http-threshold`,
-`--db-threshold`, `--redis-threshold`).
-
-### Report
-
-`report.html` contains:
-
-- **Run summary** — requests, success %, P50/P95/P99/max/mean, rate, throughput,
-  and the HTTP status-code histogram for each runner.
-- **Correlated spikes** — a table of flagged buckets (runner, per-bucket P99
-  values, bottleneck verdict) and an overall "bottleneck lean" readout.
-- **Latency timeline** — every runner's per-bucket P99 on a shared x-axis so
-  storage and HTTP latency can be compared directly.
-- **Export JSON button** — in the top bar; downloads the run as the same JSON
-  the `--json` flag writes, so a report opened in a browser can still feed a
-  dashboard or a CI comparison.
-
-![Latency timeline](./docs/todo-api-run-2.png)
-
-![Correlated spikes table](./docs/todo-api-run-1.png)
-
-The JSON export mirrors this structure: `generated_at`, `duration`, `ramp`,
-`concurrency`, per-runner metrics (latencies in milliseconds), correlated spikes
-(each with `runner`, `http_p99_ms`, `storage_p99_ms`, and `masked`), the
-timeline, and — when the run was a capacity sweep — the `capacity_search`
-curve (per-level concurrency/requests/p99/success, `break_at`, `last_ok`).
-Capacity steps also carry an `errors` map when scenario steps failed at that
-level (e.g. `{"dial_timeout": 5120, "5xx": 1800}`), so the breaking run's
-story answers what failed, not just how much. In
-the timeline's `p99_ms` series, `-1` marks a bucket where that runner had no
-request (e.g. before the ramp produced its first hit); the report chart renders
-these as gaps, not as a latency of -1ms.
 
 ## Demo stack
 
@@ -582,7 +529,38 @@ go run ./cmd/seeddb -conn "postgres://user:pass@localhost:5432/mydb?sslmode=disa
   (manual dispatch, `profile` input selects the config, `./reports/` uploaded
   as an artifact).
 
-## Case studies: the demo-stack progression
+### Profiles
+
+Ready-to-run profiles live in [`examples/`](examples/), all targeting the demo
+server on `:8080`:
+
+| File | What it shows |
+|---|---|
+| `light.yaml` | gentle baseline: HTTP + Redis at ~15 req/s |
+| `heavy.yaml` | stress profile: HTTP + SQLite + Redis at ~4x light, higher concurrency |
+| `scenario-login.yaml` | single journey: login, extract token, interpolate into later steps |
+| `scenarios-weighted.yaml` | multiple journeys with weights (browse vs checkout traffic mix) |
+| `scenario-full.yaml` | full stack: weighted journeys + SQLite (with pool caps) + Redis on one clock |
+| `capacity-pg.yaml` | capacity sweep against Postgres |
+| `docker/configs/demo.yaml` | containerized 15s flat run: HTTP + Postgres + Redis |
+| `docker/configs/flat-full.yaml` | containerized 20s flat run: journeys + DB + Redis (per-runner tables) |
+| `docker/configs/full-app.yaml` | containerized sweep: journeys + DB + Redis, 5→200 |
+| `docker/configs/lifecycle.yaml` | containerized sweep: journeys + DB + Redis, lifecycle mix |
+| `docker/configs/real-app.yaml` | containerized sweep: journeys only, zero synthetic load |
+| `docker/configs/scenario.yaml` | containerized 15s flat run: journeys only |
+
+Run any of them against the demo stack:
+
+```sh
+barrage run -c examples/scenarios-weighted.yaml
+```
+
+Flat profiles (`demo.yaml`, `flat-full.yaml`, `scenario.yaml`) produce
+per-runner tables, correlated spikes, and the latency timeline. Sweep profiles
+(`full-app.yaml`, `lifecycle.yaml`, `real-app.yaml`) produce the verdict plus
+the concurrency-vs-P99 chart — no per-runner aggregates by design.
+
+### Case studies: the demo-stack progression
 
 Four progressive sweeps of the same journey mix (browse / account-check /
 checkout-flow / login / health) against the same 2-vCPU GitHub runner. The
@@ -599,11 +577,11 @@ changed who was blamed:
 
 The tails at the last good level tell the same story in one line: **103ms →
 75–89ms → 22–96ms → 41–64ms → 74ms**, with success held at 98–100% throughout —
-every break was a latency crossing, never an error storm. The v0.6.3 error
+every break was a latency crossing, never an error storm. The v0.6.1 error
 buckets on the 12–13 run back that up: zero `dial_timeout`/`connection_refused`/
 `conn_reset` on any level — the app stayed reachable from first level to last.
 
-### Read the verdicts, not the numbers
+#### Read the verdicts, not the numbers
 
 Every run above happened on a GitHub Actions runner: 2 vCPUs, the whole stack
 (load generator + app + Postgres + Redis) sharing one box, on a VM whose
@@ -647,50 +625,48 @@ caveats keep the numbers honest:
   the errors buckets show the cut unmistakably: a `dial_timeout`/`conn_reset`
   flood instead of a `5xx`/latency story.
 
-## Example configs
+## When to use Barrage (and when not)
 
-Ready-to-run profiles live in [`examples/`](examples/), all targeting the demo
-server on `:8080`:
+Use it for:
 
-| File | What it shows |
-|---|---|
-| `light.yaml` | gentle baseline: HTTP + Redis at ~15 req/s |
-| `heavy.yaml` | stress profile: HTTP + SQLite + Redis at ~4x light, higher concurrency |
-| `scenario-login.yaml` | single journey: login, extract token, interpolate into later steps |
-| `scenarios-weighted.yaml` | multiple journeys with weights (browse vs checkout traffic mix) |
-| `scenario-full.yaml` | full stack: weighted journeys + SQLite (with pool caps) + Redis on one clock |
+- Investigating why an API is slow (is it the app, the database, or the cache?).
+- Testing database bottlenecks: missing indexes, connection-pool limits,
+  query plans.
+- Comparing infrastructure changes before/after a migration or tuning pass.
+- Performance regression testing across releases: run a baseline, change the
+  code or infra, run again, and `barrage compare` the two JSON exports — with
+  `--fail-on`, a regression fails the pipeline.
 
-Run any of them against the demo stack:
+Not the right tool for:
 
-```sh
-barrage run -c examples/scenarios-weighted.yaml
-```
+- **Browser/E2E testing** — no browser, no DOM, no UI assertions.
+- **WebSocket / streaming traffic**.
+- **Distributed cloud load** — it runs from one process; scale vertically, not
+  across regions.
 
-A scenario run looks like this: the `rates` line names each journey with its
-step count and weight, the runner column carries the scenario name, and there
-is no STATUS column content (scenarios record success as 2xx-per-step, not
-status histograms) — the header still prints, the cells are empty.
+Those tools excel at **generating** load. Barrage is built around
+**interpreting** it:
 
-```
-$ barrage run -c examples/scenario-login.yaml
+- **k6, JMeter, Locust** — script complex user journeys and report rich
+  metrics, but each generator runs independently. Correlating an API slowdown
+  with the database or cache behind it is left to you.
+- **Vegeta** — a focused, high-performance HTTP load generator. It tells you
+  how the endpoint behaved, not why.
 
-     ________  ________  ________  ________  ________  ________  _______
-    |\   __  \|\   __  \|\   __  \|\   __  \|\   __  \|\  ____\|\  ___ \
-    \ \  \|\ /\ \  \|\  \ \  \|\  \ \  \|\  \ \  \|\  \ \  \___|\ \   __/|
-     \ \   __  \ \   __  \ \   _  _\ \   _  _\ \   __  \ \  \  __\ \  \_|/__
-      \ \  \|\  \ \  \ \  \ \  \\  \\ \  \\  \\ \  \ \  \ \  \|\  \ \  \_|\ \
-       \ \_______\ \__\ \__\ \__\\ _\\ \__\\ _\\ \__\ \__\ \_______\ \_______\
-        \|_______|\|__|\|__\|__|\|__|\|__|\|__|\|__|\|__\|_______|\|_______|
+Barrage is narrower on purpose: it generates HTTP, database, and Redis load in
+one process and aligns every layer onto one timeline. Where a typical load
+tester reports a single latency curve, Barrage reports three — and tells you
+which layer spiked.
 
-barrage v0.6.3
-duration 10s · bucket 1s · concurrency 10 · ramp 0s
-rates    login-flow 3 steps w=1
-
-[barrage] done ·  │ scen 32,989 3 err
-RUNNER      REQUESTS  SUCCESS  RATE      MEAN        P50         P95         P99          MAX           STATUS
-login-flow  32989     100.0%   3298.9/s  3.030392ms  2.272002ms  8.125266ms  11.957243ms  35.747684ms
-Report written to report.html
-```
+| Feature | Barrage | Typical Load Tester |
+|---|---|---|
+| HTTP load | Yes | Yes |
+| DB load | Yes | Usually no |
+| Redis load | Yes | Usually no |
+| Scenario user journeys | Yes | Varies |
+| Correlate latency | Yes | No |
+| Compare runs / CI gate | Yes | No |
+| HTML report | Yes | Varies |
 
 ## Development
 
@@ -705,6 +681,19 @@ JSON export. `report.html` is a build artifact and is intentionally not
 committed. The report template (`templates/report.html`) is embedded in the
 binary via `go:embed`, so reports render from any working directory; a template
 file at `templates/report.html` alongside the binary overrides the embedded one.
+
+Cutting a release is one command — no hunting for the version string:
+
+```sh
+./scripts/release.sh v0.6.3
+```
+
+It bumps the version everywhere (the `internal/version` source of truth, the
+install pin in `install.sh`, and the README/SKILL examples), runs the
+build/vet/test/gofmt gate, commits as `chore(release)`, tags, and pushes. CI
+then cross-compiles the platform binaries and publishes the GitHub release
+with generated notes. The binary's embedded version always comes from the git
+tag (ldflags), so the package-var default only shows for local `go run` builds.
 
 ## Agents
 
