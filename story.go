@@ -165,7 +165,9 @@ func capacityStory(res *CapacityResult) StoryData {
 		return StoryData{Title: "Sweep produced no levels", Tone: "err", Detail: "No concurrency level ran. Check the capacity config and target reachability."}
 	}
 	causes := map[string]bool{}
+	var total uint64
 	for _, s := range res.Steps {
+		total += s.Requests
 		for _, c := range s.BrokenBy {
 			causes[c] = true
 		}
@@ -181,9 +183,10 @@ func capacityStory(res *CapacityResult) StoryData {
 			detail += fmt.Sprintf(" Blame: %s.", strings.Join(causeList, ", "))
 		}
 		return StoryData{
-			Title:  fmt.Sprintf("Broke at %d concurrent users", res.BreakAt),
-			Tone:   "err",
-			Detail: detail + " See the capacity chart for cliff vs slope.",
+			Title:         fmt.Sprintf("Broke at %d concurrent users", res.BreakAt),
+			Tone:          "err",
+			Detail:        detail + " See the capacity chart for cliff vs slope.",
+			TotalRequests: total,
 			NextSteps: []string{
 				fmt.Sprintf("Re-test at %d users after the fix to prove the knee moved.", res.BreakAt),
 				"Same-machine numbers are relative — generate load from a separate box for real capacity.",
@@ -191,9 +194,10 @@ func capacityStory(res *CapacityResult) StoryData {
 		}
 	}
 	return StoryData{
-		Title:  fmt.Sprintf("Held to %d concurrent users", res.LastOK),
-		Tone:   "ok",
-		Detail: fmt.Sprintf("No level broke up to the %d cap. Raise max_concurrency to find the real knee.", res.LastOK),
+		Title:         fmt.Sprintf("Held to %d concurrent users", res.LastOK),
+		Tone:          "ok",
+		Detail:        fmt.Sprintf("No level broke up to the %d cap. Raise max_concurrency to find the real knee.", res.LastOK),
+		TotalRequests: total,
 		NextSteps: []string{
 			"Clean search — save this JSON and compare after infra changes.",
 		},

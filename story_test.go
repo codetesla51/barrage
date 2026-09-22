@@ -106,6 +106,25 @@ func TestBuildStoryVerdicts(t *testing.T) {
 	}
 }
 
+func TestCapacityStoryTotalsRequests(t *testing.T) {
+	// a sweep fires real requests at every level: the summary must total
+	// them instead of showing zero
+	broke := BuildStory(ReportData{CapacitySearch: &CapacityResult{
+		Steps:   []CapacityStep{{Concurrency: 10, Requests: 1000}, {Concurrency: 20, Requests: 200, Broken: true, BrokenBy: []string{"db"}}},
+		BreakAt: 20, LastOK: 10,
+	}})
+	if broke.TotalRequests != 1200 {
+		t.Errorf("broke TotalRequests = %d, want 1200", broke.TotalRequests)
+	}
+	held := BuildStory(ReportData{CapacitySearch: &CapacityResult{
+		Steps:  []CapacityStep{{Concurrency: 10, Requests: 1000}},
+		LastOK: 10,
+	}})
+	if held.TotalRequests != 1000 {
+		t.Errorf("held TotalRequests = %d, want 1000", held.TotalRequests)
+	}
+}
+
 func TestCapacityLine(t *testing.T) {
 	labels := make([]string, 12)
 	for i := range labels {
