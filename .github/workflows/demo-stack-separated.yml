@@ -36,6 +36,7 @@ on:
 
 permissions:
   contents: read
+  actions: read # gh run download + the artifacts API in the load job's wait
 
 jobs:
   app:
@@ -68,8 +69,11 @@ jobs:
           for i in $(seq 1 60); do
             url=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1 || true)
             if [ -n "$url" ]; then
-              # prove the app answers through TLS + the edge before handing off
-              curl -fsS "$url/health" >/dev/null
+              # prove the app answers through TLS + the edge before handing off.
+              # A fresh quick-tunnel subdomain's DNS takes a few seconds to
+              # propagate, so the first curl can fail with "could not resolve
+              # host" even though the tunnel is up — retry instead of failing.
+              curl -fsS --retry 10 --retry-delay 2 --retry-all-errors "$url/health" >/dev/null
               echo "tunnel up at $url"
               echo "$url" > tunnel-url.txt
               exit 0
@@ -106,16 +110,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: pull the tunnel URL
-        uses: actions/download-artifact@v4
-        with:
-          name: tunnel-url
-          path: tunnel-url
-          # the app job publishes this mid-run; wait for it instead of
-          # racing the app job's build
-          wait-for-artifacts: true
-          wait-for-artifacts-retry-interval: 10
-          wait-for-artifacts-max-retries: 60
+      - name: wait for and pull the tunnel URL
+        # download-artifact@v4 has no wait-for-artifacts input and the app
+        # job publishes mid-run, so poll the API until the artifact exists
+        # (gh is preinstalled and authed on hosted runners), then fetch it.
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 90); do
+            id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+              --jq '.artifacts[] | select(.name == "tunnel-url") | .id' | head -1 || true)
+            if [ -n "$id" ]; then
+              gh run download "$GITHUB_RUN_ID" -n tunnel-url >/dev/null
+              echo "got the tunnel URL"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "tunnel-url artifact never appeared" >&2
+          exit 1
 
       - name: confirm the separated target
         run: |
