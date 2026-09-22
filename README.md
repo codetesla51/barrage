@@ -595,10 +595,13 @@ changed who was blamed:
 | + Redis cache on the read routes | 3 | DB | reads offloaded, but the synthetic DB runner still blasted the store |
 | + real schema, indexes, real bcrypt login | 10 | app | the silly query is gone; the app's own CPU (bcrypt + writes) is now the wall |
 | same, VUs only (zero synthetic db/redis load) | 7–8 | app | removes out-of-band load; the app is still the bottleneck |
+| + session reuse on repeat logins (v0.6.0+) | 12–13 | app | bcrypt once per session, not per login; one observed run held 12, broke at 13 |
 
 The tails at the last good level tell the same story in one line: **103ms →
-75–89ms → 22–96ms → 41–64ms**, with success held at 98–100% throughout —
-every break was a latency crossing, never an error storm.
+75–89ms → 22–96ms → 41–64ms → 74ms**, with success held at 98–100% throughout —
+every break was a latency crossing, never an error storm. The v0.6.1 error
+buckets on the 12–13 run back that up: zero `dial_timeout`/`connection_refused`/
+`conn_reset` on any level — the app stayed reachable from first level to last.
 
 ### Read the verdicts, not the numbers
 
