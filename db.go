@@ -366,14 +366,16 @@ func pickQuery(queries []QueryWeight) QueryWeight {
 	if len(queries) == 0 {
 		return QueryWeight{}
 	}
+	// Binary search: the list holds cumulative weights, so a linear scan
+	// costs O(n) per request — at 10k queries and 2k req/s the picker
+	// burned more CPU than the database. sort.Search makes it O(log n).
 	total := queries[len(queries)-1].Weight
 	randWeight := randInt(0, total)
-	for _, q := range queries {
-		if randWeight < q.Weight {
-			return q
-		}
+	idx := sort.Search(len(queries), func(i int) bool { return randWeight < queries[i].Weight })
+	if idx >= len(queries) {
+		return queries[len(queries)-1]
 	}
-	return queries[len(queries)-1]
+	return queries[idx]
 }
 func randInt(min, max int) int {
 	return rand.Intn(max-min) + min
