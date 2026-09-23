@@ -348,7 +348,10 @@ looping). Scenarios can run alongside `db`/`redis` — buckets use the same
   window (a 3s ramp at 2000/s fires roughly 3000 requests during the ramp, then
   holds 2000/s). With no `ramp`, the full rate applies from the first request.
 - **Weighted mixed queries.** One query is picked per request, weighted, so a
-  config can mix reads and writes the way real traffic does.
+  config can mix reads and writes the way real traffic does. The cumulative
+  weight table is built once per run (v0.6.4+): building it per request cost
+  O(n) alloc+scan each time, so a 10k-entry list at 2k req/s melted the
+  generator and the timeouts were misread as database failures.
 - **Read/write routing.** Each DB query's `type` field is authoritative
   (`read` runs through `Query`, `write` through `Exec`); untyped queries fall
   back to a heuristic on the SQL text.

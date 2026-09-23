@@ -55,8 +55,13 @@ func fireRedis(client *redis.Client, target RedisTarget, rate, concurrency int, 
 	// so in-flight commands abort instead of blocking shutdown. The closure
 	// names that context `runCtx` (the client-level ctx at the top is separate
 	// and stays live until fireRedis returns — checking it would never fire).
+	// Weighted picks happen per request, so the cumulative table is built
+	// once here: rebuilding it per request costs O(n) alloc+scan each time
+	// (a 10k query list at 2k req/s burned the generator before touching
+	// the target — found via a 10k-key flood that blamed the database).
+	weighted := cumulativeWeights(target.Query)
 	overall, start := runPaced(rate, concurrency, duration, ramp, func(runCtx context.Context) dbQueryResult {
-		pick := pickQuery(cumulativeWeights(target.Query))
+		pick := pickQuery(weighted)
 		queryStart := time.Now()
 		// per-op timeout so a stalled connection can't hang past the deadline
 		opCtx, opCancel := context.WithTimeout(runCtx, 10*time.Second)

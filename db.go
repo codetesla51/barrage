@@ -190,8 +190,13 @@ func fireDB(db *sql.DB, target DBTarget, rate, concurrency int, duration, bucket
 		return nil, fmt.Errorf("db handle is nil")
 	}
 
+	// Weighted picks happen per request, so the cumulative table is built
+	// once here: rebuilding it per request costs O(n) alloc+scan each time
+	// (a 10k query list at 2k req/s burned the generator before touching
+	// the target — found via a 10k-key flood that blamed the database).
+	weighted := cumulativeWeights(target.Query)
 	overall, start := runPaced(rate, concurrency, duration, ramp, func(runCtx context.Context) dbQueryResult {
-		pick := pickQuery(cumulativeWeights(target.Query))
+		pick := pickQuery(weighted)
 		queryStart := time.Now()
 		// per-op timeout so a wedged database can't stall shutdown
 		opCtx, opCancel := context.WithTimeout(runCtx, 10*time.Second)
