@@ -1174,6 +1174,7 @@
         {{range $i, $s := .Timeline.Series}}
         <span class="key-item"><span class="key-line k{{if lt $i 3}}{{$i}}{{else}}3{{end}}"></span>{{$s.Name}}</span>
         {{end}}
+        {{if .ChaosWindows}}<span class="key-item"><span class="key-dot-hollow"></span>fault window</span>{{end}}
       </div>
       <div class="well"><div class="chart-box tl"><canvas id="timelineChart"></canvas></div></div>
     </section>
@@ -1212,8 +1213,34 @@
         tDatasets.push(tSeries("{{$s.Name}}", [{{range $s.P99}}{{if lt . 0}}null,{{else}}{{.}},{{end}}{{end}}], {{$i}}));
         {{end}}
 
+        // fault windows shade the buckets between each paired add/remove, so
+        // a spike inside a band reads as the fault's blast radius. Labels
+        // are clock times; a band whose labels are missing (sub-second
+        // buckets can share one) is skipped rather than misdrawn.
+        const chaosBands = [{{range .ChaosWindows}}{from: "{{.StartLabel}}", to: "{{.EndLabel}}", label: "{{.Proxy}} {{.Type}}"},{{end}}];
+        const chaosShade = {
+          id: 'chaosShade',
+          beforeDatasetsDraw(chart) {
+            if (!chaosBands.length) return;
+            const area = chart.chartArea;
+            const ctx = chart.ctx;
+            ctx.save();
+            ctx.fillStyle = BG.css('--warn-soft');
+            chaosBands.forEach(function (b) {
+              const a = tLabels.indexOf(b.from);
+              const z = tLabels.lastIndexOf(b.to);
+              if (a < 0 || z < 0 || z < a) return;
+              const left = chart.scales.x.getPixelForValue(a);
+              const right = chart.scales.x.getPixelForValue(z);
+              ctx.fillRect(left, area.top, Math.max(2, right - left), area.bottom - area.top);
+            });
+            ctx.restore();
+          }
+        };
+
         new Chart(document.getElementById('timelineChart'), {
           type: 'line',
+          plugins: [chaosShade],
           data: {
             labels: tLabels,
             datasets: tDatasets

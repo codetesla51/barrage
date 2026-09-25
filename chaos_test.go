@@ -393,6 +393,61 @@ func TestOrchestratorNoChaosUnchanged(t *testing.T) {
 	}
 }
 
+func TestChaosWindows(t *testing.T) {
+	base := time.Unix(1700000000, 0)
+	events := []ChaosEvent{
+		{Offset: time.Second, At: base.Add(time.Second), Proxy: "db-proxy", Toxic: "latency_downstream", Type: "latency", Action: "add"},
+		{Offset: 2 * time.Second, At: base.Add(2 * time.Second), Proxy: "redis-proxy", Toxic: "latency_downstream", Type: "latency", Action: "add"},
+		{Offset: 3 * time.Second, At: base.Add(3 * time.Second), Proxy: "db-proxy", Toxic: "latency_downstream", Type: "latency", Action: "remove"},
+		// No remove for the redis add: shades its single bucket.
+	}
+	windows := ChaosWindows(events)
+	if len(windows) != 2 {
+		t.Fatalf("windows = %v, want 2", windows)
+	}
+	if windows[0].Proxy != "db-proxy" || windows[0].StartOffset != time.Second || windows[0].EndOffset != 3*time.Second {
+		t.Errorf("first window = %+v", windows[0])
+	}
+	if windows[0].StartLabel == "" || windows[0].EndLabel == "" {
+		t.Errorf("first window missing labels: %+v", windows[0])
+	}
+	if windows[1].Proxy != "redis-proxy" || windows[1].StartOffset != windows[1].EndOffset {
+		t.Errorf("unpaired window = %+v, want degenerate single-bucket", windows[1])
+	}
+	// A remove with no add is ignored, not a window.
+	windows = ChaosWindows([]ChaosEvent{
+		{Offset: time.Second, At: base, Proxy: "p", Toxic: "t", Type: "latency", Action: "remove"},
+	})
+	if len(windows) != 0 {
+		t.Errorf("orphan remove produced windows: %v", windows)
+	}
+}
+
+func TestReportRendersChaosWindows(t *testing.T) {
+	base := time.Unix(1700000000, 0)
+	result := &OrchestratorResult{
+		HTTPResult: &HTTPResult{
+			Requests: 10, Success: 1,
+			Buckets: []HTTPBucket{{Start: base, End: base.Add(time.Second), Requests: 10, Success: 100}},
+		},
+		ChaosEvents: []ChaosEvent{
+			{Offset: 0, At: base, Proxy: "db-proxy", Toxic: "latency_downstream", Type: "latency", Action: "add"},
+			{Offset: time.Second, At: base.Add(time.Second), Proxy: "db-proxy", Toxic: "latency_downstream", Type: "latency", Action: "remove"},
+		},
+	}
+	data := NewReportData(result, CorrelationResult{})
+	if len(data.ChaosWindows) != 1 {
+		t.Fatalf("chaos windows = %v, want 1", data.ChaosWindows)
+	}
+	var buf strings.Builder
+	if err := RenderHTML(data, "templates/report.html", &buf); err != nil {
+		t.Fatalf("render with chaos windows: %v", err)
+	}
+	if !strings.Contains(buf.String(), "fault window") {
+		t.Error("rendered report missing fault-window legend")
+	}
+}
+
 func TestLoadConfigChaosExamples(t *testing.T) {
 	for _, path := range []string{"examples/chaos-redis.yaml", "examples/chaos-full.yaml", "examples/chaos-break-all.yaml"} {
 		cfg, err := LoadConfig(path)

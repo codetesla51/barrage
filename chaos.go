@@ -185,6 +185,65 @@ func (s *Scheduler) Events() []ChaosEvent {
 	return append([]ChaosEvent(nil), s.log...)
 }
 
+// ChaosWindow pairs an add event with its remove: one shaded fault window on
+// the report timeline. StartLabel/EndLabel are clock times in the same format
+// as the timeline labels so the template can shade by label match.
+type ChaosWindow struct {
+	Proxy       string
+	Toxic       string
+	Type        string
+	StartOffset time.Duration
+	EndOffset   time.Duration
+	StartLabel  string
+	EndLabel    string
+}
+
+// ChaosWindows pairs add/remove events by proxy+toxic into fault windows, in
+// event order. An add with no later remove shades its single bucket — the
+// scheduler always logs a cleanup remove, so this only happens when the log
+// is hand-built or truncated.
+func ChaosWindows(events []ChaosEvent) []ChaosWindow {
+	var out []ChaosWindow
+	pending := map[string]ChaosEvent{}
+	for _, e := range events {
+		key := e.Proxy + "\x00" + e.Toxic
+		switch e.Action {
+		case "add":
+			if _, ok := pending[key]; !ok {
+				pending[key] = e
+			}
+		case "remove":
+			start, ok := pending[key]
+			if !ok {
+				continue
+			}
+			delete(pending, key)
+			out = append(out, ChaosWindow{
+				Proxy:       e.Proxy,
+				Toxic:       e.Toxic,
+				Type:        e.Type,
+				StartOffset: start.Offset,
+				EndOffset:   e.Offset,
+				StartLabel:  formatBucketTime(start.At.Unix()),
+				EndLabel:    formatBucketTime(e.At.Unix()),
+			})
+		}
+	}
+	for _, start := range pending {
+		out = append(out, ChaosWindow{
+			Proxy:       start.Proxy,
+			Toxic:       start.Toxic,
+			Type:        start.Type,
+			StartOffset: start.Offset,
+			EndOffset:   start.Offset,
+			StartLabel:  formatBucketTime(start.At.Unix()),
+			EndLabel:    formatBucketTime(start.At.Unix()),
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].StartOffset < out[j].StartOffset })
+	return out
+}
+
 // record appends one event and prints it to stderr like the run logger.
 func (s *Scheduler) record(offset time.Duration, at time.Time, proxy, toxic, typ, action string) {
 	s.mu.Lock()

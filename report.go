@@ -68,6 +68,10 @@ type ReportData struct {
 	// same bucket scheme as the timeline, so the report can overlay fault
 	// windows on latency/error graphs.
 	ChaosEvents []ChaosEvent
+	// ChaosWindows pairs the events into shaded fault windows for the
+	// timeline chart. Derived, not set by callers: NewReportData computes
+	// it so every output shades the same windows.
+	ChaosWindows []ChaosWindow
 }
 
 // NewReportData assembles a ReportData from an OrchestratorResult and the
@@ -78,6 +82,7 @@ func NewReportData(result *OrchestratorResult, correlation CorrelationResult) Re
 		return data
 	}
 	data.ChaosEvents = result.ChaosEvents
+	data.ChaosWindows = ChaosWindows(result.ChaosEvents)
 	if result.HTTPResult != nil {
 		data.Runners = append(data.Runners, summarizeRunner("HTTP", result.HTTPResult.Requests, result.HTTPResult.Success, result.HTTPResult.P50, result.HTTPResult.P95, result.HTTPResult.P99, result.HTTPResult.Max, result.HTTPResult.Mean, result.HTTPResult.Rate, result.HTTPResult.Throughput, result.HTTPResult.StatusCodes))
 	}

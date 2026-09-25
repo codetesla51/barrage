@@ -21,6 +21,7 @@ type JSONReport struct {
 	Timeline       JSONTimeline  `json:"timeline"`
 	CapacitySearch *JSONCapacity `json:"capacity_search,omitempty"`
 	ChaosEvents    []JSONChaos   `json:"chaos_events,omitempty"`
+	ChaosWindows   []JSONWindow  `json:"chaos_windows,omitempty"`
 	Story          JSONStory     `json:"story"`
 }
 
@@ -33,6 +34,16 @@ type JSONChaos struct {
 	Toxic  string `json:"toxic"`
 	Type   string `json:"type"`
 	Action string `json:"action"`
+}
+
+// JSONWindow is one shaded fault window in the JSON export: the paired
+// add/remove of one toxic on one proxy, with offsets from run start.
+type JSONWindow struct {
+	Proxy string `json:"proxy"`
+	Toxic string `json:"toxic"`
+	Type  string `json:"type"`
+	From  string `json:"from_offset"`
+	To    string `json:"to_offset"`
 }
 
 // JSONCapacityStep is one capacity-sweep level in the JSON export.
@@ -161,6 +172,15 @@ func BuildJSON(data ReportData) ([]byte, error) {
 			Toxic:  e.Toxic,
 			Type:   e.Type,
 			Action: e.Action,
+		})
+	}
+	for _, w := range data.ChaosWindows {
+		report.ChaosWindows = append(report.ChaosWindows, JSONWindow{
+			Proxy: w.Proxy,
+			Toxic: w.Toxic,
+			Type:  w.Type,
+			From:  w.StartOffset.String(),
+			To:    w.EndOffset.String(),
 		})
 	}
 	for _, r := range data.Runners {
