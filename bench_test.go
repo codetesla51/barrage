@@ -15,8 +15,10 @@ package barrage
 // figure is a memory curve problem, not a CPU one.
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -203,6 +205,107 @@ func BenchmarkInterpolate(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
 				_ = interpolate(c.in, c.vars)
+			}
+		})
+	}
+}
+
+// makeDBResults builds n query results spread over a fixed 60s window, the
+// shape runPaced hands to buildDBResult. Both db: and redis: runners share
+// this aggregation path (redis.go calls buildDBResult), so these benchmarks
+// cover both.
+func makeDBResults(n int, failEvery int) []dbQueryResult {
+	base := time.Unix(1758000000, 0)
+	out := make([]dbQueryResult, n)
+	for i := range out {
+		var err error
+		if failEvery > 0 && i%failEvery == 0 {
+			err = errors.New("connection refused")
+		}
+		out[i] = dbQueryResult{
+			Timestamp: base.Add(time.Duration(i) * 60 * time.Second / time.Duration(n)),
+			Latency:   time.Duration(i%2_000_000) * time.Nanosecond,
+			Success:   err == nil,
+			Err:       err,
+		}
+	}
+	return out
+}
+
+// BenchmarkRecordQueryContention measures the db:/redis: record path — a
+// single mutex guarding one shared append, hit by every pool worker. HTTP
+// does not share this shape (vegeta owns its own metrics), so this is the
+// only place a load generator's own bookkeeping can serialise workers.
+//
+// The sub-benchmark contrast is the point: "locked" pays the mutex, "unlocked"
+// shows the floor. The gap is what the lock costs at that worker count.
+func BenchmarkRecordQueryContention(b *testing.B) {
+	for _, workers := range []int{1, 4, 16} {
+		b.Run(fmt.Sprintf("workers=%d/locked", workers), func(b *testing.B) {
+			b.ReportAllocs()
+			overall := make([]dbQueryResult, 0)
+			var mu sync.Mutex
+			var wg sync.WaitGroup
+			per := b.N / workers
+			if per < 1 {
+				per = 1
+			}
+			b.ResetTimer()
+			for w := 0; w < workers; w++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					res := dbQueryResult{Latency: time.Millisecond, Success: true}
+					for i := 0; i < per; i++ {
+						mu.Lock()
+						overall = append(overall, res)
+						mu.Unlock()
+					}
+				}()
+			}
+			wg.Wait()
+			b.StopTimer()
+			b.ReportMetric(float64(workers), "workers")
+		})
+
+		b.Run(fmt.Sprintf("workers=%d/unlocked-floor", workers), func(b *testing.B) {
+			b.ReportAllocs()
+			overall := make([]dbQueryResult, 0, b.N)
+			var wg sync.WaitGroup
+			per := b.N / workers
+			if per < 1 {
+				per = 1
+			}
+			b.ResetTimer()
+			for w := 0; w < workers; w++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					res := dbQueryResult{Latency: time.Millisecond, Success: true}
+					local := make([]dbQueryResult, 0, per)
+					for i := 0; i < per; i++ {
+						local = append(local, res)
+					}
+					overall = append(overall, local...)
+				}()
+			}
+			wg.Wait()
+		})
+	}
+}
+
+// BenchmarkBuildDBResult measures end-of-run aggregation for db:/redis::
+// bucket grouping plus the latency sort behind P50/P95/P99. The 60s window
+// keeps bucket count tied to bucket_width, as in BenchmarkBuildHTTPBuckets.
+func BenchmarkBuildDBResult(b *testing.B) {
+	runStart := time.Unix(1758000000, 0)
+	for _, n := range []int{1_000, 100_000, 1_000_000} {
+		b.Run(fmt.Sprintf("queries=%d", n), func(b *testing.B) {
+			b.ReportAllocs()
+			overall := makeDBResults(n, 50)
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = buildDBResult(overall, runStart, time.Second, time.Minute)
 			}
 		})
 	}
