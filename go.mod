@@ -3,6 +3,7 @@ module github.com/codetesla51/barrage
 go 1.25.6
 
 require (
+	github.com/Shopify/toxiproxy/v2 v2.12.0
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/alitto/pond/v2 v2.7.1
 	github.com/charmbracelet/bubbles v1.0.0
@@ -15,6 +16,7 @@ require (
 	github.com/tidwall/gjson v1.19.0
 	github.com/tsenart/vegeta/v12 v12.13.0
 	golang.org/x/crypto v0.31.0
+	golang.org/x/sync v0.21.0
 	golang.org/x/term v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.55.0
@@ -56,7 +58,6 @@ require (
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/net v0.33.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
 	modernc.org/libc v1.74.1 // indirect
