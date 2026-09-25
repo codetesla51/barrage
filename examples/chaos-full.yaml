@@ -1,0 +1,69 @@
+# chaos-full — every runner through Toxiproxy with staggered faults.
+# Needs: Postgres on :5432, Redis on :6379, HTTP app on :8080.
+# Toxiproxy is auto-spawned when not already running (must be in PATH).
+# Runners dial the proxy listen addresses via chaos_* overrides; the
+# scheduler injects one fault per layer at staggered offsets, then removes
+# each. The report overlays all three windows on the latency timeline.
+duration: 20s
+bucket_width: 1s
+ramp: 0s
+concurrency: 5
+
+http:
+  rate: 10
+  target:
+    method: GET
+    url: http://localhost:8080/api/products
+    chaos_url: http://localhost:26002/api/products
+
+db:
+  rate: 5
+  target:
+    driver: postgres
+    conn: postgres://user:pass@localhost:5432/mydb?sslmode=disable
+    chaos_conn: postgres://user:pass@localhost:26000/mydb?sslmode=disable
+    queries:
+      - query: SELECT id FROM orders LIMIT 10
+        weight: 1
+        type: read
+
+redis:
+  rate: 10
+  target:
+    addr: localhost:6379
+    chaos_addr: localhost:26001
+    queries:
+      - query: PING
+        weight: 1
+
+chaos:
+  api: localhost:8474
+  proxies:
+    - name: db-proxy
+      listen: localhost:26000
+      upstream: localhost:5432
+    - name: redis-proxy
+      listen: localhost:26001
+      upstream: localhost:6379
+    - name: http-proxy
+      listen: localhost:26002
+      upstream: localhost:8080
+  faults:
+    - at: 5s
+      duration: 5s
+      proxy: db-proxy
+      type: latency
+      attrs:
+        latency: 500
+    - at: 10s
+      duration: 4s
+      proxy: redis-proxy
+      type: packet_loss
+      attrs:
+        loss_rate: 0.2
+    - at: 14s
+      duration: 3s
+      proxy: http-proxy
+      type: bandwidth
+      attrs:
+        rate: 100

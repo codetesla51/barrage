@@ -564,10 +564,101 @@ is logged with a timestamp (`[chaos] add latency on redis-proxy at 5s`) so the
 report can overlay fault windows on the latency timeline. The HTML report adds
 a chaos faults table; the JSON export adds `chaos_events`.
 
-Supported toxic types are exactly what Toxiproxy exposes: `latency`,
-`bandwidth`, `timeout`, `slow_close`, `reset_peer`, `slicer`, `limit_data`,
-`packet_loss`, and `down` (implemented as proxy disable/enable). See
-`examples/chaos-redis.yaml` for a runnable shape.
+Supported toxic types are exactly what Toxiproxy exposes — no custom fault
+types. Each fault sets `type` plus its `attrs`:
+
+| Type | What it does | Key `attrs` | Use it for |
+|---|---|---|---|
+| `latency` | delays every byte by N ms (± jitter) | `latency` (ms), `jitter` (ms) | slow dependency: does P99 climb, do timeouts fire? |
+| `bandwidth` | caps throughput to N KB/s | `rate` (KB/s) | thin pipe: does the app back up or degrade gracefully? |
+| `timeout` | stops all data, closes after N ms (`0` = hold open, drop forever) | `timeout` (ms) | hung dependency: do deadlines and circuit breakers trip? |
+| `slow_close` | delays TCP close by N ms | `delay` (ms) | sloppy teardown: do pools leak or stall on close? |
+| `reset_peer` | kills connections with TCP RST, now or after N ms | `timeout` (ms) | connection reset by peer: does retry logic hold? |
+| `slicer` | chops TCP stream into tiny packets, optional delay between them | `average_size` (bytes), `size_variation` (bytes), `delay` (µs) | chatty/flaky network: does tail latency explode? |
+| `limit_data` | closes once N bytes pass through | `bytes` | truncated responses: does the client detect short reads? |
+| `packet_loss` | randomly drops chunks (Wi-Fi-like) | `loss_rate` (0–1), `correlation` (burst, 0–1) | flaky network: do retries amplify or absorb it? |
+| `down` | takes the whole proxy down (no connections pass) | none | full outage: does the app fail fast or hang? Implemented as proxy disable/enable, not a toxic. |
+
+`stream` (default `downstream`) picks the direction: `downstream` faults the
+server→client path (responses), `upstream` faults client→server (requests).
+`toxicity` (default `1.0`) sets what fraction of connections is affected —
+`0.5` faults half of them for partial-outage shapes.
+
+Full example — every runner through its own proxy with staggered faults
+(`examples/chaos-full.yaml`):
+
+```yaml
+duration: 20s
+bucket_width: 1s
+ramp: 0s
+concurrency: 5
+
+http:
+  rate: 10
+  target:
+    method: GET
+    url: http://localhost:8080/api/products
+    chaos_url: http://localhost:26002/api/products
+
+db:
+  rate: 5
+  target:
+    driver: postgres
+    conn: postgres://user:pass@localhost:5432/mydb?sslmode=disable
+    chaos_conn: postgres://user:pass@localhost:26000/mydb?sslmode=disable
+    queries:
+      - query: SELECT id FROM orders LIMIT 10
+        weight: 1
+        type: read
+
+redis:
+  rate: 10
+  target:
+    addr: localhost:6379
+    chaos_addr: localhost:26001
+    queries:
+      - query: PING
+        weight: 1
+
+chaos:
+  api: localhost:8474
+  proxies:
+    - name: db-proxy
+      listen: localhost:26000
+      upstream: localhost:5432
+    - name: redis-proxy
+      listen: localhost:26001
+      upstream: localhost:6379
+    - name: http-proxy
+      listen: localhost:26002
+      upstream: localhost:8080
+  faults:
+    - at: 5s
+      duration: 5s
+      proxy: db-proxy
+      type: latency
+      attrs:
+        latency: 500
+    - at: 10s
+      duration: 4s
+      proxy: redis-proxy
+      type: packet_loss
+      attrs:
+        loss_rate: 0.2
+    - at: 14s
+      duration: 3s
+      proxy: http-proxy
+      type: bandwidth
+      attrs:
+        rate: 100
+```
+
+```sh
+barrage run -c examples/chaos-full.yaml
+```
+
+Smaller shapes: `examples/chaos-redis.yaml` is the same pattern with one
+runner and one fault.
 
 Runner wiring is mechanical — the same override pattern everywhere:
 

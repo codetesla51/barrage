@@ -389,6 +389,19 @@ func TestOrchestratorNoChaosUnchanged(t *testing.T) {
 	}
 }
 
+func TestLoadConfigChaosExamples(t *testing.T) {
+	for _, path := range []string{"examples/chaos-redis.yaml", "examples/chaos-full.yaml"} {
+		cfg, err := LoadConfig(path)
+		if err != nil {
+			t.Errorf("example %s failed to load: %v", path, err)
+			continue
+		}
+		if cfg.Chaos == nil || len(cfg.Chaos.Proxies) == 0 || len(cfg.Chaos.Faults) == 0 {
+			t.Errorf("example %s: want proxies and faults, got %+v", path, cfg.Chaos)
+		}
+	}
+}
+
 func TestLoadConfigChaos(t *testing.T) {
 	path := writeConfig(t, `
 duration: 5s
