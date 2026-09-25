@@ -47,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh
 
 That grabs a prebuilt binary from GitHub releases — no Go toolchain needed.
 Pin a version or change the target dir with
-`bash -s -- --version v0.6.3 --dir ~/.local/bin`, or build from source with
+`bash -s -- --version v0.7.0 --dir ~/.local/bin`, or build from source with
 `--from-source` (requires Go 1.25 or later). See `./install.sh --help` for all
 flags. Or build from source directly:
 
@@ -85,7 +85,7 @@ A 15s run against local targets:
 ```
 $ barrage run -c config.yaml
 
-barrage v0.6.3
+barrage v0.7.0
 duration 15s · bucket 1s · concurrency 10 · ramp 3s
 rates    http 10/s · db 5/s · redis 20/s
 
@@ -142,7 +142,7 @@ status histograms) — the header still prints, the cells are empty.
 ```
 $ barrage run -c examples/scenario-login.yaml
 
-barrage v0.6.3
+barrage v0.7.0
 duration 10s · bucket 1s · concurrency 10 · ramp 0s
 rates    login-flow 3 steps w=1
 
@@ -869,7 +869,7 @@ file at `templates/report.html` alongside the binary overrides the embedded one.
 Cutting a release is one command — no hunting for the version string:
 
 ```sh
-./scripts/release.sh v0.6.3
+./scripts/release.sh v0.7.0
 ```
 
 It bumps the version everywhere (the `internal/version` source of truth, the

@@ -27,7 +27,7 @@ Use this skill whenever:
 curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash
 
 # pin a version, change the install dir, or build from source instead:
-curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash -s -- --version v0.6.3 --dir ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash -s -- --version v0.7.0 --dir ~/.local/bin
 curl -fsSL https://raw.githubusercontent.com/codetesla51/barrage/main/install.sh | bash -s -- --from-source
 
 # from a checkout (requires Go 1.25+):
@@ -686,7 +686,7 @@ all on a 2-vCPU GitHub runner with the same journey mix:
 5. **Every break here was latency, not errors** — success held 98–100%.
    A "broken" level means the P99 crossed the threshold, not that requests
    failed.
-6. **Label the failure, don't guess it (v0.6.3).** Capacity-step exports
+6. **Label the failure, don't guess it (v0.7.0).** Capacity-step exports
    carry an `errors` map bucketed by cause (`5xx`/`4xx` from HTTP answers;
    `dial_timeout`/`read_timeout`/`connection_refused`/`conn_reset`/
    `transport`/`timeout` from the client stack). A run that breaks with a
