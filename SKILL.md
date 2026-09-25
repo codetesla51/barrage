@@ -222,8 +222,13 @@ journeys absorbed it.
   client stack (stdlib `errors.As` peeling `*url.Error`). A level whose
   failures are all `dial_timeout`/`connection_refused` is an unreachable
   app (shared-box/network), not necessarily an app verdict.
-- Timeline `-1` → no request in that bucket (gap before ramp produced
-  hits). Never read it as 0ms latency.
+- Timeline `-1` → no request **completed** in that bucket (gap before
+  ramp produced hits, or a fault window where everything was stuck
+  waiting and nothing finished). Never read it as 0ms latency. The line
+  deliberately breaks instead of drawing through it.
+- Latency *drops* during an outage → fast failure, not a speedup. Failed
+  requests return immediately, so p99 falls while the error count climbs.
+  Check `success_percent` before celebrating a clean curve.
 - First-bucket spike only → cold start / connection warm-up, not a
   bottleneck. Require 3+ sustained buckets (same rule as the capacity
   knee: worst journey P99 > 2× median for 3+ buckets).
@@ -397,6 +402,54 @@ redis:
       - {query: GET sess:loadtest, weight: 5}   # splitCommand on spaces
       - {query: SET sess:loadtest ok, weight: 1}
 ```
+
+### `chaos:` — fault injection (opt-in, pairs with any runner)
+
+Breaks dependencies on a schedule via Toxiproxy while the load runs. Purely
+additive: omit the block and nothing about the run changes. Barrage dials the
+**proxy** addresses, never the real ones, so faults only touch barrage's own
+traffic unless you point the app at a proxy too.
+
+```yaml
+chaos:
+  api: localhost:8474          # Toxiproxy API (default)
+  proxies:                     # created/updated at run start
+    - {name: db-proxy, listen: localhost:26000, upstream: localhost:5432}
+    - {name: redis-proxy, listen: localhost:26001, upstream: localhost:6379}
+  faults:
+    - {at: 10s, duration: 8s, proxy: db-proxy, type: down}
+    - {at: 30s, duration: 6s, proxy: db-proxy, type: latency, attrs: {latency: 500}}
+    - {at: 30s, duration: 6s, proxy: redis-proxy, type: reset_peer, attrs: {timeout: 0}}
+```
+
+Each runner needs the proxy address, not the real one — three separate
+overrides, no DSN parsing:
+
+| Runner | Field | Example |
+|---|---|---|
+| `db:` | `chaos_conn` | `postgres://user:pass@localhost:26000/mydb?sslmode=disable` |
+| `redis:` | `chaos_addr` | `localhost:26001` |
+| `http:` / `scenario:` | `chaos_url` | `http://localhost:26002/api/products` |
+
+- **Types:** `down`, `latency`, `timeout`, `bandwidth`, `slow_close`,
+  `slicer`, `limit_data`, `reset_peer`. `down` maps to proxy
+  disable/enable, so it is a clean refusal, not a hang. `packet_loss` is
+  **rejected** — not in the pinned Toxiproxy v2.12.0 server.
+- `at` is from run start; faults overlap freely, and one file may hold
+  several faults on the same proxy.
+- Every toxic is removed at `at+duration` and again on cleanup, including
+  on failure. A fault left behind would silently poison later runs.
+- If the Toxiproxy API is unreachable, barrage spawns its own
+  `toxiproxy-server` (must be in PATH) and kills it on exit. A server that
+  is already running is reused untouched.
+- Reports carry `chaos_events` (every add/remove) and `chaos_windows`
+  (paired spans, shaded on the latency timeline). A spike **inside** a
+  shaded band is the fault; a spike outside one is yours.
+
+**Testing the app instead of the load generator:** point the *app's* DSNs at
+the proxies and let `scenario:` VUs drive it — then the faults hit the app's
+dependencies, not barrage's. The app must already be running when the run
+starts, because it read its DSN at boot. See `examples/chaos-app.yaml`.
 
 ### `scenario:` — user journeys (the part agents get wrong)
 
