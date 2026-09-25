@@ -334,6 +334,42 @@ func TestOrchestratorHTTPOnly(t *testing.T) {
 	}
 }
 
+func TestOrchestratorHTTPAndScenario(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	cfg := OrchestratorConfig{
+		Duration:    Duration(200 * time.Millisecond),
+		BucketWidth: Duration(100 * time.Millisecond),
+		Concurrency: 2,
+		HTTP: &HTTPRunnerConfig{
+			Target: HTTPTarget{URL: ts.URL},
+			Rate:   10,
+		},
+		Scenario: []Scenario{{
+			Name:  "health",
+			Steps: []Step{{Method: http.MethodGet, URL: ts.URL}},
+		}},
+		Quiet: true,
+	}
+
+	res, err := Orchestrator(cfg)
+	if err != nil {
+		t.Fatalf("Orchestrator returned error: %v", err)
+	}
+	if res.HTTPResult == nil || res.HTTPResult.Requests == 0 {
+		t.Fatal("expected HTTP runner results")
+	}
+	if res.ScenarioStats == nil || res.ScenarioStats.Requests == 0 {
+		t.Fatal("expected scenario runner results")
+	}
+	if res.ScenarioName != "health" {
+		t.Errorf("scenario name = %q, want %q", res.ScenarioName, "health")
+	}
+}
+
 func TestLoadConfigDBPoolOptions(t *testing.T) {
 	path := writeConfig(t, `
 duration: 2s
