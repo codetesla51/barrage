@@ -22,7 +22,12 @@
 duration: 60s
 bucket_width: 1s
 ramp: 5s
-concurrency: 20
+# 300 VUs, not 20. At 20 the faults barely register — the DB-slow window cost
+# latency but zero errors, so there was nothing to watch. 300 is enough load
+# that the app's behaviour under each fault is actually visible.
+# Note: the app sets no connection cap (Go default = unlimited), so this is
+# also where a slow-DB window can pile up connections until Postgres refuses.
+concurrency: 300
 
 scenario:
   - name: browse                 # the reading crowd
