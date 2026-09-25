@@ -20,7 +20,19 @@ type JSONReport struct {
 	Spikes         []JSONSpike   `json:"spikes"`
 	Timeline       JSONTimeline  `json:"timeline"`
 	CapacitySearch *JSONCapacity `json:"capacity_search,omitempty"`
+	ChaosEvents    []JSONChaos   `json:"chaos_events,omitempty"`
 	Story          JSONStory     `json:"story"`
+}
+
+// JSONChaos is one fault injection/removal in the JSON export. Offset is from
+// run start (e.g. "30s"); At is wall time so it aligns with timeline labels.
+type JSONChaos struct {
+	Offset string `json:"offset"`
+	At     string `json:"at"`
+	Proxy  string `json:"proxy"`
+	Toxic  string `json:"toxic"`
+	Type   string `json:"type"`
+	Action string `json:"action"`
 }
 
 // JSONCapacityStep is one capacity-sweep level in the JSON export.
@@ -140,6 +152,16 @@ func BuildJSON(data ReportData) ([]byte, error) {
 	}
 	for _, s := range data.Timeline.Series {
 		report.Timeline.Series = append(report.Timeline.Series, JSONTimelineSeries{Name: s.Name, P99: s.P99})
+	}
+	for _, e := range data.ChaosEvents {
+		report.ChaosEvents = append(report.ChaosEvents, JSONChaos{
+			Offset: e.Offset.String(),
+			At:     e.At.Format(time.RFC3339),
+			Proxy:  e.Proxy,
+			Toxic:  e.Toxic,
+			Type:   e.Type,
+			Action: e.Action,
+		})
 	}
 	for _, r := range data.Runners {
 		report.Runners = append(report.Runners, JSONRunner{

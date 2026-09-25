@@ -154,6 +154,9 @@ func BuildStory(data ReportData) StoryData {
 	if len(s.NextSteps) == 0 {
 		s.NextSteps = append(s.NextSteps, "Clean run — export this JSON and use it as your baseline for barrage compare.")
 	}
+	if len(data.ChaosEvents) > 0 {
+		s.NextSteps = append(s.NextSteps, fmt.Sprintf("%d chaos fault event(s) ran during this test — spikes inside a fault window are the fault's blast radius, not a new bottleneck. Check the chaos faults table against the timeline.", len(data.ChaosEvents)))
+	}
 
 	s.Capacity = capacityLine(data)
 	return s

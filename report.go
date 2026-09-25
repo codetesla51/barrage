@@ -64,6 +64,10 @@ type ReportData struct {
 	// Error carries a fatal run error (e.g. a runner could not start or dial
 	// its target). When set the run produced no usable metrics.
 	Error string
+	// ChaosEvents logs fault injections/removals with wall timestamps in the
+	// same bucket scheme as the timeline, so the report can overlay fault
+	// windows on latency/error graphs.
+	ChaosEvents []ChaosEvent
 }
 
 // NewReportData assembles a ReportData from an OrchestratorResult and the
@@ -73,6 +77,7 @@ func NewReportData(result *OrchestratorResult, correlation CorrelationResult) Re
 	if result == nil {
 		return data
 	}
+	data.ChaosEvents = result.ChaosEvents
 	if result.HTTPResult != nil {
 		data.Runners = append(data.Runners, summarizeRunner("HTTP", result.HTTPResult.Requests, result.HTTPResult.Success, result.HTTPResult.P50, result.HTTPResult.P95, result.HTTPResult.P99, result.HTTPResult.Max, result.HTTPResult.Mean, result.HTTPResult.Rate, result.HTTPResult.Throughput, result.HTTPResult.StatusCodes))
 	}

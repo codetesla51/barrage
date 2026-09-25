@@ -1131,6 +1131,39 @@
       <p class="empty-text">DB and Redis P99 never crossed their thresholds during this run.</p>
     </section>
     {{end}}
+    {{if .ChaosEvents}}
+    <section class="tile tile--wide">
+      <div class="t-head">
+        <h2 class="t-title">chaos faults</h2>
+        <span class="t-meta">{{len .ChaosEvents}} events · offsets from run start</span>
+      </div>
+      <div class="table-wrap tall" data-cap="40">
+        <table>
+          <thead>
+            <tr>
+              <th>Offset</th>
+              <th>Action</th>
+              <th>Proxy</th>
+              <th>Toxic</th>
+              <th>Type</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .ChaosEvents}}
+            <tr>
+              <td><span class="time-chip">{{.Offset}}</span></td>
+              <td>{{.Action}}</td>
+              <td>{{.Proxy}}</td>
+              <td>{{.Toxic}}</td>
+              <td>{{.Type}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      <p class="empty-text">Fault windows align with the latency timeline by wall time — a spike inside a window is the fault's blast radius, not a new bottleneck.</p>
+    </section>
+    {{end}}
     {{if .Timeline.Series}}
     <section class="tile tile--wide">
       <div class="t-head">

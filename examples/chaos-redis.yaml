@@ -1,0 +1,32 @@
+# chaos run — Redis through Toxiproxy with a latency fault mid-run.
+# Needs Toxiproxy running locally (toxiproxy-server &) and Redis on :6379.
+# Runners dial the proxy listen address via chaos_addr; the scheduler injects
+# a 300ms latency toxic at 5s for 5s, then removes it. The report overlays the
+# fault window on the latency timeline.
+duration: 15s
+bucket_width: 1s
+ramp: 0s
+concurrency: 5
+
+redis:
+  rate: 10
+  target:
+    addr: localhost:6379
+    chaos_addr: localhost:26001
+    queries:
+      - query: PING
+        weight: 1
+
+chaos:
+  api: localhost:8474
+  proxies:
+    - name: redis-proxy
+      listen: localhost:26001
+      upstream: localhost:6379
+  faults:
+    - at: 5s
+      duration: 5s
+      proxy: redis-proxy
+      type: latency
+      attrs:
+        latency: 300

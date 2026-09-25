@@ -30,6 +30,7 @@ application was affected or not.
   - [Rate, concurrency, and ramp](#rate-concurrency-and-ramp)
   - [Live progress](#live-progress)
 - [Configuration](#configuration)
+- [Chaos testing (Toxiproxy)](#chaos-testing-toxiproxy)
 - [Demo stack](#demo-stack)
   - [Profiles](#profiles)
   - [Case studies: the demo-stack progression](#case-studies-the-demo-stack-progression)
@@ -499,6 +500,89 @@ scenario:
   `concurrency`. While it runs, `ramp:` and `duration:` are ignored — bursts
   force the inner ramp off and use `step_duration` instead. `auto_ramp:` is
   accepted as a deprecated alias for `capacity:`.
+
+## Chaos testing (Toxiproxy)
+
+Barrage can inject network faults during a run — latency, outages, packet
+loss — to answer "did correctness/performance degrade under load + failure."
+Faults run through [Toxiproxy](https://github.com/Shopify/toxiproxy), which
+relays raw TCP bytes regardless of protocol (Postgres wire, RESP, HTTP). The
+only thing that changes per runner is which host:port it dials.
+
+Toxiproxy is a separate process, not a Go import. If it is already running,
+barrage uses it as-is. If not, barrage starts a managed `toxiproxy-server`
+automatically (it must be in `PATH`) and stops it after the run — both are
+announced on stderr:
+
+```
+[chaos] toxiproxy not running at localhost:8474, starting /usr/local/bin/toxiproxy-server ...
+[chaos] using managed toxiproxy-server (pid 12345), will stop it after the run
+[chaos] stopped managed toxiproxy-server
+```
+
+To run it yourself instead:
+
+```sh
+# binary from https://github.com/Shopify/toxiproxy/releases
+toxiproxy-server &
+```
+
+Then point runners at the proxy listen address and schedule faults:
+
+```yaml
+redis:
+  rate: 10
+  target:
+    addr: localhost:6379
+    chaos_addr: localhost:26001   # dial proxy when chaos mode is on
+    queries:
+      - query: PING
+        weight: 1
+
+chaos:
+  api: localhost:8474
+  proxies:
+    - name: redis-proxy
+      listen: localhost:26001
+      upstream: localhost:6379
+  faults:
+    - at: 5s
+      duration: 5s
+      proxy: redis-proxy
+      type: latency
+      attrs:
+        latency: 300
+```
+
+```sh
+barrage run -c examples/chaos-redis.yaml
+```
+
+How it works: barrage creates the proxies at run start, the scheduler fires
+`AddToxic`/`RemoveToxic` at each fault's offset, and every injection/removal
+is logged with a timestamp (`[chaos] add latency on redis-proxy at 5s`) so the
+report can overlay fault windows on the latency timeline. The HTML report adds
+a chaos faults table; the JSON export adds `chaos_events`.
+
+Supported toxic types are exactly what Toxiproxy exposes: `latency`,
+`bandwidth`, `timeout`, `slow_close`, `reset_peer`, `slicer`, `limit_data`,
+`packet_loss`, and `down` (implemented as proxy disable/enable). See
+`examples/chaos-redis.yaml` for a runnable shape.
+
+Runner wiring is mechanical — the same override pattern everywhere:
+
+| Runner | Real target | Chaos override | Notes |
+|---|---|---|---|
+| DB | `conn` | `chaos_conn` | Postgres/MySQL only; SQLite is a local file and is rejected with chaos faults |
+| Redis | `addr` | `chaos_addr` | |
+| HTTP | `url` | `chaos_url` | |
+| Scenario step | `url` | `chaos_url` | per step, mirrors HTTP |
+
+Chaos mode is strictly opt-in: a config without `chaos:` runs exactly as
+before, with no proxy, no scheduler, and no event log. Chaos cannot be
+combined with a `capacity:` sweep — fault offsets are relative to a single
+run. Toxiproxy cleanup is automatic: toxics are removed after every run, and
+a managed server is stopped; a server you started yourself is left running.
 
 ## Demo stack
 
