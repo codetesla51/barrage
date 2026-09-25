@@ -390,7 +390,7 @@ func TestOrchestratorNoChaosUnchanged(t *testing.T) {
 }
 
 func TestLoadConfigChaosExamples(t *testing.T) {
-	for _, path := range []string{"examples/chaos-redis.yaml", "examples/chaos-full.yaml"} {
+	for _, path := range []string{"examples/chaos-redis.yaml", "examples/chaos-full.yaml", "examples/chaos-break-all.yaml"} {
 		cfg, err := LoadConfig(path)
 		if err != nil {
 			t.Errorf("example %s failed to load: %v", path, err)

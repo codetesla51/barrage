@@ -71,7 +71,7 @@ jobs:
           done
           go test ./...
 
-      - name: Chaos ladder (redis-only, then full stack)
+      - name: Chaos ladder (redis-only, full stack, break-all)
         run: |
           # Kill the test-run server so the ladder proves auto-spawn on a
           # clean box: barrage must start its own toxiproxy-server.
@@ -80,10 +80,15 @@ jobs:
           sed -e 's#postgres://user:pass@localhost:5432/mydb#postgres://postgres:postgres@localhost:5432/chaos#' \
               -e 's#postgres://user:pass@localhost:26000/mydb#postgres://postgres:postgres@localhost:26000/chaos#' \
             examples/chaos-full.yaml > /tmp/chaos-full-ci.yaml
+          sed -e 's#postgres://user:pass@localhost:5432/mydb#postgres://postgres:postgres@localhost:5432/chaos#' \
+              -e 's#postgres://user:pass@localhost:26000/mydb#postgres://postgres:postgres@localhost:26000/chaos#' \
+            examples/chaos-break-all.yaml > /tmp/chaos-break-ci.yaml
           ./barrage run -c examples/chaos-redis.yaml --no-progress \
             --json chaos-redis.json --report chaos-redis.html 2>&1 | tail -n 5
           ./barrage run -c /tmp/chaos-full-ci.yaml --no-progress \
             --json chaos-full.json --report chaos-full.html 2>&1 | tail -n 5
+          ./barrage run -c /tmp/chaos-break-ci.yaml --no-progress \
+            --json chaos-break.json --report chaos-break.html 2>&1 | tail -n 8
 
       - name: Capture Postgres log (post-mortem for DB verdicts)
         if: always()
