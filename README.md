@@ -657,7 +657,10 @@ barrage run -c examples/chaos-full.yaml
 ```
 
 Smaller shapes: `examples/chaos-redis.yaml` is the same pattern with one
-runner and one fault.
+runner and one fault. `examples/chaos-app.yaml` flips it around: no
+db:/redis: load runners at all, only scenario VUs driving the demo app while
+the faults break the app's own Postgres and Redis (the app dials them through
+proxies — see the header comment for the startup order).
 
 Runner wiring is mechanical — the same override pattern everywhere:
 

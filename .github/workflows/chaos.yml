@@ -100,6 +100,31 @@ jobs:
           ./barrage run -c /tmp/chaos-break-500k-ci.yaml --no-progress \
             --json chaos-break-500k.json --report chaos-break-500k.html 2>&1 | tail -n 8
 
+      - name: Chaos app run (journeys vs failing stores)
+        run: |
+          # The app reads its stores once at boot, so its proxies must exist
+          # BEFORE it starts: run an explicit server here (not auto-spawn),
+          # create the proxies, then restart demoserver through them. Barrage
+          # re-populates the identical definitions at run start (a no-op).
+          toxiproxy-server > toxiproxy-app.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS -m 2 http://localhost:8474/version >/dev/null && break || sleep 1
+          done
+          curl -fsS -X POST http://localhost:8474/proxies \
+            -d '{"name":"app-db-proxy","listen":"127.0.0.1:26100","upstream":"127.0.0.1:5432"}' > /dev/null
+          curl -fsS -X POST http://localhost:8474/proxies \
+            -d '{"name":"app-redis-proxy","listen":"127.0.0.1:26101","upstream":"127.0.0.1:6379"}' > /dev/null
+          pkill -f './demoserver' || true
+          sleep 2
+          POSTGRES_DSN='postgres://postgres:postgres@127.0.0.1:26100/chaos?sslmode=disable' \
+          REDIS_ADDR='127.0.0.1:26101' AUTH_SECRET='ci-chaos-secret' \
+            ./demoserver > demoserver-app.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS -m 2 http://localhost:8080/health >/dev/null && break || sleep 2
+          done
+          ./barrage run -c examples/chaos-app.yaml --no-progress \
+            --json chaos-app.json --report chaos-app.html 2>&1 | tail -n 8
+
       - name: Capture Postgres log (post-mortem for DB verdicts)
         if: always()
         run: docker logs pg > pg.log 2>&1 || true
@@ -112,5 +137,7 @@ jobs:
             chaos-*.json
             chaos-*.html
             demoserver.log
+            demoserver-app.log
             toxiproxy.log
+            toxiproxy-app.log
             pg.log

@@ -1,0 +1,124 @@
+# chaos-app — the demo app under chaos, journeys only.
+# No db:/redis: load runners here: virtual users drive the app's real
+# journeys, and the faults break what the APP depends on (its Postgres and
+# Redis), not what barrage dials. This is the classic resilience question:
+# when a store goes down or slow, does the app degrade gracefully or fall
+# over? The products/orders routes have a Postgres fallback behind their
+# Redis cache — watch whether it saves them.
+#
+# Setup (proxies must exist BEFORE the app starts, since it reads its DSN
+# once at boot; barrage re-populates the identical definitions at run start,
+# which is a no-op for matching proxies):
+#
+#   toxiproxy-server &
+#   toxiproxy-cli create -l 127.0.0.1:26100 -u 127.0.0.1:5432 app-db-proxy
+#   toxiproxy-cli create -l 127.0.0.1:26101 -u 127.0.0.1:6379 app-redis-proxy
+#   POSTGRES_DSN="postgres://user:pass@127.0.0.1:26100/mydb?sslmode=disable" \
+#   REDIS_ADDR="127.0.0.1:26101" AUTH_SECRET="dev-secret" ./demoserver &
+#   barrage run -c examples/chaos-app.yaml
+#
+# Needs: Postgres on :5432 (seeded: users alice/bob/carol password secret,
+# products table — see docker/init.sql and cmd/seeddb), Redis on :6379.
+duration: 60s
+bucket_width: 1s
+ramp: 5s
+concurrency: 20
+
+scenario:
+  - name: browse                 # the reading crowd
+    weight: 45
+    steps:
+      - method: GET
+        url: http://localhost:8080/api/products
+      - method: GET
+        url: http://localhost:8080/api/orders
+
+  - name: account-check          # returning users, bcrypt every login
+    weight: 15
+    steps:
+      - method: POST
+        url: http://localhost:8080/api/login
+        body: '{"username":"alice","password":"secret"}'
+        headers:
+          Content-Type: application/json
+        extract:
+          token: $.token
+      - method: GET
+        url: http://localhost:8080/api/me
+        headers:
+          Authorization: Bearer {{token}}
+
+  - name: checkout-flow          # buyers: auth -> order -> checkout
+    weight: 25
+    steps:
+      - method: POST
+        url: http://localhost:8080/api/login
+        body: '{"username":"alice","password":"secret"}'
+        headers:
+          Content-Type: application/json
+        extract:
+          token: $.token
+      - method: GET
+        url: http://localhost:8080/api/me
+        headers:
+          Authorization: Bearer {{token}}
+      - method: POST
+        url: http://localhost:8080/api/orders
+        body: '{"amount":1}'
+        headers:
+          Content-Type: application/json
+      - method: GET
+        url: http://localhost:8080/api/checkout?token={{token}}
+        headers:
+          Authorization: Bearer {{token}}
+
+  - name: login-only             # auth hits that go no further
+    weight: 10
+    steps:
+      - method: POST
+        url: http://localhost:8080/api/login
+        body: '{"username":"alice","password":"secret"}'
+        headers:
+          Content-Type: application/json
+
+  - name: health-ping            # ops probes, must never fail
+    weight: 5
+    steps:
+      - method: GET
+        url: http://localhost:8080/health
+
+chaos:
+  api: localhost:8474
+  proxies:
+    - name: app-db-proxy
+      listen: 127.0.0.1:26100
+      upstream: 127.0.0.1:5432
+    - name: app-redis-proxy
+      listen: 127.0.0.1:26101
+      upstream: 127.0.0.1:6379
+  faults:
+    # Redis down: the cache vanishes. Do products/orders hold via the
+    # Postgres fallback, or do they 500?
+    - at: 10s
+      duration: 8s
+      proxy: app-redis-proxy
+      type: down
+    # Postgres slow: every fallback and write crawls. Does app P99 drag
+    # past the journey timeouts, and do VUs pile up?
+    - at: 22s
+      duration: 8s
+      proxy: app-db-proxy
+      type: latency
+      attrs:
+        latency: 500
+    # Both down: the full backend outage. What does the app serve now —
+    # fast failures, hung journeys, or something worse?
+    - at: 34s
+      duration: 8s
+      proxy: app-db-proxy
+      type: down
+    - at: 34s
+      duration: 8s
+      proxy: app-redis-proxy
+      type: down
+    # 42s-60s: recovery tail. Curves must return to the 0s-10s baseline.
