@@ -1,14 +1,19 @@
 # Chaos validation: spins up Postgres + Valkey + demoserver on one throwaway
-# VM, runs the chaos example profiles through Toxiproxy, uploads the reports,
-# then the VM is dropped. Copied from redis-cdc's bench workflows: same
+# VM, runs chaos profiles through Toxiproxy, uploads the reports, then the
+# VM is dropped. Copied from redis-cdc's bench workflows: same
 # services-by-docker-run shape, same box-specs step, same artifact pattern.
 # Same-box numbers are relative — this proves faults inject, events log, and
 # cleanup happens, not absolute capacity.
 #
-# Run it with: gh workflow run Chaos
+# Run it with: gh workflow run Chaos [-f rung=app]
 name: Chaos
 on:
   workflow_dispatch:
+    inputs:
+      rung:
+        description: 'which rung to run (all, test, redis, full, break, 500k, app)'
+        required: false
+        default: 'all'
 
 jobs:
   chaos:
@@ -58,6 +63,7 @@ jobs:
           go build -o demoserver ./cmd/demoserver
 
       - name: Seed orders + start demoserver
+        if: ${{ inputs.rung == 'all' || inputs.rung == 'full' || inputs.rung == 'break' || inputs.rung == '500k' || inputs.rung == 'app' }}
         run: |
           export DSN='postgres://postgres:postgres@localhost:5432/chaos?sslmode=disable'
           ./seeddb -conn "$DSN" -n 20000
@@ -68,6 +74,7 @@ jobs:
           done
 
       - name: Unit + integration tests (real Toxiproxy)
+        if: ${{ inputs.rung == 'all' || inputs.rung == 'test' }}
         run: |
           toxiproxy-server > toxiproxy.log 2>&1 &
           for i in $(seq 1 30); do
@@ -75,32 +82,51 @@ jobs:
           done
           go test ./...
 
-      - name: Chaos ladder (redis-only, full stack, break-all, 500k)
+      - name: Reset toxiproxy to auto-spawn
+        if: ${{ inputs.rung == 'all' || inputs.rung == 'redis' || inputs.rung == 'full' || inputs.rung == 'break' || inputs.rung == '500k' }}
         run: |
-          # Kill the test-run server so the ladder proves auto-spawn on a
+          # Kill the test-run server so these rungs prove auto-spawn on a
           # clean box: barrage must start its own toxiproxy-server.
           pkill -f toxiproxy-server || true
           sleep 2
-          rewrite() {
-            sed -e 's#postgres://user:pass@localhost:5432/mydb#postgres://postgres:postgres@localhost:5432/chaos#' \
-                -e 's#postgres://user:pass@localhost:26000/mydb#postgres://postgres:postgres@localhost:26000/chaos#' \
-              "$1"
-          }
-          rewrite examples/chaos-full.yaml > /tmp/chaos-full-ci.yaml
-          rewrite examples/chaos-break-all.yaml > /tmp/chaos-break-ci.yaml
-          rewrite examples/chaos-break-500k.yaml > /tmp/chaos-break-500k-ci.yaml
+
+      - name: Chaos rung (redis-only)
+        if: ${{ inputs.rung == 'all' || inputs.rung == 'redis' }}
+        run: |
           ./barrage run -c examples/chaos-redis.yaml --no-progress \
             --json chaos-redis.json --report chaos-redis.html 2>&1 | tail -n 5
+
+      - name: Chaos rung (full stack)
+        if: ${{ inputs.rung == 'all' || inputs.rung == 'full' }}
+        run: |
+          sed -e 's#postgres://user:pass@localhost:5432/mydb#postgres://postgres:postgres@localhost:5432/chaos#' \
+              -e 's#postgres://user:pass@localhost:26000/mydb#postgres://postgres:postgres@localhost:26000/chaos#' \
+            examples/chaos-full.yaml > /tmp/chaos-full-ci.yaml
           ./barrage run -c /tmp/chaos-full-ci.yaml --no-progress \
             --json chaos-full.json --report chaos-full.html 2>&1 | tail -n 5
+
+      - name: Chaos rung (break-all)
+        if: ${{ inputs.rung == 'all' || inputs.rung == 'break' }}
+        run: |
+          sed -e 's#postgres://user:pass@localhost:5432/mydb#postgres://postgres:postgres@localhost:5432/chaos#' \
+              -e 's#postgres://user:pass@localhost:26000/mydb#postgres://postgres:postgres@localhost:26000/chaos#' \
+            examples/chaos-break-all.yaml > /tmp/chaos-break-ci.yaml
           ./barrage run -c /tmp/chaos-break-ci.yaml --no-progress \
             --json chaos-break.json --report chaos-break.html 2>&1 | tail -n 8
-          # 500k rung: reseed the orders table at scale, then the 60s break.
+
+      - name: Chaos rung (500k)
+        if: ${{ inputs.rung == 'all' || inputs.rung == '500k' }}
+        run: |
+          sed -e 's#postgres://user:pass@localhost:5432/mydb#postgres://postgres:postgres@localhost:5432/chaos#' \
+              -e 's#postgres://user:pass@localhost:26000/mydb#postgres://postgres:postgres@localhost:26000/chaos#' \
+            examples/chaos-break-500k.yaml > /tmp/chaos-break-500k-ci.yaml
+          # Reseed the orders table at scale, then the 60s break.
           ./seeddb -conn 'postgres://postgres:postgres@localhost:5432/chaos?sslmode=disable' -n 500000
           ./barrage run -c /tmp/chaos-break-500k-ci.yaml --no-progress \
             --json chaos-break-500k.json --report chaos-break-500k.html 2>&1 | tail -n 8
 
-      - name: Chaos app run (journeys vs failing stores)
+      - name: Chaos rung (app journeys vs failing stores)
+        if: ${{ inputs.rung == 'all' || inputs.rung == 'app' }}
         run: |
           # The app reads its stores once at boot, so its proxies must exist
           # BEFORE it starts: run an explicit server here (not auto-spawn),
