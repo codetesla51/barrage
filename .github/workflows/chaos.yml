@@ -1,0 +1,101 @@
+# Chaos validation: spins up Postgres + Valkey + demoserver on one throwaway
+# VM, runs the chaos example profiles through Toxiproxy, uploads the reports,
+# then the VM is dropped. Copied from redis-cdc's bench workflows: same
+# services-by-docker-run shape, same box-specs step, same artifact pattern.
+# Same-box numbers are relative — this proves faults inject, events log, and
+# cleanup happens, not absolute capacity.
+#
+# Run it with: gh workflow run Chaos
+name: Chaos
+on:
+  workflow_dispatch:
+
+jobs:
+  chaos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Start Postgres + Valkey
+        run: |
+          docker run -d --name pg -e POSTGRES_PASSWORD=postgres \
+            -p 5432:5432 postgres:16 -c max_connections=200
+          docker run -d --name cache -p 6379:6379 valkey/valkey:8
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -U postgres && break || sleep 2
+          done
+
+      - name: Seed database
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres \
+            -c "CREATE DATABASE chaos;"
+
+      - name: Install toxiproxy-server
+        run: |
+          curl -fsSL https://github.com/Shopify/toxiproxy/releases/download/v2.12.0/toxiproxy-server-linux-amd64 \
+            -o toxiproxy-server
+          chmod +x toxiproxy-server
+          sudo mv toxiproxy-server /usr/local/bin/
+          toxiproxy-server --version
+
+      - name: Box specs
+        run: |
+          echo "cpus: $(nproc)"; free -h | head -n 2
+          grep -m1 "model name" /proc/cpuinfo; grep -m1 "cpu MHz" /proc/cpuinfo
+          toxiproxy-server --version
+
+      - name: Build barrage + seeddb + demoserver
+        run: |
+          go build -o barrage ./cmd/barrage
+          go build -o seeddb ./cmd/seeddb
+          go build -o demoserver ./cmd/demoserver
+
+      - name: Seed orders + start demoserver
+        run: |
+          export DSN='postgres://postgres:postgres@localhost:5432/chaos?sslmode=disable'
+          ./seeddb -conn "$DSN" -n 20000
+          POSTGRES_DSN="$DSN" REDIS_ADDR="localhost:6379" AUTH_SECRET="ci-chaos-secret" \
+            ./demoserver > demoserver.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS -m 2 http://localhost:8080/health >/dev/null && break || sleep 2
+          done
+
+      - name: Unit + integration tests (real Toxiproxy)
+        run: |
+          toxiproxy-server > toxiproxy.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS -m 2 http://localhost:8474/version >/dev/null && break || sleep 1
+          done
+          go test ./...
+
+      - name: Chaos ladder (redis-only, then full stack)
+        run: |
+          # Kill the test-run server so the ladder proves auto-spawn on a
+          # clean box: barrage must start its own toxiproxy-server.
+          pkill -f toxiproxy-server || true
+          sleep 2
+          sed -e 's#postgres://user:pass@localhost:5432/mydb#postgres://postgres:postgres@localhost:5432/chaos#' \
+              -e 's#postgres://user:pass@localhost:26000/mydb#postgres://postgres:postgres@localhost:26000/chaos#' \
+            examples/chaos-full.yaml > /tmp/chaos-full-ci.yaml
+          ./barrage run -c examples/chaos-redis.yaml --no-progress \
+            --json chaos-redis.json --report chaos-redis.html 2>&1 | tail -n 5
+          ./barrage run -c /tmp/chaos-full-ci.yaml --no-progress \
+            --json chaos-full.json --report chaos-full.html 2>&1 | tail -n 5
+
+      - name: Capture Postgres log (post-mortem for DB verdicts)
+        if: always()
+        run: docker logs pg > pg.log 2>&1 || true
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-results
+          path: |
+            chaos-*.json
+            chaos-*.html
+            demoserver.log
+            toxiproxy.log
+            pg.log
