@@ -1,0 +1,90 @@
+# chaos-break-500k — the break-all shape against a 500k-row orders table.
+# Same fault script as chaos-break-all (one layer at a time, then all three
+# down together), stretched onto a 60s run for a longer recovery tail.
+# Needs: Postgres on :5432 seeded with 500k orders rows
+# (seeddb -conn <dsn> -n 500000), Redis on :6379, HTTP app on :8080.
+# Toxiproxy is auto-spawned when not already running (must be in PATH).
+#
+# Row-count note: the DB query below is index-scanned (LIMIT 10), so 500k
+# rows barely move it — the count exercises seed/scale plumbing and keeps
+# this rung comparable with the redis-cdc flood ladder (50k/100k/1M rows).
+# Swap in a scan-heavy query if you want the row count itself to be the load.
+duration: 60s
+bucket_width: 1s
+ramp: 0s
+concurrency: 10
+
+http:
+  rate: 10
+  target:
+    method: GET
+    url: http://localhost:8080/api/products
+    chaos_url: http://localhost:26002/api/products
+
+db:
+  rate: 5
+  target:
+    driver: postgres
+    conn: postgres://user:pass@localhost:5432/mydb?sslmode=disable
+    chaos_conn: postgres://user:pass@localhost:26000/mydb?sslmode=disable
+    queries:
+      - query: SELECT id FROM orders LIMIT 10
+        weight: 1
+        type: read
+
+redis:
+  rate: 10
+  target:
+    addr: localhost:6379
+    chaos_addr: localhost:26001
+    queries:
+      - query: PING
+        weight: 1
+
+chaos:
+  api: localhost:8474
+  proxies:
+    - name: db-proxy
+      listen: localhost:26000
+      upstream: localhost:5432
+    - name: redis-proxy
+      listen: localhost:26001
+      upstream: localhost:6379
+    - name: http-proxy
+      listen: localhost:26002
+      upstream: localhost:8080
+  faults:
+    # DB full outage: every query fails fast, HTTP reads fall back or fail.
+    - at: 8s
+      duration: 6s
+      proxy: db-proxy
+      type: down
+    # Redis connections reset mid-flight: retries either absorb it or storm.
+    - at: 16s
+      duration: 6s
+      proxy: redis-proxy
+      type: reset_peer
+      attrs:
+        timeout: 0
+    # HTTP crawling: 1.5s added to every response, pools start to back up.
+    - at: 24s
+      duration: 6s
+      proxy: http-proxy
+      type: latency
+      attrs:
+        latency: 1500
+    # Everything down at once: the full-outage blast radius.
+    - at: 32s
+      duration: 6s
+      proxy: db-proxy
+      type: down
+    - at: 32s
+      duration: 6s
+      proxy: redis-proxy
+      type: down
+    - at: 32s
+      duration: 6s
+      proxy: http-proxy
+      type: down
+    # 38s-60s: long recovery tail. If the curves don't return to baseline
+    # here, something leaked (pool, connection, retry storm) — go find it.
