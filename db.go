@@ -24,6 +24,11 @@ type DBTarget struct {
 	MaxIdleConns    int           `yaml:"max_idle_conns"`
 	ConnMaxLifetime Duration      `yaml:"conn_max_lifetime"`
 	ConnMaxIdleTime Duration      `yaml:"conn_max_idle_time"`
+	// ChaosConn optionally points the runner at a Toxiproxy listen address
+	// instead of Conn. When chaos mode is on and set, the runner dials
+	// ChaosConn; when unset, behavior is unchanged. SQLite (a local file)
+	// cannot go through a TCP proxy — chaos with sqlite is rejected.
+	ChaosConn string `yaml:"chaos_conn,omitempty"`
 }
 
 // QueryWeight is one weighted entry in a runner's query list. Type and Args

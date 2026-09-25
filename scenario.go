@@ -11,6 +11,11 @@ type Step struct {
 	Body    string            `yaml:"body,omitempty"`
 	Headers map[string]string `yaml:"headers,omitempty"`
 	Extract Extract           `yaml:"extract,omitempty"`
+	// ChaosURL optionally points the step at a Toxiproxy listen address
+	// instead of URL. When chaos mode is on and set, the VU hits ChaosURL;
+	// when unset, behavior is unchanged. This mirrors HTTPTarget.ChaosURL
+	// so scenario journeys can run through the same http-proxy.
+	ChaosURL string `yaml:"chaos_url,omitempty"`
 }
 
 // Scenario is a sequence of HTTP steps run by a virtual user.

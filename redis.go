@@ -17,6 +17,10 @@ type RedisTarget struct {
 	Password string        `yaml:"password"`
 	DB       int           `yaml:"db"`
 	Query    []QueryWeight `yaml:"queries"`
+	// ChaosAddr optionally points the runner at a Toxiproxy listen address
+	// instead of Addr. When chaos mode is on and set, the runner dials
+	// ChaosAddr; when unset, behavior is unchanged.
+	ChaosAddr string `yaml:"chaos_addr,omitempty"`
 }
 
 // RedisResult is the run summary for a Redis load test. It reuses the same

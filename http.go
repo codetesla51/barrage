@@ -13,6 +13,10 @@ type HTTPTarget struct {
 	URL    string      `yaml:"url"`
 	Body   []byte      `yaml:"body"`
 	Header http.Header `yaml:"header"`
+	// ChaosURL optionally points the runner at a Toxiproxy listen address
+	// instead of URL. When chaos mode is on and set, the runner hits
+	// ChaosURL; when unset, behavior is unchanged.
+	ChaosURL string `yaml:"chaos_url,omitempty"`
 }
 
 type HTTPResult struct {

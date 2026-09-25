@@ -173,6 +173,26 @@ func loadConfigBytes(data []byte, path string) (*OrchestratorConfig, error) {
 	if cfg.Concurrency < 0 {
 		return nil, errors.New("concurrency must not be negative")
 	}
+	if cfg.Chaos != nil {
+		if cfg.Capacity != nil {
+			return nil, errors.New("chaos cannot be combined with capacity sweep (fault offsets are relative to a single run)")
+		}
+		if err := validateChaos(cfg.Chaos, time.Duration(cfg.Duration)); err != nil {
+			return nil, err
+		}
+		if cfg.DB != nil && strings.TrimSpace(cfg.DB.Target.ChaosConn) != "" {
+			if NormalizeDriver(cfg.DB.Target.Driver) == "sqlite" {
+				return nil, errors.New("db target chaos_conn cannot be used with sqlite (local file, no TCP to proxy)")
+			}
+		}
+		for idx, sc := range cfg.Scenario {
+			for i, step := range sc.Steps {
+				if strings.TrimSpace(step.ChaosURL) != "" && strings.TrimSpace(step.URL) == "" {
+					return nil, fmt.Errorf("scenario[%d] step %d: url must not be empty", idx, i)
+				}
+			}
+		}
+	}
 	return cfg, nil
 }
 
@@ -221,12 +241,13 @@ func checkKnownKeys(node *yaml.Node, known ...string) error {
 // single string or a list of strings.
 func (t *HTTPTarget) UnmarshalYAML(node *yaml.Node) error {
 	type rawTarget struct {
-		Method string         `yaml:"method"`
-		URL    string         `yaml:"url"`
-		Body   string         `yaml:"body"`
-		Header map[string]any `yaml:"header"`
+		Method   string         `yaml:"method"`
+		URL      string         `yaml:"url"`
+		Body     string         `yaml:"body"`
+		Header   map[string]any `yaml:"header"`
+		ChaosURL string         `yaml:"chaos_url"`
 	}
-	if err := checkKnownKeys(node, "method", "url", "body", "header"); err != nil {
+	if err := checkKnownKeys(node, "method", "url", "body", "header", "chaos_url"); err != nil {
 		return err
 	}
 	var raw rawTarget
@@ -236,6 +257,7 @@ func (t *HTTPTarget) UnmarshalYAML(node *yaml.Node) error {
 	t.Method = raw.Method
 	t.URL = raw.URL
 	t.Body = []byte(raw.Body)
+	t.ChaosURL = raw.ChaosURL
 	t.Header = make(http.Header)
 	for k, v := range raw.Header {
 		key := http.CanonicalHeaderKey(k)
