@@ -122,6 +122,10 @@ func TestValidateChaos(t *testing.T) {
 			Faults:  []ChaosFaultConfig{{Proxy: "missing", Type: "latency", Attrs: map[string]any{"latency": 100}}},
 		}},
 		{"bad toxic type", &ChaosConfig{Faults: []ChaosFaultConfig{{Proxy: "p", Type: "nuke"}}}},
+		// packet_loss is documented upstream but absent from the pinned
+		// server release — validation must reject it (proven by a CI run
+		// that logged add_failed for it).
+		{"packet_loss unsupported", &ChaosConfig{Faults: []ChaosFaultConfig{{Proxy: "p", Type: "packet_loss"}}}},
 		{"bad stream", &ChaosConfig{Faults: []ChaosFaultConfig{{Proxy: "p", Type: "latency", Stream: "sideways"}}}},
 		{"at past duration", &ChaosConfig{Faults: []ChaosFaultConfig{{Proxy: "p", Type: "latency", At: Duration(20 * time.Second)}}}},
 	}

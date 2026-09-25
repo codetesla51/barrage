@@ -20,19 +20,22 @@ import (
 const DefaultAPIAddr = "localhost:8474"
 
 // SupportedToxics is the set of toxic types barrage exposes. It mirrors what
-// Toxiproxy natively supports — barrage does not invent custom fault types.
-// "down" is special: Toxiproxy implements it as proxy disable/enable, not as
-// a toxic, so the manager translates it to Disable/Enable calls.
+// the pinned Toxiproxy server (see the install step in
+// .github/workflows/chaos.yml) actually implements — barrage does not invent
+// custom fault types. "down" is special: Toxiproxy implements it as proxy
+// disable/enable, not as a toxic, so the manager translates it to
+// Disable/Enable calls. Note: upstream documents packet_loss, but it is
+// absent from the pinned server release, so validation rejects it rather
+// than failing mid-run.
 var SupportedToxics = map[string]bool{
-	"latency":     true,
-	"bandwidth":   true,
-	"timeout":     true,
-	"slow_close":  true,
-	"reset_peer":  true,
-	"slicer":      true,
-	"limit_data":  true,
-	"packet_loss": true,
-	"down":        true,
+	"latency":    true,
+	"bandwidth":  true,
+	"timeout":    true,
+	"slow_close": true,
+	"reset_peer": true,
+	"slicer":     true,
+	"limit_data": true,
+	"down":       true,
 }
 
 // Manager speaks to one running Toxiproxy instance.

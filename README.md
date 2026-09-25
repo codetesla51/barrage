@@ -576,7 +576,6 @@ types. Each fault sets `type` plus its `attrs`:
 | `reset_peer` | kills connections with TCP RST, now or after N ms | `timeout` (ms) | connection reset by peer: does retry logic hold? |
 | `slicer` | chops TCP stream into tiny packets, optional delay between them | `average_size` (bytes), `size_variation` (bytes), `delay` (µs) | chatty/flaky network: does tail latency explode? |
 | `limit_data` | closes once N bytes pass through | `bytes` | truncated responses: does the client detect short reads? |
-| `packet_loss` | randomly drops chunks (Wi-Fi-like) | `loss_rate` (0–1), `correlation` (burst, 0–1) | flaky network: do retries amplify or absorb it? |
 | `down` | takes the whole proxy down (no connections pass) | none | full outage: does the app fail fast or hang? Implemented as proxy disable/enable, not a toxic. |
 
 `stream` (default `downstream`) picks the direction: `downstream` faults the
@@ -642,9 +641,9 @@ chaos:
     - at: 10s
       duration: 4s
       proxy: redis-proxy
-      type: packet_loss
+      type: timeout
       attrs:
-        loss_rate: 0.2
+        timeout: 800
     - at: 14s
       duration: 3s
       proxy: http-proxy

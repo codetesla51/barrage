@@ -32,6 +32,10 @@ jobs:
         run: |
           PGPASSWORD=postgres psql -h localhost -U postgres -d postgres \
             -c "CREATE DATABASE chaos;"
+          # Bootstrap products/users tables the demoserver queries (same file
+          # the compose stack mounts at /docker-entrypoint-initdb.d).
+          PGPASSWORD=postgres psql -h localhost -U postgres -d chaos \
+            -f docker/init.sql
 
       - name: Install toxiproxy-server
         run: |

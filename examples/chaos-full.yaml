@@ -58,9 +58,9 @@ chaos:
     - at: 10s
       duration: 4s
       proxy: redis-proxy
-      type: packet_loss
+      type: timeout
       attrs:
-        loss_rate: 0.2
+        timeout: 800
     - at: 14s
       duration: 3s
       proxy: http-proxy
