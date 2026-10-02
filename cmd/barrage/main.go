@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -357,7 +356,14 @@ func printCapacityTable(res *barrage.CapacityResult) {
 	if res == nil {
 		return
 	}
-	rows := make([][]string, 0, len(res.Steps))
+	t := cliui.NewTable(
+		cliui.Column{Name: "CONCURRENCY", Align: cliui.Right},
+		cliui.Column{Name: "REQUESTS", Align: cliui.Right},
+		cliui.Column{Name: "P99", Align: cliui.Right},
+		cliui.Column{Name: "SUCCESS", Align: cliui.Right},
+		cliui.Column{Name: "VERDICT"},
+		cliui.Column{Name: "BROKEN BY"},
+	)
 	for _, s := range res.Steps {
 		verdict := "ok"
 		cause := "-"
@@ -365,16 +371,16 @@ func printCapacityTable(res *barrage.CapacityResult) {
 			verdict = cliui.VerdictColorize("BROKEN")
 			cause = strings.Join(s.BrokenBy, ",")
 		}
-		rows = append(rows, []string{
+		t.Row(
 			strconv.Itoa(s.Concurrency),
 			strconv.Itoa(int(s.Requests)),
 			s.P99.String(),
-			cliui.SuccessColorize(s.Success * 100),
+			cliui.SuccessColorize(s.Success*100),
 			verdict,
 			cause,
-		})
+		)
 	}
-	writeTable([]string{"CONCURRENCY", "REQUESTS", "P99", "SUCCESS", "VERDICT", "CAUSE"}, rows)
+	fmt.Println(t.Render())
 }
 
 func loadJSONReport(path string) (*barrage.JSONReport, error) {
@@ -407,7 +413,13 @@ func runCompare(opts *compareOptions) error {
 	fmt.Println()
 	fmt.Printf("comparing %s -> %s (fail-on %s)\n", opts.baseline, opts.current, opts.failOn)
 
-	table := make([][]string, 0, len(rows))
+	t := cliui.NewTable(
+		cliui.Column{Name: "RUNNER"},
+		cliui.Column{Name: "BASELINE_P99", Align: cliui.Right},
+		cliui.Column{Name: "CURRENT_P99", Align: cliui.Right},
+		cliui.Column{Name: "CHANGE", Align: cliui.Right},
+		cliui.Column{Name: "VERDICT"},
+	)
 	var failed bool
 	for _, r := range rows {
 		verdict := cliui.VerdictColorize("ok")
@@ -417,15 +429,15 @@ func runCompare(opts *compareOptions) error {
 			verdict = cliui.VerdictColorize("REGRESSION")
 			failed = true
 		}
-		table = append(table, []string{
+		t.Row(
 			r.Name,
 			fmt.Sprintf("%dms", r.BaselineP99),
 			fmt.Sprintf("%dms", r.CurrentP99),
 			fmt.Sprintf("%+d%%", r.PctChange),
 			verdict,
-		})
+		)
 	}
-	writeTable([]string{"RUNNER", "BASELINE_P99", "CURRENT_P99", "CHANGE", "VERDICT"}, table)
+	fmt.Println(t.Render())
 
 	if opts.report != "" {
 		file, err := os.Create(opts.report)
@@ -454,34 +466,49 @@ func runCompare(opts *compareOptions) error {
 	return nil
 }
 
+// newRunnerTable is the per-runner summary used by `run`. Latency columns are
+// right-aligned so magnitudes line up; the runner name and status codes read
+// better left-aligned.
+func newRunnerTable() *cliui.Table {
+	return cliui.NewTable(
+		cliui.Column{Name: "RUNNER"},
+		cliui.Column{Name: "REQUESTS", Align: cliui.Right},
+		cliui.Column{Name: "SUCCESS", Align: cliui.Right},
+		cliui.Column{Name: "RATE", Align: cliui.Right},
+		cliui.Column{Name: "MEAN", Align: cliui.Right},
+		cliui.Column{Name: "P50", Align: cliui.Right},
+		cliui.Column{Name: "P95", Align: cliui.Right},
+		cliui.Column{Name: "P99", Align: cliui.Right},
+		cliui.Column{Name: "MAX", Align: cliui.Right},
+		cliui.Column{Name: "STATUS"},
+	)
+}
+
 func printResults(result *barrage.OrchestratorResult, verbose bool) {
 	if result == nil {
 		return
 	}
 	summary := barrage.NewReportData(result, barrage.CorrelationResult{})
-	rows := make([][]string, 0, len(summary.Runners))
+	t := newRunnerTable()
 	for _, r := range summary.Runners {
-		rows = append(rows, []string{
+		t.Row(
 			strings.ToLower(r.Name),
 			strconv.Itoa(int(r.Requests)),
 			cliui.SuccessColorize(r.Success),
 			fmt.Sprintf("%.1f/s", r.Rate),
 			r.Mean.String(), r.P50.String(), r.P95.String(), r.P99.String(), r.Max.String(),
 			formatStatusCodes(r.StatusCodes),
-		})
+		)
 	}
-	writeTable([]string{"RUNNER", "REQUESTS", "SUCCESS", "RATE", "MEAN", "P50", "P95", "P99", "MAX", "STATUS"}, rows)
+	if out := t.Render(); out != "" {
+		fmt.Println(out)
+	}
 
 	if !verbose {
 		return
 	}
 	if result.HTTPResult != nil {
-		rows := make([][]string, 0, len(result.HTTPResult.Buckets))
-		for _, b := range result.HTTPResult.Buckets {
-			rows = append(rows, []string{b.Start.Format("15:04:05"), strconv.Itoa(int(b.Requests)), b.P50.String(), b.P99.String(), formatStatusCodes(b.StatusCodes)})
-		}
-		fmt.Printf("\nhttp buckets\n")
-		writeTable([]string{"TIME", "REQUESTS", "P50", "P99", "STATUS"}, rows)
+		printHTTPBuckets(result.HTTPResult.Buckets)
 	}
 	if result.DBResult != nil {
 		printBucketTable("db", result.DBResult.Buckets)
@@ -509,56 +536,52 @@ func printResults(result *barrage.OrchestratorResult, verbose bool) {
 	}
 }
 
-// ansiEscape matches color codes so column widths measure visible text.
-// text/tabwriter counts those bytes as width and blows out alignment.
-var ansiEscape = regexp.MustCompile("\x1b\\[[0-9;]*m")
-
-func visibleLen(s string) int {
-	return len(ansiEscape.ReplaceAllString(s, ""))
-}
-
-// writeTable prints a header and rows as an aligned column table,
-// padding on visible width so colored cells align with plain ones.
-func writeTable(header []string, rows [][]string) {
-	widths := make([]int, len(header))
-	for i, h := range header {
-		widths[i] = visibleLen(h)
+// printHTTPBuckets renders the per-bucket HTTP table. Separate from
+// printBucketTable because HTTP buckets key on a time.Time and carry their own
+// status-code map, while storage buckets key on a unix second.
+func printHTTPBuckets(buckets []barrage.HTTPBucket) {
+	if len(buckets) == 0 {
+		return
 	}
-	for _, r := range rows {
-		for i := range header {
-			if i < len(r) && visibleLen(r[i]) > widths[i] {
-				widths[i] = visibleLen(r[i])
-			}
-		}
+	t := cliui.NewTable(
+		cliui.Column{Name: "TIME"},
+		cliui.Column{Name: "REQUESTS", Align: cliui.Right},
+		cliui.Column{Name: "P50", Align: cliui.Right},
+		cliui.Column{Name: "P99", Align: cliui.Right},
+		cliui.Column{Name: "STATUS"},
+	)
+	for _, b := range buckets {
+		t.Row(
+			b.Start.Format("15:04:05"),
+			strconv.Itoa(int(b.Requests)),
+			b.P50.String(), b.P99.String(),
+			formatStatusCodes(b.StatusCodes),
+		)
 	}
-	printRow := func(cols []string) {
-		var b strings.Builder
-		for i := range header {
-			cell := ""
-			if i < len(cols) {
-				cell = cols[i]
-			}
-			b.WriteString(cell)
-			if i < len(header)-1 {
-				b.WriteString(strings.Repeat(" ", widths[i]-visibleLen(cell)+2))
-			}
-		}
-		fmt.Println(b.String())
-	}
-	printRow(header)
-	for _, r := range rows {
-		printRow(r)
-	}
+	fmt.Printf("\n%s buckets\n", cliui.Accent("http"))
+	fmt.Println(t.Render())
 }
 
 // printBucketTable renders one storage runner's per-bucket stats as a table.
 func printBucketTable(runner string, buckets []barrage.Bucket) {
-	rows := make([][]string, 0, len(buckets))
-	for _, b := range buckets {
-		rows = append(rows, []string{time.Unix(b.Start, 0).Format("15:04:05"), strconv.Itoa(int(b.Requests)), b.P50.String(), b.P99.String(), ""})
+	if len(buckets) == 0 {
+		return
 	}
-	fmt.Printf("\n%s buckets\n", runner)
-	writeTable([]string{"TIME", "REQUESTS", "P50", "P99", "STATUS"}, rows)
+	t := cliui.NewTable(
+		cliui.Column{Name: "TIME"},
+		cliui.Column{Name: "REQUESTS", Align: cliui.Right},
+		cliui.Column{Name: "P50", Align: cliui.Right},
+		cliui.Column{Name: "P99", Align: cliui.Right},
+	)
+	for _, b := range buckets {
+		t.Row(
+			time.Unix(b.Start, 0).Format("15:04:05"),
+			strconv.Itoa(int(b.Requests)),
+			b.P50.String(), b.P99.String(),
+		)
+	}
+	fmt.Printf("\n%s buckets\n", cliui.Accent(runner))
+	fmt.Println(t.Render())
 }
 
 // printSpikes renders correlated spikes as an aligned table. Masked spikes
@@ -570,7 +593,13 @@ func printSpikes(spikes barrage.CorrelationResult, httpThreshold time.Duration) 
 		fmt.Println("correlated spikes: none")
 		return
 	}
-	rows := make([][]string, 0, len(spikes.Spikes))
+	t := cliui.NewTable(
+		cliui.Column{Name: "TIME"},
+		cliui.Column{Name: "RUNNER"},
+		cliui.Column{Name: "HTTP_P99", Align: cliui.Right},
+		cliui.Column{Name: "STORAGE_P99", Align: cliui.Right},
+		cliui.Column{Name: "NOTE"},
+	)
 	for _, s := range spikes.Spikes {
 		httpP99 := s.HTTPLatency.String()
 		note := ""
@@ -578,12 +607,12 @@ func printSpikes(spikes barrage.CorrelationResult, httpThreshold time.Duration) 
 			httpP99 = fmt.Sprintf("<%s", httpThreshold)
 			note = s.Runner + "-only"
 		}
-		rows = append(rows, []string{
-			time.Unix(s.BucketIndex, 0).Format("15:04:05"), s.Runner, httpP99, s.StorageLatency.String(), cliui.SpikeNoteColorize(note),
-		})
+		t.Row(
+			time.Unix(s.BucketIndex, 0).Format("15:04:05"), s.Runner,
+			httpP99, s.StorageLatency.String(), cliui.SpikeNoteColorize(note),
+		)
 	}
-	fmt.Println("correlated spikes")
-	writeTable([]string{"TIME", "RUNNER", "HTTP_P99", "STORAGE_P99", "NOTE"}, rows)
+	fmt.Println(t.Render())
 }
 
 func effectiveConcurrency(cfg *barrage.OrchestratorConfig) int {

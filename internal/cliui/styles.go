@@ -1,7 +1,3 @@
-// Package cliui holds the command-line presentation layer: semantic colors
-// for run results, spikes, and compare verdicts. Lipgloss degrades to plain
-// ASCII automatically on dumb terminals and non-TTY output, so piping and CI
-// stay clean.
 package cliui
 
 import (

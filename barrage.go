@@ -243,7 +243,12 @@ func Orchestrator(cfg OrchestratorConfig) (*OrchestratorResult, error) {
 		_ = chaosMgr.Reset()
 	}
 	close(done)
-	fmt.Fprintf(os.Stderr, "[barrage] done · %s\n", runStats.Summary())
+	// Only when the plain logger owns stderr. The Bubble Tea view writes to
+	// stderr too, and a line printed mid-run lands inside the live block and
+	// corrupts the frame (the view is torn down after this returns).
+	if !cfg.Quiet {
+		fmt.Fprintf(os.Stderr, "[barrage] done · %s\n", runStats.Summary())
+	}
 	// Keep the existing HTTP -> DB -> Redis -> scenario error precedence.
 	if httpErr != nil {
 		return nil, httpErr
