@@ -89,15 +89,23 @@ barrage v0.7.1
 duration 15s · bucket 1s · concurrency 10 · ramp 3s
 rates    http 10/s · db 5/s · redis 20/s
 
-[barrage] done ·  │ http 135 0 err │ db 67 0 err │ redis 269 0 err
-RUNNER  REQUESTS  SUCCESS  RATE    MEAN     P50      P95       P99       MAX      STATUS
-http    135       100.0%   9.5/s   927µs    509µs    2.5ms     4.4ms     6.6ms    200×135
+  ⠋ 00:15/00:15
+  http  ················•••>··········  135   10/s
+  db    ········•>····················   67    5/s
+  redis ·············›················  269   18/s
+
+RUNNER  REQUESTS  SUCCESS   RATE    MEAN     P50      P95       P99       MAX  STATUS
+───────────────────────────────────────────────────────────────────────────────────
+http    135       100.0%   9.5/s   927µs    509µs    2.5ms     4.4ms     6.6ms  200×135
 db      67        100.0%   4.5/s   12.9ms   5.5ms    69.0ms    136.2ms   136.2ms
 redis   269       100.0%   17.9/s  797µs    396µs    2.3ms     3.5ms     10.6ms
+───────────────────────────────────────────────────────────────────────────────────
 
 correlated spikes
-TIME      RUNNER  HTTP_P99  STORAGE_P99   NOTE
-20:52:22  db      <100ms    136.2ms       db-only
+TIME      RUNNER  HTTP_P99  STORAGE_P99  NOTE
+────────────────────────────────────────────────
+20:52:22  db      <100ms   136.2ms      db-only
+────────────────────────────────────────────────
 Report written to report.html
 ```
 
@@ -146,9 +154,13 @@ barrage v0.7.1
 duration 10s · bucket 1s · concurrency 10 · ramp 0s
 rates    login-flow 3 steps w=1
 
-[barrage] done ·  │ scen 32,989 3 err
-RUNNER      REQUESTS  SUCCESS  RATE      MEAN        P50         P95         P99          MAX           STATUS
+  ⠋ 00:10/00:10
+  scen  ·············›················  32,989  3298/s
+
+RUNNER      REQUESTS  SUCCESS  RATE      MEAN        P50         P95         P99          MAX  STATUS
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 login-flow  32989     100.0%   3298.9/s  3.030392ms  2.272002ms  8.125266ms  11.957243ms  35.747684ms
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Report written to report.html
 ```
 
@@ -169,9 +181,11 @@ $ barrage compare --baseline base.json --current new.json --fail-on 100ms
 
 comparing base.json -> new.json (fail-on 100ms)
 RUNNER  BASELINE_P99  CURRENT_P99  CHANGE  VERDICT
+─────────────────────────────────────────────────────
 DB      80ms          100ms        +25%    ok
 HTTP    30ms          70ms         +133%   REGRESSION
 Redis   20ms          22ms         +10%    ok
+─────────────────────────────────────────────────────
 ```
 
 Flags:
@@ -380,15 +394,25 @@ is a real failure.
 
 ### Live progress
 
-Runs are no longer silent. Barrage prints one structured status line every 5s:
+While a run is going, each runner gets one runway lane: a 30-cell track with
+a head that advances a cell per tick and a dot trail whose length follows the
+rate on a log scale, so a 300/s cache and a 20/s database are both readable
+on the same track. Errors show as a red `X` for that tick. Only runners that
+fired get a lane — an http+redis run renders two rows, not four.
 
 ```
-  00:45/03:00 │ http 3,900 · 0 err │ db 900 · 0 err │ redis 1,350 · 0 err
+  ⠋ 00:45/03:00
+  http  ················•••>··········  3,900   12/s
+  db    ········•X····················    900    4/s  2 err
+  redis ·············›················  1,350   40/s
 ```
 
-with thousands separators, an mm:ss clock, and semantic colors (amber counts,
-red error counts). A totals line lands when the run completes. Pass
-`--no-progress` for plain log lines (CI default in the reference workflows).
+Latency columns on the results table are right-aligned so magnitudes line up
+on the decimal width, and every table is closed with light rules.
+
+Pass `--no-progress` for plain 5s log lines instead (CI default in the
+reference workflows). The view only exists on a TTY — piped output gets the
+plain lines too.
 
 ## Configuration
 
