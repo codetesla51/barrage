@@ -480,7 +480,6 @@ func newRunnerTable() *cliui.Table {
 		cliui.Column{Name: "P95", Align: cliui.Right},
 		cliui.Column{Name: "P99", Align: cliui.Right},
 		cliui.Column{Name: "MAX", Align: cliui.Right},
-		cliui.Column{Name: "STATUS"},
 	)
 }
 
@@ -497,7 +496,6 @@ func printResults(result *barrage.OrchestratorResult, verbose bool) {
 			cliui.SuccessColorize(r.Success),
 			fmt.Sprintf("%.1f/s", r.Rate),
 			r.Mean.String(), r.P50.String(), r.P95.String(), r.P99.String(), r.Max.String(),
-			formatStatusCodes(r.StatusCodes),
 		)
 	}
 	if out := t.Render(); out != "" {

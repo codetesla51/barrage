@@ -94,17 +94,17 @@ rates    http 10/s · db 5/s · redis 20/s
   db    ········•>····················   67    5/s
   redis ·············›················  269   18/s
 
-RUNNER  REQUESTS  SUCCESS   RATE    MEAN     P50      P95       P99       MAX  STATUS
-───────────────────────────────────────────────────────────────────────────────────
-http    135       100.0%   9.5/s   927µs    509µs    2.5ms     4.4ms     6.6ms  200×135
-db      67        100.0%   4.5/s   12.9ms   5.5ms    69.0ms    136.2ms   136.2ms
-redis   269       100.0%   17.9/s  797µs    396µs    2.3ms     3.5ms     10.6ms
-───────────────────────────────────────────────────────────────────────────────────
+RUNNER  REQUESTS  SUCCESS  RATE    MEAN    P50    P95     P99      MAX
+──────────────────────────────────────────────────────────────────────────
+http    135       100.0%   9.5/s   927µs   509µs  2.5ms   4.4ms    6.6ms
+db      67        100.0%   4.5/s   12.9ms  5.5ms  69.0ms  136.2ms  136.2ms
+redis   269       100.0%   17.9/s  797µs   396µs  2.3ms   3.5ms    10.6ms
+──────────────────────────────────────────────────────────────────────────
 
 correlated spikes
 TIME      RUNNER  HTTP_P99  STORAGE_P99  NOTE
 ────────────────────────────────────────────────
-20:52:22  db      <100ms   136.2ms      db-only
+20:52:22  db      <100ms    136.2ms      db-only
 ────────────────────────────────────────────────
 Report written to report.html
 ```
@@ -143,9 +143,7 @@ barrage run --no-report --json results.json                 # for CI pipelines
 Every `--` flag overrides its config counterpart.
 
 A scenario run looks like this: the `rates` line names each journey with its
-step count and weight, the runner column carries the scenario name, and there
-is no STATUS column content (scenarios record success as 2xx-per-step, not
-status histograms) — the header still prints, the cells are empty.
+step count and weight, and the runner column carries the scenario name.
 
 ```
 $ barrage run -c examples/scenario-login.yaml
@@ -157,10 +155,10 @@ rates    login-flow 3 steps w=1
   ⠋ 00:10/00:10
   scen  ·············›················  32,989  3298/s
 
-RUNNER      REQUESTS  SUCCESS  RATE      MEAN        P50         P95         P99          MAX  STATUS
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+RUNNER      REQUESTS  SUCCESS  RATE      MEAN        P50         P95         P99          MAX
+─────────────────────────────────────────────────────────────────────────────────────────────────────
 login-flow  32989     100.0%   3298.9/s  3.030392ms  2.272002ms  8.125266ms  11.957243ms  35.747684ms
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+─────────────────────────────────────────────────────────────────────────────────────────────────────
 Report written to report.html
 ```
 
